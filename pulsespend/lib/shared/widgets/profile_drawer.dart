@@ -10,6 +10,7 @@ import '../../features/categories/screens/categories_screen.dart';
 import '../../features/goals/screens/goals_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/recurring/screens/recurring_screen.dart';
+import '../utils/image_utils.dart';
 
 // ──────────────────────────────────────────────────────────
 // Controller – exposes a ValueNotifier so any child widget can
@@ -409,8 +410,9 @@ class _DrawerAvatar extends StatelessWidget {
         ],
       ),
       child: user?.profilePhoto != null
-          ? ClipOval(
-              child: Image.network(user!.profilePhoto!, fit: BoxFit.cover),
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: Image(image: getProfileImageProvider(user!.profilePhoto!), fit: BoxFit.cover),
             )
           : Center(
               child: Text(

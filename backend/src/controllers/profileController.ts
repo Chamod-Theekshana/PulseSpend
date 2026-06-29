@@ -10,6 +10,7 @@ import { BudgetModel } from '../models/BudgetModel';
 import { GoalModel } from '../models/GoalModel';
 import { ReminderModel } from '../models/ReminderModel';
 import { RecurringModel } from '../models/RecurringModel';
+import cloudinary from '../config/cloudinary';
 
 const DATA_EXPORT_LIMIT = 5000;
 
@@ -62,8 +63,22 @@ export async function getProfile(req: AuthedRequest, res: Response) {
 }
 
 export async function updateProfile(req: AuthedRequest, res: Response) {
-  const { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled } = req.body;
+  let { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled } = req.body;
   const userId = String(req.user!.id);
+
+  try {
+    if (profile_photo && typeof profile_photo === 'string' && profile_photo.startsWith('data:image/')) {
+      const uploadResponse = await cloudinary.uploader.upload(profile_photo, {
+        folder: 'pulsespend/profiles',
+        public_id: `user_${userId}`,
+        overwrite: true,
+      });
+      profile_photo = uploadResponse.secure_url;
+    }
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    return res.status(500).json({ message: 'Failed to upload profile photo' });
+  }
 
   const user = await UserModel.updateProfile(userId, {
     name,

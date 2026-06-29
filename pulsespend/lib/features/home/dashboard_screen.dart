@@ -13,6 +13,7 @@ import '../../providers/budgets_provider.dart';
 import '../../providers/goals_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/transactions_provider.dart';
+import '../../shared/utils/image_utils.dart';
 
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/profile_drawer.dart';
@@ -255,7 +256,7 @@ class _DashboardHeader extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: Colors.grey[300],
                     image: profilePhoto != null
-                        ? DecorationImage(image: NetworkImage(profilePhoto!), fit: BoxFit.cover)
+                        ? DecorationImage(image: getProfileImageProvider(profilePhoto!), fit: BoxFit.cover)
                         : null,
                   ),
                   child: profilePhoto == null
