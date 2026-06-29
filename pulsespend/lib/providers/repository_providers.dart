@@ -1,0 +1,22 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../repositories/auth_repository.dart';
+import '../repositories/budget_repository.dart';
+import '../repositories/category_repository.dart';
+import '../repositories/exchange_rate_repository.dart';
+import '../repositories/goal_repository.dart';
+import '../repositories/notification_repository.dart';
+import '../repositories/profile_repository.dart';
+import '../repositories/recurring_repository.dart';
+import '../repositories/reminder_repository.dart';
+import '../repositories/transaction_repository.dart';
+
+final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
+final transactionRepositoryProvider = Provider<TransactionRepository>((ref) => TransactionRepository());
+final categoryRepositoryProvider = Provider<CategoryRepository>((ref) => CategoryRepository());
+final budgetRepositoryProvider = Provider<BudgetRepository>((ref) => BudgetRepository());
+final goalRepositoryProvider = Provider<GoalRepository>((ref) => GoalRepository());
+final recurringRepositoryProvider = Provider<RecurringRepository>((ref) => RecurringRepository());
+final reminderRepositoryProvider = Provider<ReminderRepository>((ref) => ReminderRepository());
+final profileRepositoryProvider = Provider<ProfileRepository>((ref) => ProfileRepository());
+final notificationRepositoryProvider = Provider<NotificationRepository>((ref) => NotificationRepository());
+final exchangeRateRepositoryProvider = Provider<ExchangeRateRepository>((ref) => ExchangeRateRepository());
