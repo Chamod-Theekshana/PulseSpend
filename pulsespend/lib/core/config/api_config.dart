@@ -21,7 +21,7 @@ class ApiConfig {
 
   /// Set this to your PC's LAN IP when testing on a real device.
   /// e.g. '192.168.1.100'
-  static const String _realDeviceIp = '10.186.5.84';
+  static const String _realDeviceIp = '10.177.81.188';
 
   static const int _port = 5001;
 
@@ -97,6 +97,10 @@ class ApiConfig {
   static const String notificationMarkAllRead = '$apiPrefix/notifications/mark-all-read';
   static String notificationMarkOneRead(int id) => '$apiPrefix/notifications/$id/read';
   static const String notificationClear = '$apiPrefix/notifications/clear';
+  static const String notificationPreferences = '$apiPrefix/notifications/preferences';
+
+  // ── Feedback / Report a Problem ──────────────────────────────────
+  static const String feedback = '$apiPrefix/feedback';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';
@@ -106,5 +110,7 @@ class ApiConfig {
   static const String health = '/health';
 
   static const Duration connectTimeout = Duration(seconds: 15);
-  static const Duration receiveTimeout = Duration(seconds: 20);
+  // Generous enough to let the backend transparently retry a transient DB
+  // connection blip before the client gives up.
+  static const Duration receiveTimeout = Duration(seconds: 30);
 }

@@ -17,6 +17,7 @@ class ProfileState {
 
   String get currency => user?.currency ?? 'USD';
   String get dateFormatPattern => user?.dateFormat ?? 'DD/MM/YYYY';
+  String get language => user?.language ?? 'English';
 }
 
 class ProfileController extends Notifier<ProfileState> {
@@ -66,6 +67,7 @@ class ProfileController extends Notifier<ProfileState> {
     String? theme,
     String? currency,
     String? dateFormat,
+    String? language,
     bool? biometricEnabled,
   }) async {
     final userId = ref.read(currentUserIdProvider);
@@ -81,8 +83,9 @@ class ProfileController extends Notifier<ProfileState> {
           theme: theme,
           currency: currency,
           dateFormat: dateFormat,
-      biometricEnabled: biometricEnabled,
-    );
+          language: language,
+          biometricEnabled: biometricEnabled,
+        );
     state = state.copyWith(user: updated);
   }
 

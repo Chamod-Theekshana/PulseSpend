@@ -8,6 +8,8 @@ import {
   markAllRead,
   markOneRead,
   clearNotifications,
+  getNotificationPreferences,
+  updateNotificationPreferences,
 } from '../controllers/notificationsController';
 
 const router = express.Router();
@@ -38,6 +40,13 @@ router.post('/save-token', asyncHandler(async (req, res) => {
 // DELETE /api/notifications/clear        → wipe inbox
 router.get('/history',        asyncHandler(getNotificationHistory));
 router.patch('/mark-all-read', asyncHandler(markAllRead));
+
+// ── Notification Preferences (per-category toggles) ──────────────────────────
+// GET /api/notifications/preferences  → current toggle state
+// PUT /api/notifications/preferences  → update one or more toggles
+router.get('/preferences', asyncHandler(getNotificationPreferences));
+router.put('/preferences', asyncHandler(updateNotificationPreferences));
+
 router.patch('/:id/read',      asyncHandler(markOneRead));
 router.delete('/clear',        asyncHandler(clearNotifications));
 

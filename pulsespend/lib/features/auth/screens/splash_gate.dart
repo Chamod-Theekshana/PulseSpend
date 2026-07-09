@@ -2,13 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
-import '../../../providers/profile_provider.dart';
-import '../../../providers/transactions_provider.dart';
-import '../../../providers/budgets_provider.dart';
-import '../../../providers/goals_provider.dart';
-import '../../../providers/categories_provider.dart';
-import '../../../providers/recurring_provider.dart';
-import '../../../providers/reminders_provider.dart';
+import '../../../providers/session_sync.dart';
 import '../../home/home_shell.dart';
 import 'sign_in_screen.dart';
 
@@ -37,27 +31,34 @@ class _SplashView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Theme-aware: the background follows the active ThemeData (which itself
+    // follows the user's saved theme once profile loads, or system brightness
+    // beforehand) so there's no flash of the wrong colour on launch.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: AppColors.primary,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // A rounded surface keeps the light-on-white logo legible in dark mode.
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), shape: BoxShape.circle),
-              child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 48),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurface : Colors.white,
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Image.asset(
+                'assets/pulsespend_logo.png',
+                width: 132,
+                fit: BoxFit.contain,
+              ),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'PulseSpend',
-              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 36),
             const SizedBox(
               width: 28,
               height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2.6, color: Colors.white),
+              child: CircularProgressIndicator(strokeWidth: 2.6, color: AppColors.primary),
             ),
           ],
         ),
@@ -86,17 +87,12 @@ class _DataLoadGateState extends ConsumerState<_DataLoadGate> {
   Future<void> _initData() async {
     // Wait for the auth listener to setup and initial microtasks to fire
     await Future.delayed(const Duration(milliseconds: 100));
-    
-    // Explicitly wait for all essential data providers to finish fetching from the backend
-    await Future.wait([
-      ref.read(profileControllerProvider.notifier).refresh(),
-      ref.read(transactionsControllerProvider.notifier).refresh(),
-      ref.read(budgetsControllerProvider.notifier).refresh(),
-      ref.read(goalsControllerProvider.notifier).refresh(),
-      ref.read(categoriesControllerProvider.notifier).refresh(),
-      ref.read(recurringControllerProvider.notifier).refresh(),
-      ref.read(remindersControllerProvider.notifier).refresh(),
-    ]);
+
+    // Fetch every account-scoped provider from scratch. Because account
+    // switches route through a fresh SplashGate, this doubles as the
+    // per-account isolation reset — the incoming account's data fully replaces
+    // whatever the previous account left in the app-scoped providers.
+    await ref.read(sessionSyncProvider.notifier).resync();
 
     if (mounted) {
       setState(() => _initialized = true);

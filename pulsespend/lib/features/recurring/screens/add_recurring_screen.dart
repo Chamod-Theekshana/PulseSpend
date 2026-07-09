@@ -78,6 +78,10 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
   Widget build(BuildContext context) {
     final categoriesState = ref.watch(categoriesControllerProvider);
     final categories = _isExpense ? categoriesState.expenseCategories : categoriesState.incomeCategories;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
 
     return Scaffold(
       appBar: AppBar(title: const Text('New Recurring Rule')),
@@ -89,7 +93,7 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(color: AppColors.lightSurfaceAlt, borderRadius: BorderRadius.circular(14)),
+                decoration: BoxDecoration(color: surfaceAlt, borderRadius: BorderRadius.circular(14)),
                 child: Row(
                   children: [
                     Expanded(
@@ -150,16 +154,16 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                             duration: const Duration(milliseconds: 150),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                             decoration: BoxDecoration(
-                              color: _selectedCategory == c.name ? AppColors.primary : AppColors.lightSurfaceAlt,
+                              color: _selectedCategory == c.name ? AppColors.primary : surfaceAlt,
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: _selectedCategory == c.name ? AppColors.primary : AppColors.lightBorder,
+                                color: _selectedCategory == c.name ? AppColors.primary : border,
                               ),
                             ),
                             child: Text(
                               c.name,
                               style: TextStyle(
-                                color: _selectedCategory == c.name ? Colors.white : AppColors.lightTextPrimary,
+                                color: _selectedCategory == c.name ? Colors.white : textPrimary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
                               ),
@@ -180,7 +184,7 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                           onSelected: (_) => setState(() => _frequency = f),
                           selectedColor: AppColors.primary,
                           labelStyle: TextStyle(
-                            color: _frequency == f ? Colors.white : AppColors.lightTextPrimary,
+                            color: _frequency == f ? Colors.white : textPrimary,
                             fontWeight: FontWeight.w600,
                           ),
                         ))
@@ -192,7 +196,7 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                  decoration: BoxDecoration(color: AppColors.lightSurfaceAlt, borderRadius: BorderRadius.circular(16)),
+                  decoration: BoxDecoration(color: surfaceAlt, borderRadius: BorderRadius.circular(16)),
                   child: Row(
                     children: [
                       const Icon(Icons.event_repeat_outlined, size: 20),
@@ -234,7 +238,14 @@ class _ToggleBtn extends StatelessWidget {
         child: Center(
           child: Text(
             label,
-            style: TextStyle(color: selected ? Colors.white : AppColors.lightTextSecondary, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: selected
+                  ? Colors.white
+                  : (Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkTextSecondary
+                      : AppColors.lightTextSecondary),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ),

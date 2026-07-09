@@ -10,11 +10,15 @@ import '../../models/budget_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/transaction_model.dart';
 import '../../providers/budgets_provider.dart';
+import '../../providers/currency_provider.dart';
 import '../../providers/goals_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/transactions_provider.dart';
+import '../../l10n/l10n_ext.dart';
 import '../../shared/utils/image_utils.dart';
 
+import '../../shared/widgets/category_icon.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/profile_drawer.dart';
 import '../budgets/screens/budgets_screen.dart';
@@ -33,6 +37,8 @@ class DashboardScreen extends ConsumerWidget {
     final budgetsState = ref.watch(budgetsControllerProvider);
     final goalsState = ref.watch(goalsControllerProvider);
     final profile = ref.watch(profileControllerProvider);
+    final unreadCount = ref.watch(notificationsControllerProvider).unreadCount;
+    final money = ref.watch(moneyFormatterProvider);
 
     ref.listen(budgetsControllerProvider, (previous, next) {
       final alert = next.latestAlert;
@@ -53,7 +59,7 @@ class DashboardScreen extends ConsumerWidget {
     });
 
     final user = profile.user;
-    final greeting = _getGreeting();
+    final greeting = _getGreeting(context);
     final userName = user?.fullName ?? 'User';
 
     return Builder(
@@ -79,6 +85,7 @@ class DashboardScreen extends ConsumerWidget {
                   greeting: greeting,
                   userName: userName,
                   profilePhoto: user?.profilePhoto,
+                  unreadCount: unreadCount,
                   onProfileTap: () => ProfileDrawerController.open(drawerCtx),
                   onNotificationTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const NotificationsScreen()),
@@ -92,7 +99,7 @@ class DashboardScreen extends ConsumerWidget {
                   data: (summary) => _BalanceOverviewSection(
                     summary: summary,
                     transactions: txState.items,
-                    currency: profile.currency,
+                    money: money,
                   ),
                   loading: () => const _BalanceSectionSkeleton(),
                   error: (e, __) => _BalanceSectionSkeleton(error: e.toString()),
@@ -106,6 +113,7 @@ class DashboardScreen extends ConsumerWidget {
                   child: summaryAsync.when(
                     data: (summary) => _EarningsSpendingsRow(
                       summary: summary,
+                      money: money,
                       incomeCount: txState.items.where((t) => t.amount > 0).length,
                       expenseCount: txState.items.where((t) => t.amount < 0).length,
                     ),
@@ -121,7 +129,7 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
                   child: _TopSpendingSection(
                     transactions: txState.items,
-                    currency: profile.currency,
+                    money: money,
                   ),
                 ),
               ),
@@ -132,6 +140,7 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(0, 24, 0, 0),
                   child: _BudgetOverviewSection(
                     state: budgetsState,
+                    money: money,
                     onManage: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const BudgetsScreen()),
                     ),
@@ -145,7 +154,7 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(0, 24, 0, 0),
                   child: _SavingsGoalsSection(
                     state: goalsState,
-                    currency: profile.currency,
+                    money: money,
                     onManage: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const GoalsScreen()),
                     ),
@@ -174,8 +183,8 @@ class DashboardScreen extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                     child: EmptyState(
                       icon: Icons.receipt_long_outlined,
-                      title: 'No transactions yet',
-                      message: 'Tap the + button to log your first expense or income.',
+                      title: context.l10n.noTransactionsTitle,
+                      message: context.l10n.noTransactionsBody,
                     ),
                   ),
                 )
@@ -188,7 +197,7 @@ class DashboardScreen extends ConsumerWidget {
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                         child: _TransactionRow(
                           transaction: tx,
-                          currency: profile.currency,
+                          money: money,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => TransactionDetailScreen(transaction: tx),
@@ -210,11 +219,12 @@ class DashboardScreen extends ConsumerWidget {
   }
 
 
-  String _getGreeting() {
+  String _getGreeting(BuildContext context) {
+    final l = context.l10n;
     final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning!';
-    if (hour < 17) return 'Good Afternoon!';
-    return 'Good Evening!';
+    if (hour < 12) return l.greetingMorning;
+    if (hour < 17) return l.greetingAfternoon;
+    return l.greetingEvening;
   }
 }
 
@@ -225,6 +235,7 @@ class _DashboardHeader extends StatelessWidget {
   final String greeting;
   final String userName;
   final String? profilePhoto;
+  final int unreadCount;
   final VoidCallback onNotificationTap;
   final VoidCallback onProfileTap;
 
@@ -232,6 +243,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.greeting,
     required this.userName,
     required this.profilePhoto,
+    required this.unreadCount,
     required this.onNotificationTap,
     required this.onProfileTap,
   });
@@ -254,7 +266,11 @@ class _DashboardHeader extends StatelessWidget {
                   height: 50,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.grey[300],
+                    color: AppColors.primary.withValues(alpha: isDark ? 0.22 : 0.12),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.25),
+                      width: 1.5,
+                    ),
                     image: profilePhoto != null
                         ? DecorationImage(image: getProfileImageProvider(profilePhoto!), fit: BoxFit.cover)
                         : null,
@@ -263,7 +279,7 @@ class _DashboardHeader extends StatelessWidget {
                       ? Center(
                           child: Text(
                             userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                            style: const TextStyle(color: Color(0xFF7452FF), fontWeight: FontWeight.w800, fontSize: 20),
+                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20),
                           ),
                         )
                       : null,
@@ -278,7 +294,7 @@ class _DashboardHeader extends StatelessWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 20,
-                      color: isDark ? Colors.white : const Color(0xFF111111),
+                      color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -287,7 +303,7 @@ class _DashboardHeader extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.grey[400] : const Color(0xFF666666),
+                      color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                     ),
                   ),
                 ],
@@ -302,8 +318,11 @@ class _DashboardHeader extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                ),
                 boxShadow: [
                   if (!isDark)
                     BoxShadow(
@@ -318,24 +337,36 @@ class _DashboardHeader extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.notifications_outlined,
-                    color: isDark ? Colors.white : const Color(0xFF111111),
+                    color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                     size: 24,
                   ),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFF3B30), // Badge Red
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Text(
-                        '3',
-                        style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800, height: 1),
+                  if (unreadCount > 0)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF3B30), // Badge Red
+                          shape: unreadCount > 9 ? BoxShape.rectangle : BoxShape.circle,
+                          borderRadius: unreadCount > 9 ? BorderRadius.circular(8) : null,
+                          border: Border.all(
+                            color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Text(
+                          unreadCount > 9 ? '9+' : '$unreadCount',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              height: 1),
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -361,12 +392,12 @@ class _ChartPoint {
 class _BalanceOverviewSection extends StatefulWidget {
   final TransactionSummary summary;
   final List<TransactionModel> transactions;
-  final String currency;
+  final MoneyFormatter money;
 
   const _BalanceOverviewSection({
     required this.summary,
     required this.transactions,
-    required this.currency,
+    required this.money,
   });
 
   @override
@@ -394,7 +425,7 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
       double balance = widget.transactions
           .where((tx) => tx.createdAt.isBefore(endOfMonth) ||
               tx.createdAt.isAtSameMomentAs(endOfMonth))
-          .fold(0.0, (sum, tx) => sum + tx.amount);
+          .fold(0.0, (sum, tx) => sum + widget.money.convert(tx.amount, tx.currency));
 
       points.add(_ChartPoint(
         label: monthLabels[targetMonth.month - 1],
@@ -453,10 +484,13 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
         ? '${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][selectedPoint.month.month - 1]} ${selectedPoint.month.year}'
         : DateFormat('MMM dd, yyyy').format(now);
 
-    // Show current balance if last point selected, else show that month's cumulative balance
+    // Balances are converted into the display currency (chart points already
+    // are; convert the summary too so index 5 matches).
+    final convertedSummaryBalance =
+        widget.money.convert(widget.summary.balance, widget.summary.currency);
     final displayBalance = _selectedIndex == 5
-        ? widget.summary.balance
-        : (selectedPoint?.balance ?? widget.summary.balance);
+        ? convertedSummaryBalance
+        : (selectedPoint?.balance ?? convertedSummaryBalance);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -475,7 +509,7 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 16,
-                      color: isDark ? Colors.white : const Color(0xFF111111),
+                      color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -487,31 +521,23 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: isDark ? Colors.grey[400] : const Color(0xFF777777),
+                        color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                       ),
                     ),
                   ),
                 ],
               ),
-              // Calendar icon button
+              // Calendar accent chip
               Container(
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                  color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.10),
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    if (!isDark)
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                  ],
                 ),
                 child: const Icon(
                   Icons.calendar_month_outlined,
-                  color: Color(0xFF7452FF),
+                  color: AppColors.primary,
                   size: 22,
                 ),
               ),
@@ -534,13 +560,13 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
               ),
             ),
             child: Text(
-              CurrencyFormatter.format(displayBalance, widget.currency),
+              CurrencyFormatter.format(displayBalance, widget.money.displayCurrency),
               key: ValueKey(displayBalance.toStringAsFixed(2)),
               style: TextStyle(
                 fontSize: 38,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5,
-                color: isDark ? Colors.white : const Color(0xFF111111),
+                color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
               ),
             ),
           ),
@@ -564,11 +590,11 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
                   opacity: _tooltipFade,
                   child: CustomPaint(
                     painter: _VectorAreaChartPainter(
-                      color: const Color(0xFF7452FF),
+                      color: AppColors.primary,
                       isDark: isDark,
                       chartPoints: chartPoints,
                       selectedIndex: _selectedIndex,
-                      currency: widget.currency,
+                      currency: widget.money.displayCurrency,
                     ),
                     size: chartSize,
                   ),
@@ -884,24 +910,27 @@ class _BalanceSectionSkeleton extends StatelessWidget {
 // ──────────────────────────────────────────────────────────
 class _EarningsSpendingsRow extends StatelessWidget {
   final TransactionSummary summary;
+  final MoneyFormatter money;
   final int incomeCount;
   final int expenseCount;
 
   const _EarningsSpendingsRow({
     required this.summary,
+    required this.money,
     required this.incomeCount,
     required this.expenseCount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final l = context.l10n;
     return Row(
       children: [
         Expanded(
           child: _EarningsCard(
-            label: 'Earnings',
-            amount: summary.income,
-            currency: summary.currency,
+            label: l.earnings,
+            amount: money.convert(summary.income, summary.currency),
+            currency: money.displayCurrency,
             count: incomeCount,
             isIncome: true,
           ),
@@ -909,9 +938,9 @@ class _EarningsSpendingsRow extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: _EarningsCard(
-            label: 'Spendings',
-            amount: summary.expense.abs(),
-            currency: summary.currency,
+            label: l.spendings,
+            amount: money.convert(summary.expense.abs(), summary.currency),
+            currency: money.displayCurrency,
             count: expenseCount,
             isIncome: false,
           ),
@@ -1056,18 +1085,21 @@ class _EarningsRowSkeleton extends StatelessWidget {
 
 class _TopSpendingSection extends StatelessWidget {
   final List<TransactionModel> transactions;
-  final String currency;
+  final MoneyFormatter money;
 
-  const _TopSpendingSection({required this.transactions, required this.currency});
+  const _TopSpendingSection({required this.transactions, required this.money});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Convert each transaction into the display currency before aggregating so
+    // mixed-currency spending is compared on a level playing field.
     final Map<String, double> catMap = {};
     for (final tx in transactions) {
       if (tx.amount < 0) {
-        catMap[tx.category] = (catMap[tx.category] ?? 0) + tx.amount.abs();
+        final converted = money.convert(tx.amount, tx.currency).abs();
+        catMap[tx.category] = (catMap[tx.category] ?? 0) + converted;
       }
     }
     final total = catMap.values.fold(0.0, (a, b) => a + b);
@@ -1178,7 +1210,7 @@ class _TopSpendingSection extends StatelessWidget {
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            CurrencyFormatter.formatCompact(e.value, currency),
+                            CurrencyFormatter.formatCompact(e.value, money.displayCurrency),
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 13,
@@ -1225,9 +1257,10 @@ class _TopSpendingSection extends StatelessWidget {
 
 class _BudgetOverviewSection extends StatelessWidget {
   final BudgetsState state;
+  final MoneyFormatter money;
   final VoidCallback onManage;
 
-  const _BudgetOverviewSection({required this.state, required this.onManage});
+  const _BudgetOverviewSection({required this.state, required this.money, required this.onManage});
 
   @override
   Widget build(BuildContext context) {
@@ -1309,7 +1342,7 @@ class _BudgetOverviewSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               itemCount: state.items.length,
               separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (ctx, i) => _BudgetCircleCard(budget: state.items[i]),
+              itemBuilder: (ctx, i) => _BudgetCircleCard(budget: state.items[i], money: money),
             ),
           ),
       ],
@@ -1319,8 +1352,9 @@ class _BudgetOverviewSection extends StatelessWidget {
 
 class _BudgetCircleCard extends StatelessWidget {
   final BudgetModel budget;
+  final MoneyFormatter money;
 
-  const _BudgetCircleCard({required this.budget});
+  const _BudgetCircleCard({required this.budget, required this.money});
 
   @override
   Widget build(BuildContext context) {
@@ -1404,7 +1438,7 @@ class _BudgetCircleCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '${CurrencyFormatter.formatCompact(budget.remaining, budget.currency)} remaining',
+            '${money.formatCompact(budget.remaining, budget.currency)} remaining',
             style: TextStyle(
               fontSize: 11,
               color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
@@ -1412,7 +1446,7 @@ class _BudgetCircleCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           Text(
-            '${CurrencyFormatter.formatCompact(budget.spent, budget.currency)} spent',
+            '${money.formatCompact(budget.spent, budget.currency)} spent',
             style: const TextStyle(fontSize: 11, color: AppColors.expense),
             overflow: TextOverflow.ellipsis,
           ),
@@ -1424,12 +1458,12 @@ class _BudgetCircleCard extends StatelessWidget {
 
 class _SavingsGoalsSection extends StatelessWidget {
   final GoalsState state;
-  final String currency;
+  final MoneyFormatter money;
   final VoidCallback onManage;
 
   const _SavingsGoalsSection({
     required this.state,
-    required this.currency,
+    required this.money,
     required this.onManage,
   });
 
@@ -1517,7 +1551,7 @@ class _SavingsGoalsSection extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 14),
               itemBuilder: (ctx, i) => _GoalCircleCard(
                 goal: activeGoals[i],
-                currency: currency,
+                money: money,
               ),
             ),
           ),
@@ -1528,9 +1562,9 @@ class _SavingsGoalsSection extends StatelessWidget {
 
 class _GoalCircleCard extends StatelessWidget {
   final GoalModel goal;
-  final String currency;
+  final MoneyFormatter money;
 
-  const _GoalCircleCard({required this.goal, required this.currency});
+  const _GoalCircleCard({required this.goal, required this.money});
 
   @override
   Widget build(BuildContext context) {
@@ -1612,7 +1646,7 @@ class _GoalCircleCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '${CurrencyFormatter.formatCompact(goal.targetAmount - goal.currentAmount, currency)} remaining',
+            '${money.formatCompact(goal.targetAmount - goal.currentAmount, goal.currency)} remaining',
             style: TextStyle(
               fontSize: 11,
               color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
@@ -1620,7 +1654,7 @@ class _GoalCircleCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           Text(
-            '${CurrencyFormatter.formatCompact(goal.currentAmount, currency)} saved',
+            '${money.formatCompact(goal.currentAmount, goal.currency)} saved',
             style: const TextStyle(fontSize: 11, color: AppColors.income),
             overflow: TextOverflow.ellipsis,
           ),
@@ -1650,7 +1684,7 @@ class _RecentTransactionsHeader extends StatelessWidget {
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 18,
-                color: isDark ? AppColors.darkTextPrimary : const Color(0xFF111111),
+                color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
               ),
             ),
             const SizedBox(height: 2),
@@ -1659,7 +1693,7 @@ class _RecentTransactionsHeader extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
-                color: isDark ? AppColors.darkTextSecondary : const Color(0xFF666666),
+                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
               ),
             ),
           ],
@@ -1675,7 +1709,7 @@ class _RecentTransactionsHeader extends StatelessWidget {
                 const Text(
                   'View All',
                   style: TextStyle(
-                    color: Color(0xFF7452FF),
+                    color: AppColors.primary,
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
                   ),
@@ -1683,7 +1717,7 @@ class _RecentTransactionsHeader extends StatelessWidget {
                 const SizedBox(width: 2),
                 const Icon(
                   Icons.arrow_forward_ios_rounded,
-                  color: Color(0xFF7452FF),
+                  color: AppColors.primary,
                   size: 13,
                 ),
               ],
@@ -1697,12 +1731,12 @@ class _RecentTransactionsHeader extends StatelessWidget {
 
 class _TransactionRow extends StatelessWidget {
   final TransactionModel transaction;
-  final String currency;
+  final MoneyFormatter money;
   final VoidCallback onTap;
 
   const _TransactionRow({
     required this.transaction,
-    required this.currency,
+    required this.money,
     required this.onTap,
   });
 
@@ -1712,13 +1746,15 @@ class _TransactionRow extends StatelessWidget {
     final isExpense = transaction.amount < 0;
     final formattedDate = DateFormatter.relative(transaction.createdAt);
 
+    final amountColor = isExpense ? AppColors.expense : AppColors.income;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : Colors.white,
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1),
+          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
           width: 1,
         ),
         boxShadow: [
@@ -1739,21 +1775,9 @@ class _TransactionRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF2EDFF),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      _getScreenshotIcon(transaction.category),
-                      color: const Color(0xFF7452FF),
-                      size: 22,
-                    ),
-                  ),
-                ),
+                // Per-category coloured icon (theme-aware) — makes the list
+                // scannable instead of a wall of identical purple chips.
+                CategoryIcon(category: transaction.category, size: 46),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -1764,7 +1788,7 @@ class _TransactionRow extends StatelessWidget {
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
-                          color: isDark ? AppColors.darkTextPrimary : const Color(0xFF111111),
+                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1774,33 +1798,48 @@ class _TransactionRow extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: isDark ? AppColors.darkTextSecondary : const Color(0xFF777777),
+                          color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Row(
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
-                      CurrencyFormatter.format(
+                      money.format(
                         transaction.amount,
-                        currency,
+                        transaction.currency,
                         showSign: true,
                       ),
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 15,
-                        color: isDark ? Colors.white : const Color(0xFF111111),
+                        color: amountColor,
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Icon(
-                      isExpense ? Icons.trending_down_rounded : Icons.trending_up_rounded,
-                      color: isExpense ? const Color(0xFFFF5252) : const Color(0xFF10B981),
-                      size: 20,
+                    const SizedBox(height: 3),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isExpense ? Icons.south_east_rounded : Icons.north_east_rounded,
+                          color: amountColor,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          isExpense ? 'Expense' : 'Income',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: amountColor.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1810,13 +1849,5 @@ class _TransactionRow extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  IconData _getScreenshotIcon(String category) {
-    final cat = category.toLowerCase();
-    if (cat.contains('salary') || cat.contains('income')) return Icons.monetization_on_outlined;
-    if (cat.contains('bill') || cat.contains('water') || cat.contains('electric')) return Icons.receipt_long_outlined;
-    if (cat.contains('dinner') || cat.contains('food') || cat.contains('eat')) return Icons.restaurant_outlined;
-    return Icons.account_balance_wallet_outlined;
   }
 }

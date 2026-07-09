@@ -1,6 +1,7 @@
 import '../core/config/api_config.dart';
 import '../core/network/dio_client.dart';
 import '../models/notification_model.dart';
+import '../models/notification_preferences_model.dart';
 
 class NotificationRepository {
   final _dio = DioClient.instance.dio;
@@ -51,6 +52,24 @@ class NotificationRepository {
   Future<void> saveFcmToken(String fcmToken) async {
     try {
       await _dio.post(ApiConfig.notificationSaveToken, data: {'fcm_token': fcmToken});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<NotificationPreferences> getPreferences() async {
+    try {
+      final res = await _dio.get(ApiConfig.notificationPreferences);
+      return NotificationPreferences.fromJson(res.data['preferences'] as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<NotificationPreferences> updatePreferences(Map<String, bool> updates) async {
+    try {
+      final res = await _dio.put(ApiConfig.notificationPreferences, data: updates);
+      return NotificationPreferences.fromJson(res.data['preferences'] as Map<String, dynamic>);
     } catch (e) {
       throw DioClient.toApiException(e);
     }

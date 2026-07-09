@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
+import '../../l10n/l10n_ext.dart';
 
 
 import '../profile/screens/settings_screen.dart';
@@ -60,9 +61,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                 _screens[3],
               ]),
               extendBody: true,
-              backgroundColor: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF121212)
-                  : const Color(0xFFF8F9FA),
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             ),
 
             // ── Nav bar layered ABOVE the drawer (last in Stack = top) ──
@@ -105,6 +104,7 @@ class _FigmaDockedNavBar extends StatelessWidget {
     final bgColor = isDark ? AppColors.darkSurface : Colors.white;
     final unselectedColor =
         isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final l = context.l10n;
 
     return SizedBox(
       height: 120, // Baseline height: 20px top dome protrusion + 64px flat bar
@@ -132,7 +132,7 @@ class _FigmaDockedNavBar extends StatelessWidget {
                 _DockNavTile(
                   icon: Icons.home_outlined,
                   activeIcon: Icons.home_rounded,
-                  label: 'Home',
+                  label: l.navHome,
                   isSelected: currentIndex == 0,
                   selectedColor: AppColors.primary,
                   unselectedColor: unselectedColor,
@@ -141,7 +141,7 @@ class _FigmaDockedNavBar extends StatelessWidget {
                 _DockNavTile(
                   icon: Icons.equalizer_rounded,
                   activeIcon: Icons.equalizer_rounded,
-                  label: 'Analytics',
+                  label: l.navAnalytics,
                   isSelected: currentIndex == 1,
                   selectedColor: AppColors.primary,
                   unselectedColor: unselectedColor,
@@ -151,7 +151,7 @@ class _FigmaDockedNavBar extends StatelessWidget {
                 _DockNavTile(
                   icon: Icons.swap_horiz_rounded,
                   activeIcon: Icons.swap_horiz_rounded,
-                  label: 'Activity',
+                  label: l.navActivity,
                   isSelected: currentIndex == 2,
                   selectedColor: AppColors.primary,
                   unselectedColor: unselectedColor,
@@ -160,7 +160,7 @@ class _FigmaDockedNavBar extends StatelessWidget {
                 _DockNavTile(
                   icon: Icons.settings_outlined,
                   activeIcon: Icons.settings_rounded,
-                  label: 'Settings',
+                  label: l.navSettings,
                   isSelected: currentIndex == 3,
                   selectedColor: AppColors.primary,
                   unselectedColor: unselectedColor,

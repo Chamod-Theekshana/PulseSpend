@@ -122,7 +122,9 @@ class TransactionDetailScreen extends ConsumerWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.lightSurfaceAlt,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkSurfaceAlt
+                      : AppColors.lightSurfaceAlt,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(transaction.notes!),
@@ -151,10 +153,12 @@ class _DetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.lightSurfaceAlt,
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(children: children),
@@ -171,14 +175,17 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final primary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.lightTextSecondary),
+          Icon(icon, size: 20, color: secondary),
           const SizedBox(width: 12),
-          Expanded(child: Text(label, style: const TextStyle(color: AppColors.lightTextSecondary))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Expanded(child: Text(label, style: TextStyle(color: secondary))),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: primary)),
         ],
       ),
     );

@@ -90,6 +90,9 @@ class _BudgetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = budget.percentage.clamp(0, 999) / 100;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
     final color = budget.isExceeded
         ? AppColors.expense
         : (budget.isWarning ? AppColors.warning : AppColors.primary);
@@ -112,7 +115,7 @@ class _BudgetCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.lightBorder),
+          border: Border.all(color: border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +131,7 @@ class _BudgetCard extends StatelessWidget {
                       Text(budget.category, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                       Text(
                         'Monthly budget',
-                        style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                        style: TextStyle(fontSize: 12, color: textSecondary),
                       ),
                     ],
                   ),
@@ -150,7 +153,7 @@ class _BudgetCard extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: pct.clamp(0, 1).toDouble(),
                 minHeight: 8,
-                backgroundColor: AppColors.lightBorder,
+                backgroundColor: border,
                 valueColor: AlwaysStoppedAnimation(color),
               ),
             ),
@@ -160,7 +163,7 @@ class _BudgetCard extends StatelessWidget {
               children: [
                 Text(
                   '${CurrencyFormatter.format(budget.spent, budget.currency)} spent',
-                  style: const TextStyle(fontSize: 13, color: AppColors.lightTextSecondary),
+                  style: TextStyle(fontSize: 13, color: textSecondary),
                 ),
                 Text(
                   '${CurrencyFormatter.format(budget.amount, budget.currency)} limit',
