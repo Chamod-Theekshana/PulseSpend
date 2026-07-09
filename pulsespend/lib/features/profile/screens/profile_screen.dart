@@ -12,6 +12,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/repository_providers.dart';
+import '../../../shared/utils/image_utils.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -29,6 +30,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _isSaving = false;
   bool _isExporting = false;
   bool _isImporting = false;
+  String? _pickedProfilePhoto;
 
   @override
   void initState() {
@@ -77,6 +79,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             contactNo: _contactNoController.text.trim(),
             dob: _selectedDob?.toIso8601String(),
             gender: _selectedGender,
+            profilePhoto: _pickedProfilePhoto,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -148,6 +151,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _pickProfilePhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final bytes = await file.readAsBytes();
+        
+        if (bytes.lengthInBytes > 1.5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image is too large. Please select an image under 1.5MB.'), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
+
+        final base64String = base64Encode(bytes);
+        final dataUri = 'data:image/jpeg;base64,$base64String';
+        
+        setState(() {
+          _pickedProfilePhoto = dataUri;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(profileControllerProvider, (previous, next) {
@@ -212,55 +247,58 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               children: [
                 // Profile Avatar
                 Center(
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          border: Border.all(color: AppColors.primary, width: 2),
-                          image: user.profilePhoto != null && user.profilePhoto!.isNotEmpty
-                              ? DecorationImage(
-                                  image: NetworkImage(user.profilePhoto!),
-                                  fit: BoxFit.cover,
+                  child: GestureDetector(
+                    onTap: _pickProfilePhoto,
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            border: Border.all(color: AppColors.primary, width: 2),
+                            image: (_pickedProfilePhoto != null || (user.profilePhoto != null && user.profilePhoto!.isNotEmpty))
+                                ? DecorationImage(
+                                    image: getProfileImageProvider(_pickedProfilePhoto ?? user.profilePhoto!),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child: (_pickedProfilePhoto == null && (user.profilePhoto == null || user.profilePhoto!.isEmpty))
+                              ? Center(
+                                  child: Text(
+                                    (user.firstName?.isNotEmpty == true
+                                            ? user.firstName![0]
+                                            : user.name?.isNotEmpty == true
+                                                ? user.name![0]
+                                                : user.email.isNotEmpty == true
+                                                    ? user.email[0]
+                                                    : '?')
+                                        .toUpperCase(),
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 32,
+                                    ),
+                                  ),
                                 )
                               : null,
                         ),
-                        child: user.profilePhoto == null || user.profilePhoto!.isEmpty
-                            ? Center(
-                                child: Text(
-                                  (user.firstName?.isNotEmpty == true
-                                          ? user.firstName![0]
-                                          : user.name?.isNotEmpty == true
-                                              ? user.name![0]
-                                              : user.email.isNotEmpty == true
-                                                  ? user.email[0]
-                                                  : '?')
-                                      .toUpperCase(),
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 32,
-                                  ),
-                                ),
-                              )
-                            : null,
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.edit_outlined, color: Colors.white, size: 16),
                           ),
-                          child: const Icon(Icons.edit_outlined, color: Colors.white, size: 16),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),

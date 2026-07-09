@@ -38,10 +38,16 @@ class CategoryIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = AppColors.categoryColor(category);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: color.withOpacity(0.14), shape: BoxShape.circle),
+      decoration: BoxDecoration(
+        // A touch more tint in dark mode so the badge stays visible on the
+        // near-black surface.
+        color: color.withValues(alpha: isDark ? 0.24 : 0.14),
+        shape: BoxShape.circle,
+      ),
       child: Icon(_iconFor(category), color: color, size: size * 0.5),
     );
   }

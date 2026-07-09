@@ -75,30 +75,64 @@ class CategoriesScreen extends ConsumerWidget {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, i) {
                       final c = state.items[i];
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      final textPrimary =
+                          isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+                      final textSecondary =
+                          isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+                      final typeColor = c.type == 'income'
+                          ? AppColors.income
+                          : (c.type == 'both' ? AppColors.primary : AppColors.expense);
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).cardTheme.color,
+                          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.lightBorder),
+                          border: Border.all(
+                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                         ),
                         child: ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: CategoryIcon(category: c.name, size: 40),
-                          title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Text(
-                            c.type[0].toUpperCase() + c.type.substring(1),
-                            style: const TextStyle(fontSize: 12),
+                          title: Text(
+                            c.name,
+                            style: TextStyle(fontWeight: FontWeight.w700, color: textPrimary),
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: typeColor.withValues(alpha: isDark ? 0.20 : 0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    c.type[0].toUpperCase() + c.type.substring(1),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: typeColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                icon: Icon(Icons.edit_outlined, size: 20, color: textSecondary),
                                 onPressed: () => _openEditor(context, existing: c),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.lightTextTertiary),
+                                icon: Icon(Icons.delete_outline_rounded,
+                                    size: 20,
+                                    color: isDark
+                                        ? AppColors.darkTextTertiary
+                                        : AppColors.lightTextTertiary),
                                 onPressed: () => _confirmDelete(context, ref, c),
                               ),
                             ],
@@ -161,6 +195,30 @@ class _CategoryEditorSheetState extends ConsumerState<_CategoryEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chipBg = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
+    final chipBorder = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final chipText = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+
+    Widget typeChip(String value, String label, Color selectedColor) {
+      final selected = _type == value;
+      return Expanded(
+        child: ChoiceChip(
+          label: Text(label),
+          selected: selected,
+          showCheckmark: false,
+          onSelected: (_) => setState(() => _type = value),
+          selectedColor: selectedColor,
+          backgroundColor: chipBg,
+          side: BorderSide(color: selected ? selectedColor : chipBorder),
+          labelStyle: TextStyle(
+            color: selected ? Colors.white : chipText,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
@@ -178,7 +236,10 @@ class _CategoryEditorSheetState extends ConsumerState<_CategoryEditorSheet> {
               child: Container(
                 width: 40,
                 height: 4,
-                decoration: BoxDecoration(color: AppColors.lightBorder, borderRadius: BorderRadius.circular(2)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -196,35 +257,11 @@ class _CategoryEditorSheetState extends ConsumerState<_CategoryEditorSheet> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Expense'),
-                    selected: _type == 'expense',
-                    onSelected: (_) => setState(() => _type = 'expense'),
-                    selectedColor: AppColors.expense,
-                    labelStyle: TextStyle(color: _type == 'expense' ? Colors.white : null, fontWeight: FontWeight.w600),
-                  ),
-                ),
+                typeChip('expense', 'Expense', AppColors.expense),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Income'),
-                    selected: _type == 'income',
-                    onSelected: (_) => setState(() => _type = 'income'),
-                    selectedColor: AppColors.income,
-                    labelStyle: TextStyle(color: _type == 'income' ? Colors.white : null, fontWeight: FontWeight.w600),
-                  ),
-                ),
+                typeChip('income', 'Income', AppColors.income),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Both'),
-                    selected: _type == 'both',
-                    onSelected: (_) => setState(() => _type = 'both'),
-                    selectedColor: AppColors.primary,
-                    labelStyle: TextStyle(color: _type == 'both' ? Colors.white : null, fontWeight: FontWeight.w600),
-                  ),
-                ),
+                typeChip('both', 'Both', AppColors.primary),
               ],
             ),
             const SizedBox(height: 20),

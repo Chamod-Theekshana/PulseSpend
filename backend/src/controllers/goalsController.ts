@@ -23,6 +23,7 @@ export async function createGoal(req: AuthedRequest, res: any) {
     currency || 'LKR',
     deadline || null,
   );
+  emitToUser(userId, 'goal:created', { goal });
   return res.status(201).json({ goal });
 }
 
@@ -34,6 +35,7 @@ export async function updateGoal(req: AuthedRequest, res: any) {
 
   const goal = await GoalModel.update(userId, id, name, Number(target_amount), currency || 'LKR', deadline || null);
   if (!goal) return res.status(404).json({ message: 'Not found' });
+  emitToUser(userId, 'goal:updated', { goal });
   return res.json({ goal });
 }
 
@@ -69,6 +71,7 @@ export async function contributeToGoal(req: AuthedRequest, res: any) {
   const goal = await GoalModel.addContribution(userId, id, contributionAmount);
   if (!goal) return res.status(404).json({ message: 'Not found' });
 
+  emitToUser(userId, 'goal:updated', { goal });
   if (goal.is_completed) {
     emitToUser(userId, 'goal:completed', { goal });
   }
@@ -81,6 +84,7 @@ export async function deleteGoal(req: AuthedRequest, res: any) {
   const id = Number(req.params.id);
 
   await GoalModel.delete(userId, id);
+  emitToUser(userId, 'goal:deleted', { id });
   return res.json({ message: 'Goal deleted successfully' });
 }
 

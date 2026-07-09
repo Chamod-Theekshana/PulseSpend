@@ -43,6 +43,19 @@ class DioClient {
   bool _isRefreshing = false;
   final List<Completer<void>> _refreshWaiters = [];
 
+  static const int _maxTransientRetries = 1;
+
+  /// A failure worth retrying: the request either never reached the server
+  /// (connection could not be established) or the server explicitly said the
+  /// condition is temporary (503). We deliberately exclude [receiveTimeout],
+  /// since there the server may have already processed a mutating request.
+  bool _isTransient(DioException error) {
+    final status = error.response?.statusCode;
+    if (status == 503) return true;
+    return error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.connectionError;
+  }
+
   InterceptorsWrapper _authInterceptor() {
     return InterceptorsWrapper(
       onRequest: (options, handler) async {
@@ -68,6 +81,24 @@ class DioClient {
             await SecureStorageService.instance.clear();
             onSessionExpired?.call();
             return handler.next(error);
+          }
+        }
+
+        // Transparently retry transient connectivity failures (e.g. the backend
+        // briefly can't reach the database → 503, or the connection couldn't be
+        // established). This smooths over the intermittent Neon connect timeouts.
+        if (_isTransient(error)) {
+          final attempts = (error.requestOptions.extra['retryAttempts'] as int?) ?? 0;
+          if (attempts < _maxTransientRetries) {
+            await Future.delayed(Duration(milliseconds: 400 * (attempts + 1)));
+            try {
+              final opts = error.requestOptions
+                ..extra['retryAttempts'] = attempts + 1;
+              final response = await _dio.fetch(opts);
+              return handler.resolve(response);
+            } catch (e) {
+              return handler.next(e is DioException ? e : error);
+            }
           }
         }
         handler.next(error);

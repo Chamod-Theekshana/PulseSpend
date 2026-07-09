@@ -115,6 +115,9 @@ class _RecurringTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
     return Dismissible(
       key: ValueKey('recurring-${rule.id}'),
       direction: DismissDirection.endToStart,
@@ -133,7 +136,7 @@ class _RecurringTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.lightBorder),
+          border: Border.all(color: border),
         ),
         child: Row(
           children: [
@@ -147,7 +150,7 @@ class _RecurringTile extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${_frequencyLabel(rule.frequency)} · Next: ${DateFormatter.display(rule.nextRun)}',
-                    style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                    style: TextStyle(fontSize: 12, color: textSecondary),
                   ),
                 ],
               ),

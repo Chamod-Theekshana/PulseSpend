@@ -63,6 +63,10 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
   Widget build(BuildContext context) {
     final categories = ref.watch(categoriesControllerProvider).expenseCategories;
     final currency = ref.watch(profileControllerProvider).currency;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
 
     return Scaffold(
       appBar: AppBar(title: const Text('New Budget')),
@@ -84,16 +88,16 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
                             duration: const Duration(milliseconds: 150),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                             decoration: BoxDecoration(
-                              color: _selectedCategory == c.name ? AppColors.primary : AppColors.lightSurfaceAlt,
+                              color: _selectedCategory == c.name ? AppColors.primary : surfaceAlt,
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: _selectedCategory == c.name ? AppColors.primary : AppColors.lightBorder,
+                                color: _selectedCategory == c.name ? AppColors.primary : border,
                               ),
                             ),
                             child: Text(
                               c.name,
                               style: TextStyle(
-                                color: _selectedCategory == c.name ? Colors.white : AppColors.lightTextPrimary,
+                                color: _selectedCategory == c.name ? Colors.white : textPrimary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
                               ),

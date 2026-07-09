@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -44,9 +46,9 @@ dependencies:
   google_fonts: ^8.1.0
   intl: ^0.20.2
   fl_chart: ^1.2.0
-  file_picker: ^3.0.4
-  share_plus: ^13.2.0
+  share_plus: 12.0.2
   path_provider: ^2.1.6
+  file_picker: ^10.3.3
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +60,26 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# App launcher icon generation — run `dart run flutter_launcher_icons`
+# after changing the source images below.
+flutter_launcher_icons:
+  image_path: "assets/icon_full.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon_foreground.png"
+  web:
+    generate: true
+    image_path: "assets/icon_full.png"
+    background_color: "#FFFFFF"
+    theme_color: "#5B5FEF"
+  windows:
+    generate: true
+    image_path: "assets/icon_full.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -70,10 +92,13 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Generate localized message classes from lib/l10n/*.arb (see l10n.yaml).
+  generate: true
+
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/pulsespend_logo.png
+    - assets/PulseSpend Logo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

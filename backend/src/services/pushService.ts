@@ -2,6 +2,7 @@ import admin from 'firebase-admin';
 import { sql } from '../config/db';
 import * as fs from 'fs';
 import * as path from 'path';
+import { NotificationPreferenceModel } from '../models/NotificationPreferenceModel';
 
 let initAttempted = false;
 let enabled = false;
@@ -126,8 +127,17 @@ export async function sendPushToUser(
 ) {
   console.log('[Push Backend] sendPushToUser — userId:', userId, 'title:', title);
 
+  // 0. Respect the user's notification preferences. A muted category is
+  //    dropped entirely (no inbox record, no push).
+  const type = data?.type ?? 'general';
+  const allowed = await NotificationPreferenceModel.isAllowed(String(userId), type);
+  if (!allowed) {
+    console.log('[Push Backend] Skipped — user', userId, 'has muted type:', type);
+    return;
+  }
+
   // 1. Always persist to notification history (works even without Firebase)
-  await saveNotificationRecord(userId, title, body, data?.type ?? 'general', data);
+  await saveNotificationRecord(userId, title, body, type, data);
 
   // 2. Send FCM push if Firebase is configured
   initFirebaseOnce();

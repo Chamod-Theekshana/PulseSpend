@@ -26,6 +26,7 @@ class ProfileRepository {
     String? theme,
     String? currency,
     String? dateFormat,
+    String? language,
     bool? biometricEnabled,
   }) async {
     try {
@@ -40,6 +41,7 @@ class ProfileRepository {
       if (theme != null) body['theme'] = theme;
       if (currency != null) body['currency'] = currency;
       if (dateFormat != null) body['date_format'] = dateFormat;
+      if (language != null) body['language'] = language;
       if (biometricEnabled != null) body['biometric_enabled'] = biometricEnabled;
 
       final res = await _dio.put(ApiConfig.profile(userId), data: body);

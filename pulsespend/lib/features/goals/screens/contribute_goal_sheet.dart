@@ -75,7 +75,10 @@ class _ContributeGoalSheetState extends ConsumerState<ContributeGoalSheet> {
               child: Container(
                 width: 40,
                 height: 4,
-                decoration: BoxDecoration(color: AppColors.lightBorder, borderRadius: BorderRadius.circular(2)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -84,7 +87,11 @@ class _ContributeGoalSheetState extends ConsumerState<ContributeGoalSheet> {
             Text(
               'Currently ${CurrencyFormatter.format(widget.goal.currentAmount, widget.goal.currency)} of '
               '${CurrencyFormatter.format(widget.goal.targetAmount, widget.goal.currency)}',
-              style: const TextStyle(color: AppColors.lightTextSecondary),
+              style: TextStyle(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.lightTextSecondary,
+              ),
             ),
             const SizedBox(height: 20),
             AppTextField(

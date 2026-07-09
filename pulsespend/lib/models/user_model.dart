@@ -5,7 +5,7 @@ class UserModel {
   final String email;
   final String? name;
   final String? profilePhoto;
-  final String theme; // 'dark' | 'light'
+  final String theme; // 'dark' | 'light' | 'system'
   final String currency;
   final String dateFormat; // 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
   final String language;
@@ -22,7 +22,7 @@ class UserModel {
     required this.email,
     this.name,
     this.profilePhoto,
-    this.theme = 'light',
+    this.theme = 'system',
     this.currency = 'USD',
     this.dateFormat = 'DD/MM/YYYY',
     this.language = 'English',
@@ -41,7 +41,7 @@ class UserModel {
       email: json['email'] as String,
       name: json['name'] as String?,
       profilePhoto: json['profile_photo'] as String?,
-      theme: (json['theme'] as String?) ?? 'light',
+      theme: (json['theme'] as String?) ?? 'system',
       currency: (json['currency'] as String?) ?? 'USD',
       dateFormat: (json['date_format'] as String?) ?? 'DD/MM/YYYY',
       language: (json['language'] as String?) ?? 'English',

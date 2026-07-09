@@ -165,6 +165,8 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     final relevantCategories =
         _isExpense ? categoriesState.expenseCategories : categoriesState.incomeCategories;
     final currency = ref.watch(profileControllerProvider).currency;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEditing ? 'Edit Transaction' : 'Add Transaction')),
@@ -178,7 +180,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: AppColors.lightSurfaceAlt,
+                  color: surfaceAlt,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
@@ -240,7 +242,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                   decoration: BoxDecoration(
-                    color: AppColors.lightSurfaceAlt,
+                    color: surfaceAlt,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
@@ -371,7 +373,11 @@ class _TypeToggleButton extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? Colors.white : AppColors.lightTextSecondary,
+              color: selected
+                  ? Colors.white
+                  : (Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkTextSecondary
+                      : AppColors.lightTextSecondary),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -390,20 +396,29 @@ class _CategoryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.lightSurfaceAlt,
+          color: selected
+              ? AppColors.primary
+              : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.lightBorder),
+          border: Border.all(
+            color: selected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : AppColors.lightTextPrimary,
+            color: selected
+                ? Colors.white
+                : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
             fontWeight: FontWeight.w600,
             fontSize: 13,
           ),

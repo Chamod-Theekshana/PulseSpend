@@ -42,6 +42,9 @@ class AuthController extends Notifier<AuthState> {
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
+    // Backfill the multi-account registry for sessions created before the
+    // account-switcher feature existed.
+    await SecureStorageService.instance.ensureActiveRegistered();
     final userId = await SecureStorageService.instance.userId;
     final email = await SecureStorageService.instance.userEmail;
     state = AuthState(status: AuthStatus.authenticated, userId: userId, email: email);
@@ -82,9 +85,53 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
+    final currentId = state.userId ?? await SecureStorageService.instance.userId;
     SocketService.instance.disconnect();
     await ref.read(authRepositoryProvider).logout();
-    state = const AuthState(status: AuthStatus.unauthenticated);
+    if (currentId != null) {
+      await SecureStorageService.instance.removeAccount(currentId);
+    }
+    // If the user has another signed-in account, fall through to it instead of
+    // bouncing all the way out to the sign-in screen.
+    final next = await SecureStorageService.instance.firstAccount();
+    if (next != null) {
+      await SecureStorageService.instance.switchTo(next.userId);
+      state = AuthState(status: AuthStatus.authenticated, userId: next.userId, email: next.email);
+      await SocketService.instance.connect();
+    } else {
+      state = const AuthState(status: AuthStatus.unauthenticated);
+    }
+  }
+
+  /// All accounts signed into on this device.
+  Future<List<StoredAccount>> listAccounts() =>
+      SecureStorageService.instance.listAccounts();
+
+  /// Switches the active session to an already signed-in account (no re-login).
+  Future<void> switchAccount(String userId) async {
+    if (userId == state.userId) return;
+    final acc = await SecureStorageService.instance.switchTo(userId);
+    if (acc == null) return;
+    SocketService.instance.disconnect();
+    state = AuthState(status: AuthStatus.authenticated, userId: acc.userId, email: acc.email);
+    await SocketService.instance.connect();
+  }
+
+  /// Forgets an account. If it was the active one, switches to another (or
+  /// signs out entirely when none remain).
+  Future<void> removeAccount(String userId) async {
+    await SecureStorageService.instance.removeAccount(userId);
+    if (userId != state.userId) return;
+    SocketService.instance.disconnect();
+    final next = await SecureStorageService.instance.firstAccount();
+    if (next != null) {
+      await SecureStorageService.instance.switchTo(next.userId);
+      state = AuthState(status: AuthStatus.authenticated, userId: next.userId, email: next.email);
+      await SocketService.instance.connect();
+    } else {
+      await SecureStorageService.instance.clear();
+      state = const AuthState(status: AuthStatus.unauthenticated);
+    }
   }
 }
 

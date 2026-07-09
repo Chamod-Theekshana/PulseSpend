@@ -228,10 +228,13 @@ export function validateTransactionBody(req: Request, res: Response, next: NextF
   next();
 }
 
+export const SUPPORTED_LANGUAGES = ['English', 'Sinhala', 'Tamil', 'Spanish', 'French', 'German', 'Hindi'];
+
 export function validateProfileUpdateBody(req: Request, res: Response, next: NextFunction) {
-  const { name, profile_photo, theme, currency, date_format, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no } = req.body ?? {};
+  const { name, profile_photo, theme, currency, date_format, language, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no } = req.body ?? {};
 
   const allowedDateFormats = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']);
+  const allowedLanguages = new Set(SUPPORTED_LANGUAGES);
 
   if (name !== undefined) {
     if (typeof name !== 'string' || name.trim().length < 1) {
@@ -257,8 +260,8 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
   }
 
   if (theme !== undefined) {
-    if (theme !== 'dark' && theme !== 'light') {
-      return res.status(400).json({ message: "theme must be either 'dark' or 'light'" });
+    if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
+      return res.status(400).json({ message: "theme must be 'dark', 'light' or 'system'" });
     }
   }
 
@@ -277,6 +280,14 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     if (typeof date_format !== 'string' || !allowedDateFormats.has(date_format)) {
       return res.status(400).json({
         message: 'date_format must be one of: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD',
+      });
+    }
+  }
+
+  if (language !== undefined) {
+    if (typeof language !== 'string' || !allowedLanguages.has(language)) {
+      return res.status(400).json({
+        message: `language must be one of: ${SUPPORTED_LANGUAGES.join(', ')}`,
       });
     }
   }
@@ -332,6 +343,7 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     theme === undefined &&
     currency === undefined &&
     date_format === undefined &&
+    language === undefined &&
     biometric_enabled === undefined &&
     first_name === undefined &&
     surname === undefined &&

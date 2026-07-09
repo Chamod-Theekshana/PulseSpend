@@ -85,7 +85,9 @@ class GoalsScreen extends ConsumerWidget {
                           child: Text(
                             'Completed',
                             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  color: AppColors.lightTextSecondary,
+                                  color: Theme.of(context).brightness == Brightness.dark
+                                      ? AppColors.darkTextSecondary
+                                      : AppColors.lightTextSecondary,
                                 ),
                           ),
                         ),
@@ -118,6 +120,11 @@ class _GoalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = (goal.progressPercentage.clamp(0, 100)) / 100;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -125,7 +132,7 @@ class _GoalCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.lightBorder),
+        border: Border.all(color: border),
       ),
       child: Row(
         children: [
@@ -133,9 +140,10 @@ class _GoalCard extends StatelessWidget {
             radius: 32,
             lineWidth: 7,
             percent: pct.toDouble(),
-            center: Text('${(pct * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+            center: Text('${(pct * 100).round()}%',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: textPrimary)),
             progressColor: goal.isCompleted ? AppColors.income : AppColors.primary,
-            backgroundColor: AppColors.lightBorder,
+            backgroundColor: border,
             circularStrokeCap: CircularStrokeCap.round,
           ),
           const SizedBox(width: 16),
@@ -148,7 +156,8 @@ class _GoalCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         goal.name,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15, color: textPrimary),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -160,14 +169,14 @@ class _GoalCard extends StatelessWidget {
                 Text(
                   '${CurrencyFormatter.format(goal.currentAmount, goal.currency)} of '
                   '${CurrencyFormatter.format(goal.targetAmount, goal.currency)}',
-                  style: const TextStyle(fontSize: 13, color: AppColors.lightTextSecondary),
+                  style: TextStyle(fontSize: 13, color: textSecondary),
                 ),
                 if (goal.deadline != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       'Due ${DateFormatter.display(goal.deadline!)}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.lightTextTertiary),
+                      style: TextStyle(fontSize: 12, color: textTertiary),
                     ),
                   ),
               ],
@@ -181,7 +190,7 @@ class _GoalCard extends StatelessWidget {
                   onPressed: onContribute,
                 ),
               IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.lightTextTertiary, size: 20),
+                icon: Icon(Icons.delete_outline_rounded, color: textTertiary, size: 20),
                 onPressed: onDelete,
               ),
             ],
