@@ -2,11 +2,6 @@ import type { NextFunction, Request, Response } from 'express';
 import { verifyAccessToken, type JwtUserPayload } from '../utils/jwt';
 import { UserModel } from '../models/UserModel';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __reqUser: any;
-}
-
 export type AuthedRequest = Request & { user?: JwtUserPayload };
 
 export async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {

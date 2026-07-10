@@ -10,6 +10,7 @@ import {
   validatePassword,
 } from '../config/signupAuth';
 import bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../config/security';
 import { saveUserToken, sendPushToUser } from '../services/pushService';
 import { signAccessToken, signRefreshToken } from '../utils/jwt';
 import { CategoryModel } from '../models/CategoryModel';
@@ -99,7 +100,7 @@ export async function setPassword(req: any, res: any) {
   }
 
   // Hash password
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   // Create user
   const user = await UserModel.create(normalizedEmail, passwordHash);

@@ -31,6 +31,7 @@ class SecureStorageService {
   static const _kUserEmail = 'pulsespend_user_email';
   static const _kAccounts = 'pulsespend_accounts';
   static const _kTheme = 'pulsespend_theme';
+  static const _kBiometric = 'pulsespend_biometric_enabled';
 
   Future<void> saveSession({
     required String accessToken,
@@ -75,6 +76,14 @@ class SecureStorageService {
   /// wrong colour. Kept in sync whenever the profile theme changes.
   Future<String?> get themePref => _storage.read(key: _kTheme);
   Future<void> setThemePref(String value) => _storage.write(key: _kTheme, value: value);
+
+  /// Device-level app-lock preference. Stored locally (not just on the profile)
+  /// so the lock gate can decide whether to challenge on launch/resume without
+  /// waiting for the network profile to load.
+  Future<bool> get biometricEnabled async =>
+      (await _storage.read(key: _kBiometric)) == 'true';
+  Future<void> setBiometricEnabled(bool value) =>
+      _storage.write(key: _kBiometric, value: value ? 'true' : 'false');
 
   /// Clears the *active* session keys only. The account registry is preserved
   /// (use [removeAccount] to forget an account entirely).

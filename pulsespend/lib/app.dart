@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/security/app_lock_gate.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/screens/splash_gate.dart';
 import 'l10n/app_localizations.dart';
@@ -27,7 +28,7 @@ class PulseSpendApp extends ConsumerWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       builder: (context, child) => ConnectivityBanner(child: child ?? const SizedBox.shrink()),
-      home: const SplashGate(),
+      home: const AppLockGate(child: SplashGate()),
     );
   }
 }

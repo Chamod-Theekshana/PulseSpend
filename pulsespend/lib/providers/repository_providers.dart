@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../repositories/analytics_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
@@ -11,6 +12,7 @@ import '../repositories/recurring_repository.dart';
 import '../repositories/reminder_repository.dart';
 import '../repositories/transaction_repository.dart';
 
+final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) => AnalyticsRepository());
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) => TransactionRepository());
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) => CategoryRepository());

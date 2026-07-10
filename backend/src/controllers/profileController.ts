@@ -1,5 +1,6 @@
 import { UserModel } from '../models/UserModel';
 import bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../config/security';
 import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
 import type { Response } from 'express';
@@ -123,7 +124,7 @@ export async function updatePassword(req: AuthedRequest, res: Response) {
     return res.status(401).json({ message: 'Current password is incorrect' });
   }
 
-  const hashedPassword = await bcrypt.hash(String(newPassword), 12);
+  const hashedPassword = await bcrypt.hash(String(newPassword), BCRYPT_ROUNDS);
   await UserModel.updatePassword(userId, hashedPassword);
   await UserModel.incrementTokenVersion(userId);
 

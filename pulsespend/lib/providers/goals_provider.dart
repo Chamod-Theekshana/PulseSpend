@@ -22,14 +22,20 @@ class GoalsController extends Notifier<GoalsState> {
   @override
   GoalsState build() {
     // Live sync across devices for every goal change.
-    for (final event in const [
-      'goal:created',
-      'goal:updated',
-      'goal:deleted',
-      'goal:completed',
-    ]) {
-      SocketService.instance.on(event, (_) => refresh());
-    }
+    final subs = [
+      for (final event in const [
+        'goal:created',
+        'goal:updated',
+        'goal:deleted',
+        'goal:completed',
+      ])
+        SocketService.instance.on(event, (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const GoalsState();
   }

@@ -29,14 +29,17 @@ class ProfileController extends Notifier<ProfileState> {
       }
     });
 
-    SocketService.instance.on('profile:updated', (data) {
+    final sub = SocketService.instance.on('profile:updated', (data) {
       if (data is Map<String, dynamic> && data['profile'] != null) {
         state = state.copyWith(user: UserModel.fromJson(data['profile'] as Map<String, dynamic>));
       }
     });
+    ref.onDispose(sub.cancel);
 
     try {
-      final userId = ref.read(currentUserIdProvider);
+      // Throws if not yet authenticated; in that case the auth listener above
+      // triggers the first refresh once a user id is available.
+      ref.read(currentUserIdProvider);
       Future.microtask(refresh);
     } catch (_) {
       // Ignore: will be triggered by the listener once authenticated

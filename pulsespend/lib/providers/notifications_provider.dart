@@ -52,9 +52,14 @@ class NotificationsController extends Notifier<NotificationsState> {
 
   @override
   NotificationsState build() {
-    for (final event in _liveEvents) {
-      SocketService.instance.on(event, (_) => refresh());
-    }
+    final subs = [
+      for (final event in _liveEvents) SocketService.instance.on(event, (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const NotificationsState();
   }

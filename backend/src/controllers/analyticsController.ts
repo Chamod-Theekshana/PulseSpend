@@ -12,12 +12,12 @@ export const getAnalytics = async (req: Request, res: Response) => {
       success: true,
       data,
     });
-  } catch (error: any) {
+  } catch (error) {
+    // Log the detail server-side, but never leak internal/DB error text to the client.
     console.error('Error fetching analytics:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch analytics',
-      error: error.message,
     });
   }
 };

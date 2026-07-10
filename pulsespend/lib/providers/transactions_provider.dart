@@ -50,9 +50,16 @@ class TransactionsController extends Notifier<TransactionsState> {
   }
 
   void _attachSocketListeners() {
-    SocketService.instance.on('tx:new', (_) => refresh());
-    SocketService.instance.on('tx:updated', (_) => refresh());
-    SocketService.instance.on('tx:deleted', (_) => refresh());
+    final subs = [
+      SocketService.instance.on('tx:new', (_) => refresh()),
+      SocketService.instance.on('tx:updated', (_) => refresh()),
+      SocketService.instance.on('tx:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
   }
 
   Future<void> refresh() async {

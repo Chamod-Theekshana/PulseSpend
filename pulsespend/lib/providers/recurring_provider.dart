@@ -18,8 +18,15 @@ class RecurringState {
 class RecurringController extends Notifier<RecurringState> {
   @override
   RecurringState build() {
-    SocketService.instance.on('recurring:created', (_) => refresh());
-    SocketService.instance.on('recurring:deleted', (_) => refresh());
+    final subs = [
+      SocketService.instance.on('recurring:created', (_) => refresh()),
+      SocketService.instance.on('recurring:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const RecurringState();
   }

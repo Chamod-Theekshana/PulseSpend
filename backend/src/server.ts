@@ -7,6 +7,7 @@ import helmet from 'helmet';
 // Load env FIRST before any module that reads process.env
 dotenv.config();
 
+import { validateEnv } from './config/env';
 import { initDB } from './config/db';
 import rateLimiter from './middleware/RateLimiter';
 import { requestLogger } from './middleware/requestLogger';
@@ -30,8 +31,28 @@ import { startRecurringScheduler } from './services/recurringScheduler';
 import { GoalReminderService } from './services/GoalReminderService';
 import { BillReminderScheduler } from './services/billReminderScheduler';
 
+// Parse TRUST_PROXY into the value Express expects (boolean | number | subnet).
+function parseTrustProxy(v?: string): boolean | number | string {
+  if (!v) return false;
+  const t = v.trim();
+  if (t === 'true') return true;
+  if (t === 'false') return false;
+  const n = Number(t);
+  return Number.isNaN(n) ? t : n;
+}
+
+// Abort immediately if a required secret is missing/weak.
+validateEnv();
+
 const app = express();
 const PORT = process.env.PORT || 5001;
+
+// Trust proxy — controls how Express derives req.ip from X-Forwarded-For.
+// MUST reflect the number of proxies/load-balancers in front of the app; a
+// wrong value re-opens IP-based rate-limit spoofing. Default: don't trust any.
+//   TRUST_PROXY=1        → one reverse proxy (typical PaaS / Nginx)
+//   TRUST_PROXY=false    → direct connections (local dev)
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
 
 // Security headers
 app.disable('x-powered-by');

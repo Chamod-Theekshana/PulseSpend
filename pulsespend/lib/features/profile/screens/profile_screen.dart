@@ -13,6 +13,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/utils/image_utils.dart';
+import '../widgets/settings_widgets.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -41,7 +42,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     _contactNoController = TextEditingController(text: user?.contactNo ?? '');
     _selectedDob = user?.dob;
     _selectedGender = user?.gender;
-    
+
     // Refresh profile whenever screen is opened to recover from any previous network errors
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(profileControllerProvider.notifier).refresh();
@@ -83,13 +84,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: AppColors.income),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to update: $e'), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -102,16 +103,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     try {
       final userId = ref.read(currentUserIdProvider);
       final data = await ref.read(profileRepositoryProvider).exportData(userId);
-      
+
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/pulsespend_export.json');
       await file.writeAsString(jsonEncode(data));
-      
+
       await Share.shareXFiles([XFile(file.path)], text: 'My PulseSpend Data Backup');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -126,24 +127,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
-      
+
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final content = await file.readAsString();
         final Map<String, dynamic> data = jsonDecode(content);
-        
+
         await ref.read(profileControllerProvider.notifier).importData(data);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Data imported successfully!'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Data imported successfully!'), backgroundColor: AppColors.income),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Import failed: $e'), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -157,11 +158,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final bytes = await file.readAsBytes();
-        
+
         if (bytes.lengthInBytes > 1.5 * 1024 * 1024) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Image is too large. Please select an image under 1.5MB.'), backgroundColor: Colors.red),
+              const SnackBar(content: Text('Image is too large. Please select an image under 1.5MB.'), backgroundColor: AppColors.expense),
             );
           }
           return;
@@ -169,7 +170,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         final base64String = base64Encode(bytes);
         final dataUri = 'data:image/jpeg;base64,$base64String';
-        
+
         setState(() {
           _pickedProfilePhoto = dataUri;
         });
@@ -177,7 +178,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: AppColors.expense),
         );
       }
     }
@@ -203,279 +204,471 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final scaffoldBgColor = isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF6F6F6);
-    final textColor = isDark ? Colors.white : const Color(0xFF1F1F1F);
-    final fieldBgColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF3C3C3C) : const Color(0xFFE5E5E5);
+    final bg = isDark ? AppColors.darkBg : AppColors.lightBg;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
 
     return Scaffold(
-      backgroundColor: scaffoldBgColor,
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: scaffoldBgColor,
+        backgroundColor: bg,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           'Manage Profile',
-          style: TextStyle(
-            color: textColor,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
         ),
       ),
       body: user == null
           ? Center(
-              child: state.error != null 
+              child: state.error != null
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(state.error!, style: const TextStyle(color: Colors.red)),
+                        Text(state.error!, style: const TextStyle(color: AppColors.expense)),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => ref.read(profileControllerProvider.notifier).refresh(),
                           child: const Text('Retry'),
-                        )
+                        ),
                       ],
                     )
-                  : const CircularProgressIndicator())
+                  : const CircularProgressIndicator(color: AppColors.primary))
           : ListView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
               children: [
-                // Profile Avatar
-                Center(
-                  child: GestureDetector(
-                    onTap: _pickProfilePhoto,
-                    child: Stack(
-                      children: [
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            border: Border.all(color: AppColors.primary, width: 2),
-                            image: (_pickedProfilePhoto != null || (user.profilePhoto != null && user.profilePhoto!.isNotEmpty))
-                                ? DecorationImage(
-                                    image: getProfileImageProvider(_pickedProfilePhoto ?? user.profilePhoto!),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
-                          ),
-                          child: (_pickedProfilePhoto == null && (user.profilePhoto == null || user.profilePhoto!.isEmpty))
-                              ? Center(
-                                  child: Text(
-                                    (user.firstName?.isNotEmpty == true
-                                            ? user.firstName![0]
-                                            : user.name?.isNotEmpty == true
-                                                ? user.name![0]
-                                                : user.email.isNotEmpty == true
-                                                    ? user.email[0]
-                                                    : '?')
-                                        .toUpperCase(),
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 32,
-                                    ),
-                                  ),
-                                )
-                              : null,
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
+                _buildHeader(user, isDark),
+                const SizedBox(height: 28),
+
+                const SettingsSectionTitle('Personal Information'),
+                _buildCard(isDark, [
+                  _field(
+                    label: 'First Name',
+                    icon: Icons.person_outline_rounded,
+                    child: _textInput(_firstNameController, 'John'),
+                  ),
+                  _field(
+                    label: 'Surname',
+                    icon: Icons.badge_outlined,
+                    child: _textInput(_surnameController, 'Christopher'),
+                  ),
+                  _field(
+                    label: 'Date of Birth',
+                    icon: Icons.cake_outlined,
+                    child: InkWell(
+                      onTap: _pickDate,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedDob != null
+                                    ? DateFormat('MMMM dd, yyyy').format(_selectedDob!)
+                                    : 'Select date of birth',
+                                style: TextStyle(
+                                  color: _selectedDob != null
+                                      ? (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary)
+                                      : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                            child: const Icon(Icons.edit_outlined, color: Colors.white, size: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // First Name
-                _buildLabel('First Name', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_firstNameController, 'John', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 20),
-
-                // Surname
-                _buildLabel('Surname', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_surnameController, 'Christopher', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 20),
-
-                // Date of Birth
-                _buildLabel('Date of Birth', textColor),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: _pickDate,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: fieldBgColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _selectedDob != null ? DateFormat('MMMM dd, yyyy').format(_selectedDob!) : 'Select Date of Birth',
-                          style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w500),
-                        ),
-                        Icon(Icons.calendar_month_outlined, color: textColor),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Gender
-                _buildLabel('Gender', textColor),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: fieldBgColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedGender ?? 'Male',
-                      isExpanded: true,
-                      icon: Icon(Icons.keyboard_arrow_down_rounded, color: textColor),
-                      dropdownColor: fieldBgColor,
-                      style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w500),
-                      items: ['Male', 'Female', 'Other'].map((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() {
-                          _selectedGender = newValue;
-                        });
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Contact No
-                _buildLabel('Contact No.', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_contactNoController, '+94 71 216 0350', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 40),
-
-                // Save Changes Button
-                ElevatedButton(
-                  onPressed: _isSaving ? null : _saveChanges,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Save Changes',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Export and Import Data
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isExporting ? null : _exportData,
-                        icon: _isExporting 
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
-                            : const Icon(Icons.download_rounded, size: 18),
-                        label: const Text('Export Data'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            Icon(Icons.calendar_month_rounded,
+                                size: 18,
+                                color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isImporting ? null : _importData,
-                        icon: _isImporting 
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
-                            : const Icon(Icons.upload_rounded, size: 18),
-                        label: const Text('Import Data'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  _field(
+                    label: 'Gender',
+                    icon: Icons.wc_rounded,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedGender == null || !['Male', 'Female', 'Other'].contains(_selectedGender)
+                            ? 'Male'
+                            : _selectedGender,
+                        isExpanded: true,
+                        borderRadius: BorderRadius.circular(14),
+                        icon: Icon(Icons.keyboard_arrow_down_rounded,
+                            color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                        dropdownColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                        style: TextStyle(
+                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w600,
                         ),
+                        items: ['Male', 'Female', 'Other']
+                            .map((v) => DropdownMenuItem<String>(value: v, child: Text(v)))
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedGender = v),
+                      ),
+                    ),
+                  ),
+                  _field(
+                    label: 'Contact No.',
+                    icon: Icons.phone_outlined,
+                    child: _textInput(_contactNoController, '+94 71 216 0350',
+                        keyboardType: TextInputType.phone),
+                    isLast: true,
+                  ),
+                ]),
+                const SizedBox(height: 28),
+
+                _buildSaveButton(),
+                const SizedBox(height: 28),
+
+                const SettingsSectionTitle('Data & Backup'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _softAction(
+                        icon: Icons.download_rounded,
+                        label: 'Export',
+                        loading: _isExporting,
+                        onTap: _exportData,
+                        isDark: isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _softAction(
+                        icon: Icons.upload_rounded,
+                        label: 'Import',
+                        loading: _isImporting,
+                        onTap: _importData,
+                        isDark: isDark,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Export a JSON backup of your data, or restore one you saved earlier.',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                      fontSize: 12.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
               ],
             ),
     );
   }
 
-  Widget _buildLabel(String text, Color color) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: color.withValues(alpha: 0.7),
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
+  // ── Header ─────────────────────────────────────────────────────────────────
+
+  Widget _buildHeader(dynamic user, bool isDark) {
+    final surface = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final fullName = [user.firstName, user.surname]
+        .where((s) => s != null && (s as String).trim().isNotEmpty)
+        .map((s) => (s as String).trim())
+        .join(' ');
+    final displayName = fullName.isNotEmpty
+        ? fullName
+        : (user.name != null && (user.name as String).trim().isNotEmpty
+            ? (user.name as String).trim()
+            : (user.email as String).split('@').first);
+
+    final hasPhoto = _pickedProfilePhoto != null ||
+        (user.profilePhoto != null && (user.profilePhoto as String).isNotEmpty);
+
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: _pickProfilePhoto,
+          child: Stack(
+            children: [
+              // Gradient ring + soft glow around the avatar.
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.primaryDark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.30),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: surface,
+                    border: Border.all(color: surface, width: 3),
+                    image: hasPhoto
+                        ? DecorationImage(
+                            image: getProfileImageProvider(_pickedProfilePhoto ?? user.profilePhoto!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  child: hasPhoto
+                      ? null
+                      : Center(
+                          child: Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 36,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              Positioned(
+                bottom: 2,
+                right: 2,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: surface, width: 2.5),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 15),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          displayName,
+          style: TextStyle(
+            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          user.email,
+          style: TextStyle(
+            color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Field card ─────────────────────────────────────────────────────────────
+
+  Widget _buildCard(bool isDark, List<Widget> children) {
+    final surface = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _field({
+    required String label,
+    required IconData icon,
+    required Widget child,
+    bool isLast = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return Container(
+      decoration: isLast
+          ? null
+          : BoxDecoration(
+              border: Border(bottom: BorderSide(color: border)),
+            ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                child,
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, Color bg, Color border, Color text) {
+  Widget _textInput(TextEditingController controller, String hint, {TextInputType? keyboardType}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return TextField(
       controller: controller,
-      style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.w500),
+      keyboardType: keyboardType,
+      style: TextStyle(
+        color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
       decoration: InputDecoration(
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 6),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
         hintText: hint,
-        hintStyle: TextStyle(color: text.withValues(alpha: 0.4), fontWeight: FontWeight.w400),
-        filled: true,
-        fillColor: bg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: border),
+        hintStyle: TextStyle(
+          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+          fontSize: 15.5,
+          fontWeight: FontWeight.w500,
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary),
+      ),
+    );
+  }
+
+  // ── Buttons ────────────────────────────────────────────────────────────────
+
+  Widget _buildSaveButton() {
+    return Container(
+      height: 54,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.34),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: _isSaving ? null : _saveChanges,
+          child: Center(
+            child: _isSaving
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
+                  )
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Save Changes',
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _softAction({
+    required IconData icon,
+    required String label,
+    required bool loading,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    final fill = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    return Material(
+      color: fill,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: loading ? null : onTap,
+        child: Container(
+          height: 50,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 18, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
       ),
     );
