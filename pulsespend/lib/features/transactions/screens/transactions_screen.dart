@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../l10n/l10n_ext.dart';
 import '../../../models/transaction_model.dart';
@@ -10,6 +15,7 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_transaction_screen.dart';
 import 'transaction_detail_screen.dart';
+import 'transaction_filter_sheet.dart';
 
 enum _Bucket { today, yesterday, thisWeek, earlier }
 
@@ -23,8 +29,8 @@ class TransactionsScreen extends ConsumerStatefulWidget {
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
-  String _query = '';
-  String _filter = 'all'; // all | income | expense
+  Timer? _debounce;
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -39,28 +45,55 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  List<TransactionModel> _applyFilters(List<TransactionModel> items) {
-    var filtered = items;
-    if (_filter == 'income') {
-      filtered = filtered.where((t) => t.isIncome).toList();
-    } else if (_filter == 'expense') {
-      filtered = filtered.where((t) => t.isExpense).toList();
+  TransactionsController get _controller =>
+      ref.read(transactionsControllerProvider.notifier);
+
+  /// Debounced free-text search — server-side, so it hits the whole history.
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      final current = ref.read(transactionsControllerProvider).filters;
+      _controller.setFilters(current.copyWith(query: value));
+    });
+  }
+
+  void _setType(String type) {
+    final current = ref.read(transactionsControllerProvider).filters;
+    _controller.setFilters(current.copyWith(type: type));
+  }
+
+  Future<void> _openFilterSheet() async {
+    final current = ref.read(transactionsControllerProvider).filters;
+    final result = await showTransactionFilterSheet(context, current);
+    if (result != null) {
+      await _controller.setFilters(result);
     }
-    if (_query.trim().isNotEmpty) {
-      final q = _query.toLowerCase();
-      filtered = filtered
-          .where((t) =>
-              t.title.toLowerCase().contains(q) ||
-              t.category.toLowerCase().contains(q) ||
-              t.tags.any((tag) => tag.contains(q)))
-          .toList();
+  }
+
+  Future<void> _exportCsv() async {
+    setState(() => _isExporting = true);
+    try {
+      final csv = await _controller.exportCsv();
+      final dir = await getTemporaryDirectory();
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      final file = File('${dir.path}/pulsespend_transactions_$stamp.csv');
+      await file.writeAsString(csv);
+      await Share.shareXFiles([XFile(file.path)], text: 'My PulseSpend transactions');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
     }
-    return filtered;
   }
 
   _Bucket _bucketFor(DateTime d) {
@@ -102,8 +135,8 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final money = ref.watch(moneyFormatterProvider);
     final l = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final filtered = _applyFilters(state.items);
-    final groups = _group(filtered);
+    final filters = state.filters;
+    final groups = _group(state.items);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -119,27 +152,52 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             fontWeight: FontWeight.w700,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Export CSV',
+            onPressed: _isExporting ? null : _exportCsv,
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.ios_share_rounded),
+          ),
+        ],
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (v) => setState(() => _query = v),
-              decoration: InputDecoration(
-                hintText: '${l.transactionsTitle}…',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _query.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => setState(() {
-                          _query = '';
-                          _searchController.clear();
-                        }),
-                      )
-                    : null,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: '${l.transactionsTitle}…',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: filters.query.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: () {
+                                _debounce?.cancel();
+                                _searchController.clear();
+                                _controller.setFilters(filters.copyWith(query: ''));
+                              },
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _FilterButton(
+                  count: filters.advancedCount,
+                  onTap: _openFilterSheet,
+                ),
+              ],
             ),
           ),
           Padding(
@@ -148,24 +206,29 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
               children: [
                 _FilterChip(
                   label: 'All',
-                  selected: _filter == 'all',
-                  onTap: () => setState(() => _filter = 'all'),
+                  selected: filters.type == 'all',
+                  onTap: () => _setType('all'),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: l.earnings,
-                  selected: _filter == 'income',
-                  onTap: () => setState(() => _filter = 'income'),
+                  selected: filters.type == 'income',
+                  onTap: () => _setType('income'),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: l.spendings,
-                  selected: _filter == 'expense',
-                  onTap: () => setState(() => _filter = 'expense'),
+                  selected: filters.type == 'expense',
+                  onTap: () => _setType('expense'),
                 ),
               ],
             ),
           ),
+          if (state.pendingSyncCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              child: _PendingSyncBanner(count: state.pendingSyncCount),
+            ),
           const SizedBox(height: 8),
           Expanded(
             child: state.isLoading && state.items.isEmpty
@@ -176,11 +239,13 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                         onRetry: () =>
                             ref.read(transactionsControllerProvider.notifier).refresh(),
                       )
-                    : filtered.isEmpty
+                    : state.items.isEmpty
                         ? EmptyState(
                             icon: Icons.receipt_long_outlined,
-                            title: l.noTransactionsTitle,
-                            message: l.noTransactionsBody,
+                            title: filters.isActive ? 'No matches' : l.noTransactionsTitle,
+                            message: filters.isActive
+                                ? 'No transactions match your search or filters.'
+                                : l.noTransactionsBody,
                           )
                         : RefreshIndicator(
                             color: AppColors.primary,
@@ -308,6 +373,92 @@ class _FadeSlideInState extends State<_FadeSlideIn> with SingleTickerProviderSta
     return FadeTransition(
       opacity: _fade,
       child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
+}
+
+/// Shown while offline-created/deleted transactions are waiting to sync.
+class _PendingSyncBanner extends StatelessWidget {
+  final int count;
+  const _PendingSyncBanner({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 18, color: AppColors.warning),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '$count change${count == 1 ? '' : 's'} will sync when you\'re back online',
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.warning),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Square button that opens the advanced filter sheet, badged with the number
+/// of active advanced filters.
+class _FilterButton extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _FilterButton({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final active = count > 0;
+    return Material(
+      color: active
+          ? AppColors.primary
+          : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          width: 52,
+          height: 52,
+          alignment: Alignment.center,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                color: active
+                    ? Colors.white
+                    : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+              ),
+              if (active)
+                Positioned(
+                  right: -8,
+                  top: -8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(color: AppColors.expense, shape: BoxShape.circle),
+                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    child: Text(
+                      '$count',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

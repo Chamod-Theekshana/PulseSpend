@@ -32,7 +32,7 @@ class ApiConfig {
 
   /// Set this to your PC's LAN IP when testing on a real device.
   /// e.g. '192.168.1.100'
-  static const String _realDeviceIp = '10.177.81.188';
+  static const String _realDeviceIp = '10.169.229.180';
 
   static const int _port = 5001;
 
@@ -71,6 +71,7 @@ class ApiConfig {
   static const String transactions = '$apiPrefix/transaction';
   static String transactionsByUser(String userId) => '$apiPrefix/transaction/$userId';
   static String transactionSummary(String userId) => '$apiPrefix/transaction/summary/$userId';
+  static String transactionExportCsv(String userId) => '$apiPrefix/transaction/export/$userId';
   static String transactionById(String id) => '$apiPrefix/transaction/id/$id';
   static String transactionDelete(String id) => '$apiPrefix/transaction/$id';
   static String transactionUpdate(String id) => '$apiPrefix/transaction/$id';
@@ -119,9 +120,18 @@ class ApiConfig {
 
   // ── Analytics ────────────────────────────────────────────────────
   static const String analytics = '$apiPrefix/analytics';
+  static const String analyticsDigest = '$apiPrefix/analytics/digest';
+  static const String analyticsInsights = '$apiPrefix/analytics/insights';
 
   // ── Feedback / Report a Problem ──────────────────────────────────
   static const String feedback = '$apiPrefix/feedback';
+
+  // ── Shared / Family Groups ───────────────────────────────────────
+  static const String groups = '$apiPrefix/groups';
+  static const String groupJoin = '$apiPrefix/groups/join';
+  static String groupMembers(int id) => '$apiPrefix/groups/$id/members';
+  static String groupTransactions(int id) => '$apiPrefix/groups/$id/transactions';
+  static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';

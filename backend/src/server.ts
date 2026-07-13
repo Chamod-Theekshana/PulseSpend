@@ -26,10 +26,13 @@ import exchangeRateRoutes from './routes/exchangeRateRoutes';
 import otpRoutes from './routes/otpRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import feedbackRoutes from './routes/feedbackRoutes';
+import groupsRoutes from './routes/groupsRoutes';
 import { initSocket } from './socket';
 import { startRecurringScheduler } from './services/recurringScheduler';
 import { GoalReminderService } from './services/GoalReminderService';
 import { BillReminderScheduler } from './services/billReminderScheduler';
+import { SummaryDigestScheduler } from './services/summaryDigestScheduler';
+import { ReengagementScheduler } from './services/reengagementScheduler';
 
 // Parse TRUST_PROXY into the value Express expects (boolean | number | subnet).
 function parseTrustProxy(v?: string): boolean | number | string {
@@ -100,6 +103,7 @@ app.use('/api/goals', goalsRoutes);
 app.use('/api/exchange-rates', exchangeRateRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/groups', groupsRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
@@ -115,6 +119,8 @@ initDB()
     GoalReminderService.startDailyReminders();
     BillReminderScheduler.startDailyReminders();
     await BillReminderScheduler.checkAndSendReminders();
+    SummaryDigestScheduler.start();
+    ReengagementScheduler.start();
     server.listen(PORT, () => {
       console.log(`[Server] Running on port ${PORT}`);
     });

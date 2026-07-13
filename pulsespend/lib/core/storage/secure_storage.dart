@@ -32,6 +32,7 @@ class SecureStorageService {
   static const _kAccounts = 'pulsespend_accounts';
   static const _kTheme = 'pulsespend_theme';
   static const _kBiometric = 'pulsespend_biometric_enabled';
+  static const _kOnboardingSeen = 'pulsespend_onboarding_seen';
 
   Future<void> saveSession({
     required String accessToken,
@@ -84,6 +85,13 @@ class SecureStorageService {
       (await _storage.read(key: _kBiometric)) == 'true';
   Future<void> setBiometricEnabled(bool value) =>
       _storage.write(key: _kBiometric, value: value ? 'true' : 'false');
+
+  /// Whether the first-run onboarding walkthrough has been completed on this
+  /// device. Device-scoped (not per account), shown once before sign-in.
+  Future<bool> get onboardingSeen async =>
+      (await _storage.read(key: _kOnboardingSeen)) == 'true';
+  Future<void> setOnboardingSeen() =>
+      _storage.write(key: _kOnboardingSeen, value: 'true');
 
   /// Clears the *active* session keys only. The account registry is preserved
   /// (use [removeAccount] to forget an account entirely).

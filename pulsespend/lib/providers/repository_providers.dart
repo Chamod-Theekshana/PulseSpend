@@ -6,6 +6,7 @@ import '../repositories/category_repository.dart';
 import '../repositories/exchange_rate_repository.dart';
 import '../repositories/feedback_repository.dart';
 import '../repositories/goal_repository.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/profile_repository.dart';
 import '../repositories/recurring_repository.dart';
@@ -24,3 +25,4 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) => ProfileRe
 final notificationRepositoryProvider = Provider<NotificationRepository>((ref) => NotificationRepository());
 final exchangeRateRepositoryProvider = Provider<ExchangeRateRepository>((ref) => ExchangeRateRepository());
 final feedbackRepositoryProvider = Provider<FeedbackRepository>((ref) => FeedbackRepository());
+final groupRepositoryProvider = Provider<GroupRepository>((ref) => GroupRepository());

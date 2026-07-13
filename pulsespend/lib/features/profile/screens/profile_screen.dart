@@ -13,6 +13,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/utils/image_utils.dart';
+import '../../auth/screens/splash_gate.dart';
 import '../widgets/settings_widgets.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -31,6 +32,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _isSaving = false;
   bool _isExporting = false;
   bool _isImporting = false;
+  bool _isDeleting = false;
   String? _pickedProfilePhoto;
 
   @override
@@ -149,6 +151,46 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
     } finally {
       if (mounted) setState(() => _isImporting = false);
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    // The dialog owns its own controller (see _DeleteAccountDialog) so it is
+    // disposed only after the dismiss animation — disposing it here would crash
+    // the still-animating TextField.
+    final password = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+
+    if (password == null) return; // cancelled
+    if (password.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password is required'), backgroundColor: AppColors.expense),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isDeleting = true);
+    try {
+      await ref.read(authControllerProvider.notifier).deleteAccount(password);
+      if (mounted) {
+        // Account is gone — route to a fresh gate (sign-in, or the next account).
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const SplashGate()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e'), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
     }
   }
 
@@ -354,6 +396,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
                     'Export a JSON backup of your data, or restore one you saved earlier.',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                      fontSize: 12.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // ── Danger zone ──
+                const SettingsSectionTitle('Danger Zone'),
+                _DeleteAccountButton(
+                  loading: _isDeleting,
+                  onTap: _confirmDeleteAccount,
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Permanently delete your account and all associated data. This cannot be undone.',
                     style: TextStyle(
                       color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
                       fontSize: 12.5,
@@ -663,6 +725,113 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Confirmation dialog for account deletion. Owns its password controller and
+/// disposes it in [State.dispose] (after the dismiss animation), returning the
+/// entered password via Navigator.pop, or null if cancelled.
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Delete account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This permanently erases your account and all your data — '
+            'transactions, budgets, goals, reminders and more. This cannot be undone.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            obscureText: true,
+            autofocus: true,
+            onSubmitted: (_) => Navigator.pop(context, _controller.text),
+            decoration: const InputDecoration(
+              labelText: 'Enter your password to confirm',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Delete', style: TextStyle(color: AppColors.expense)),
+        ),
+      ],
+    );
+  }
+}
+
+/// Full-width destructive action for the Danger Zone. Kept visually distinct
+/// (expense/red tint) from the soft primary actions above it.
+class _DeleteAccountButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _DeleteAccountButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.expense.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: loading ? null : onTap,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.expense.withValues(alpha: 0.4)),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.expense),
+                  )
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.delete_forever_rounded, size: 20, color: AppColors.expense),
+                      SizedBox(width: 8),
+                      Text(
+                        'Delete Account',
+                        style: TextStyle(
+                          color: AppColors.expense,
+                          fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
                       ),

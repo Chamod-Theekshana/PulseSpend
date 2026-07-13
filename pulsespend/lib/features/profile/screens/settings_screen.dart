@@ -9,6 +9,7 @@ import '../../../providers/profile_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/selection_sheet.dart';
 import '../../auth/screens/splash_gate.dart';
+import '../../groups/screens/groups_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
 import '../widgets/settings_widgets.dart';
 import 'about_screen.dart';
@@ -223,6 +224,13 @@ class SettingsScreen extends ConsumerWidget {
                 title: l.passwordSecurity,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const SecurityScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.groups_outlined,
+                title: 'Shared groups',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GroupsScreen()),
                 ),
               ),
             ],

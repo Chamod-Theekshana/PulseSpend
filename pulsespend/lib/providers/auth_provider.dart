@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/errors/api_exception.dart';
 import '../core/network/dio_client.dart';
 import '../core/network/socket_service.dart';
+import '../core/notifications/firebase_messaging_service.dart';
 import '../core/storage/secure_storage.dart';
 import 'repository_providers.dart';
 
@@ -49,6 +50,7 @@ class AuthController extends Notifier<AuthState> {
     final email = await SecureStorageService.instance.userEmail;
     state = AuthState(status: AuthStatus.authenticated, userId: userId, email: email);
     await SocketService.instance.connect();
+    await _registerPushToken();
   }
 
   void _handleSessionExpired() {
@@ -56,10 +58,18 @@ class AuthController extends Notifier<AuthState> {
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
+  /// Registers this device's FCM token for the now-signed-in user so pushes can
+  /// be delivered. No-ops when Firebase isn't configured (see the messaging
+  /// service) — never throws.
+  Future<void> _registerPushToken() async {
+    await FirebaseMessagingService.instance.registerWithBackend();
+  }
+
   Future<void> signIn({required String email, required String password}) async {
     final result = await ref.read(authRepositoryProvider).signIn(email: email, password: password);
     state = AuthState(status: AuthStatus.authenticated, userId: result.userId, email: result.email);
     await SocketService.instance.connect();
+    await _registerPushToken();
   }
 
   Future<void> sendPasskey(String email) {
@@ -75,13 +85,18 @@ class AuthController extends Notifier<AuthState> {
     required String password,
     required String signupToken,
   }) async {
+    // Pass the FCM token at signup so the backend can register it and deliver
+    // the Welcome push immediately (see setPassword in signupController.ts).
+    final fcmToken = await FirebaseMessagingService.instance.getToken();
     final result = await ref.read(authRepositoryProvider).setPassword(
           email: email,
           password: password,
           signupToken: signupToken,
+          fcmToken: fcmToken,
         );
     state = AuthState(status: AuthStatus.authenticated, userId: result.userId, email: result.email);
     await SocketService.instance.connect();
+    await _registerPushToken();
   }
 
   Future<void> logout() async {
@@ -103,6 +118,16 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
+  /// Permanently deletes the active account server-side (after re-confirming
+  /// the password), then forgets it locally — falling through to another
+  /// signed-in account if one exists, otherwise signing out completely.
+  Future<void> deleteAccount(String password) async {
+    final userId = state.userId ?? await SecureStorageService.instance.userId;
+    if (userId == null) throw const ApiException('Not authenticated');
+    await ref.read(profileRepositoryProvider).deleteAccount(userId, password: password);
+    await removeAccount(userId);
+  }
+
   /// All accounts signed into on this device.
   Future<List<StoredAccount>> listAccounts() =>
       SecureStorageService.instance.listAccounts();
@@ -115,6 +140,7 @@ class AuthController extends Notifier<AuthState> {
     SocketService.instance.disconnect();
     state = AuthState(status: AuthStatus.authenticated, userId: acc.userId, email: acc.email);
     await SocketService.instance.connect();
+    await _registerPushToken();
   }
 
   /// Forgets an account. If it was the active one, switches to another (or

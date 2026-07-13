@@ -6,9 +6,11 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
+import '../../models/analytics_model.dart';
 import '../../models/budget_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/transaction_model.dart';
+import '../../providers/analytics_provider.dart';
 import '../../providers/budgets_provider.dart';
 import '../../providers/currency_provider.dart';
 import '../../providers/goals_provider.dart';
@@ -120,6 +122,14 @@ class DashboardScreen extends ConsumerWidget {
                     loading: () => const _EarningsRowSkeleton(),
                     error: (_, __) => const _EarningsRowSkeleton(),
                   ),
+                ),
+              ),
+
+              // ── 3.5 Insights & Weekly Recap ──
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                  child: _InsightsSection(money: money),
                 ),
               ),
 
@@ -1077,6 +1087,193 @@ class _EarningsRowSkeleton extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Weekly recap tile (mirrors the scheduled push digest) + a short list of
+/// templated spending insights. Both come from the analytics endpoints and
+/// fail quietly (render nothing) so a hiccup never breaks the dashboard.
+class _InsightsSection extends ConsumerWidget {
+  final MoneyFormatter money;
+  const _InsightsSection({required this.money});
+
+  Color _toneColor(String tone) => switch (tone) {
+        'positive' => AppColors.income,
+        'warning' => AppColors.warning,
+        _ => AppColors.primary,
+      };
+
+  IconData _toneIcon(String tone) => switch (tone) {
+        'positive' => Icons.trending_up_rounded,
+        'warning' => Icons.warning_amber_rounded,
+        _ => Icons.lightbulb_outline_rounded,
+      };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final insightsAsync = ref.watch(insightsProvider);
+    final digestAsync = ref.watch(weeklyDigestProvider);
+
+    final insights = insightsAsync.asData?.value ?? const <Insight>[];
+    final digest = digestAsync.asData?.value;
+
+    // Nothing to show yet (still loading first time, or genuinely empty).
+    final hasDigest = digest != null && digest.transactionCount > 0;
+    if (insights.isEmpty && !hasDigest) return const SizedBox.shrink();
+
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Insights',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: textPrimary),
+        ),
+        Text(
+          'Smart tips from your spending',
+          style: TextStyle(fontSize: 11, color: textSecondary),
+        ),
+        const SizedBox(height: 14),
+
+        // Weekly recap tile
+        if (hasDigest) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.insights_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'This week',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _RecapStat(
+                        label: 'Spent',
+                        value: money.formatCompact(digest.expense, digest.currency),
+                      ),
+                    ),
+                    Expanded(
+                      child: _RecapStat(
+                        label: 'Earned',
+                        value: money.formatCompact(digest.income, digest.currency),
+                      ),
+                    ),
+                    Expanded(
+                      child: _RecapStat(
+                        label: 'Saved',
+                        value: '${digest.savingsRate.round()}%',
+                      ),
+                    ),
+                  ],
+                ),
+                if (digest.topCategoryName != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Top category: ${digest.topCategoryName} · ${money.formatCompact(digest.topCategoryAmount, digest.currency)}',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Insight cards
+        for (final insight in insights.take(3)) ...[
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurface : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _toneColor(insight.tone).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(_toneIcon(insight.tone), color: _toneColor(insight.tone), size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        insight.title,
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: textPrimary),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        insight.body,
+                        style: TextStyle(fontSize: 12, height: 1.35, color: textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RecapStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _RecapStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11),
         ),
       ],
     );

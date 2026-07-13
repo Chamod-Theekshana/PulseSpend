@@ -37,6 +37,10 @@ class NotificationsState {
 /// the bell badge accurate without a dedicated event per type.
 class NotificationsController extends Notifier<NotificationsState> {
   static const _liveEvents = [
+    // Emitted by the backend for EVERY saved notification (see pushService.ts)
+    // — the single source of truth that keeps the inbox + badge live.
+    'notification:new',
+    // Domain events that also imply the inbox may have changed.
     'tx:new',
     'tx:updated',
     'tx:deleted',

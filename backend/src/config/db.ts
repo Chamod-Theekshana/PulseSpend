@@ -138,6 +138,12 @@ async function _runMigrations() {
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
 
+        // Idempotency key for offline-created transactions: a client generates a
+        // stable id per queued op, so replaying it after a reconnect (or a lost
+        // response) never creates a duplicate. Unique per user when present.
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS client_op_id VARCHAR(64)`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_user_op ON transactions(user_id, client_op_id) WHERE client_op_id IS NOT NULL`;
+
         await sql`CREATE TABLE IF NOT EXISTS transaction_splits(
             id SERIAL PRIMARY KEY,
             transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
@@ -277,8 +283,12 @@ async function _runMigrations() {
             goal_reminders BOOLEAN NOT NULL DEFAULT true,
             budget_alerts BOOLEAN NOT NULL DEFAULT true,
             recurring_alerts BOOLEAN NOT NULL DEFAULT true,
+            summary_digest BOOLEAN NOT NULL DEFAULT true,
+            group_activity BOOLEAN NOT NULL DEFAULT true,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`;
+        await sql`ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS summary_digest BOOLEAN NOT NULL DEFAULT true`;
+        await sql`ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS group_activity BOOLEAN NOT NULL DEFAULT true`;
 
         // ── USER FEEDBACK / "REPORT A PROBLEM" ────────────────────────────────
         await sql`CREATE TABLE IF NOT EXISTS feedback(
@@ -295,4 +305,27 @@ async function _runMigrations() {
         )`;
         await sql`CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC)`;
+
+        // ── SHARED / FAMILY GROUPS ─────────────────────────────────────────────
+        // A group is a shared "household" whose members can see a combined,
+        // read-only view of everyone's transactions + a merged summary. Members
+        // keep owning their own transactions (no ownership refactor); the group
+        // only aggregates them. Joining is via a short invite code.
+        await sql`CREATE TABLE IF NOT EXISTS groups(
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            owner_id VARCHAR(255) NOT NULL,
+            invite_code VARCHAR(16) UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE TABLE IF NOT EXISTS group_members(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            role VARCHAR(20) NOT NULL DEFAULT 'member',
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(group_id, user_id)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)`;
 }

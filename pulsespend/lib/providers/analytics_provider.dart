@@ -28,3 +28,18 @@ final analyticsSummaryProvider = FutureProvider.family<AnalyticsSummary, String>
   return ref.read(analyticsRepositoryProvider).getSummary(period);
 });
 
+/// Templated spending insights for the dashboard card. Invalidated live when
+/// the backend signals analytics changed.
+final insightsProvider = FutureProvider.autoDispose<List<Insight>>((ref) async {
+  final sub = SocketService.instance.on('analytics:invalidate', (_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(analyticsRepositoryProvider).getInsights();
+});
+
+/// Weekly recap shown as an in-app card (mirrors the scheduled push digest).
+final weeklyDigestProvider = FutureProvider.autoDispose<DigestSummary>((ref) async {
+  final sub = SocketService.instance.on('digest:new', (_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(analyticsRepositoryProvider).getDigest('week');
+});
+

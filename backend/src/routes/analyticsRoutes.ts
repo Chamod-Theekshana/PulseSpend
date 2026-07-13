@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { getAnalytics } from '../controllers/analyticsController';
+import { getAnalytics, getDigest, getInsights } from '../controllers/analyticsController';
 import { requireAuth } from '../middleware/requireAuth';
 
 const router = Router();
 
-// Secure the route with requireAuth middleware
+// Secure the routes with requireAuth middleware
 router.get('/', requireAuth, getAnalytics);
+router.get('/digest', requireAuth, getDigest);
+router.get('/insights', requireAuth, getInsights);
 
 export default router;
 

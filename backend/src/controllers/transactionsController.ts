@@ -1,11 +1,53 @@
 import { TransactionModel } from '../models/TransactionModel';
 import { BudgetModel } from '../models/BudgetModel';
+import { GroupModel } from '../models/GroupModel';
+import { UserModel } from '../models/UserModel';
 import { sql } from '../config/db';
 import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
 import { convert } from '../services/exchangeRateService';
+import { parseTransactionFilters } from '../middleware/validators';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middleware/requireAuth';
+
+// Expenses at or above this magnitude (in the transaction's own currency) notify
+// the user's shared-group members. A heuristic to surface "big" spends without
+// spamming a notification for every small purchase.
+const GROUP_BIG_EXPENSE_THRESHOLD = 2000;
+
+/**
+ * When a member logs a sizeable expense, let the other members of their shared
+ * group(s) know. Best-effort and fire-and-forget so it never slows or fails a
+ * transaction create.
+ */
+async function notifyGroupsOfExpense(
+  userId: string,
+  amount: number,
+  title: string,
+  currency: string,
+): Promise<void> {
+  if (amount >= 0 || Math.abs(amount) < GROUP_BIG_EXPENSE_THRESHOLD) return;
+  try {
+    const groups = await GroupModel.listByUser(userId);
+    if (!groups.length) return;
+    const actor = await UserModel.displayName(userId);
+    const amountLabel = `${Math.abs(amount).toFixed(0)} ${currency || 'LKR'}`;
+    for (const group of groups) {
+      const memberIds = await GroupModel.memberIds(group.id);
+      for (const memberId of memberIds) {
+        if (memberId === userId) continue;
+        await sendPushToUser(
+          memberId,
+          `New expense in ${group.name}`,
+          `${actor} added ${amountLabel} · ${title}`,
+          { type: 'group_activity', groupId: String(group.id) },
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[Groups] expense notification failed:', err);
+  }
+}
 
 /**
  * Check if a transaction's category has a budget and send alerts at 80%/100% thresholds.
@@ -75,9 +117,10 @@ function getExpenseCategoriesForBudgetChecks(
 export async function getTransactionByUserId(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);
   const { limit, offset } = (req as any).pagination || { limit: 50, offset: 0 };
+  const filters = parseTransactionFilters(req);
   const [transactions, total] = await Promise.all([
-    TransactionModel.listByUser(userId, limit, offset),
-    TransactionModel.countByUser(userId),
+    TransactionModel.listByUserFiltered(userId, filters, limit, offset),
+    TransactionModel.countByUserFiltered(userId, filters),
   ]);
   return res.status(200).json({
     message: 'Transactions fetched successfully',
@@ -86,8 +129,62 @@ export async function getTransactionByUserId(req: AuthedRequest, res: Response) 
   });
 }
 
+const CSV_EXPORT_LIMIT = 10000;
+
+/** Escapes a single CSV cell per RFC 4180 (quote if it contains "," '"' or newline). */
+function csvCell(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (/[",\n\r]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * Streams the user's transactions as a CSV download. Honours the same filter
+ * params as the list endpoint (q/category/from/to/minAmount/maxAmount/type) so
+ * users can export exactly what they're viewing.
+ */
+export async function exportTransactionsCsv(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const filters = parseTransactionFilters(req);
+  const transactions = await TransactionModel.listByUserFiltered(userId, filters, CSV_EXPORT_LIMIT, 0);
+
+  const header = ['Date', 'Title', 'Category', 'Amount', 'Currency', 'Type', 'Notes', 'Tags'];
+  const lines = [header.map(csvCell).join(',')];
+
+  for (const tx of transactions) {
+    const date =
+      tx.created_at instanceof Date
+        ? tx.created_at.toISOString().slice(0, 10)
+        : String(tx.created_at).slice(0, 10);
+    lines.push(
+      [
+        date,
+        tx.title,
+        tx.category,
+        Number(tx.amount).toFixed(2),
+        tx.currency,
+        Number(tx.amount) < 0 ? 'Expense' : 'Income',
+        tx.notes ?? '',
+        (tx.tags ?? []).join(' '),
+      ]
+        .map(csvCell)
+        .join(','),
+    );
+  }
+
+  // Prepend a UTF-8 BOM so Excel opens non-ASCII (e.g. රු, ₹) correctly.
+  const csv = '﻿' + lines.join('\r\n');
+  const filename = `pulsespend_transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.status(200).send(csv);
+}
+
 export async function createTransaction(req: AuthedRequest, res: Response) {
-  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags } = req.body;
+  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, client_op_id } = req.body;
   const user_id = String(req.user!.id);
 
   const transaction = await TransactionModel.create(
@@ -101,6 +198,7 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
     splits,
     notes,
     tags,
+    client_op_id || null,
   );
 
   emitToUser(user_id, 'tx:new', {
@@ -119,6 +217,9 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
   for (const affectedCategory of affectedCategories) {
     await checkBudgetAlert(user_id, affectedCategory);
   }
+
+  // Let shared-group members know about a sizeable expense (fire-and-forget).
+  void notifyGroupsOfExpense(user_id, Number(transaction.amount), String(transaction.title || title), String(transaction.currency || currency || 'LKR'));
 
   return res.status(201).json({ message: 'Transaction created successfully', transaction });
 }

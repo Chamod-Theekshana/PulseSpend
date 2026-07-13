@@ -134,6 +134,42 @@ export async function updatePassword(req: AuthedRequest, res: Response) {
   return res.status(200).json({ message: 'Password updated successfully' });
 }
 
+/**
+ * Permanently deletes the signed-in user's account and all associated data.
+ * Irreversible, so we re-confirm with the account password before wiping.
+ */
+export async function deleteAccount(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const { password } = req.body ?? {};
+
+  const user = await UserModel.findById(userId);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  if (!password) {
+    return res.status(400).json({ message: 'Password is required to delete your account' });
+  }
+
+  const isMatch = await bcrypt.compare(String(password), user.password);
+  if (!isMatch) {
+    return res.status(401).json({ message: 'Password is incorrect' });
+  }
+
+  // Best-effort cleanup of the Cloudinary profile photo before wiping the row.
+  try {
+    await cloudinary.uploader.destroy(`pulsespend/profiles/user_${userId}`);
+  } catch (error) {
+    console.error('Cloudinary delete error:', error);
+  }
+
+  await UserModel.deleteAccount(userId);
+
+  emitToUser(userId, 'account:deleted', { message: 'Account deleted' });
+
+  return res.status(200).json({ message: 'Account deleted successfully' });
+}
+
 export async function importUserData(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);
   const data = req.body;

@@ -3,6 +3,7 @@ import { sql } from '../config/db';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NotificationPreferenceModel } from '../models/NotificationPreferenceModel';
+import { emitToUser } from '../socket';
 
 let initAttempted = false;
 let enabled = false;
@@ -139,6 +140,11 @@ export async function sendPushToUser(
   // 1. Always persist to notification history (works even without Firebase)
   await saveNotificationRecord(userId, title, body, type, data);
 
+  // 1b. Nudge any connected client to refresh its inbox + bell badge instantly.
+  //     This is the in-app channel and works with or without FCM — so even
+  //     without push set up, notifications appear live while the app is open.
+  emitToUser(String(userId), 'notification:new', { title, body, type });
+
   // 2. Send FCM push if Firebase is configured
   initFirebaseOnce();
   if (!enabled) {
@@ -155,8 +161,13 @@ export async function sendPushToUser(
   try {
     const msg: admin.messaging.MulticastMessage = {
       tokens,
+      // A `notification` block lets FCM display the banner automatically in the
+      // background / when the app is killed. `data` is kept too so the app can
+      // handle it in the foreground and deep-link on tap.
+      notification: { title, body },
       data: { title, body, ...(data ?? {}) },
-      android: { priority: 'high' as const },
+      android: { priority: 'high' as const, notification: { sound: 'default' } },
+      apns: { payload: { aps: { sound: 'default' } } },
     };
 
     const resp = await admin.messaging().sendEachForMulticast(msg);

@@ -50,6 +50,66 @@ class CategorySpending {
   }
 }
 
+/// Compact recap over a completed period (backend AnalyticsModel.getDigest).
+class DigestSummary {
+  final String range; // 'week' | 'month'
+  final double income;
+  final double expense;
+  final double net;
+  final double savingsRate;
+  final int transactionCount;
+  final String? topCategoryName;
+  final double topCategoryAmount;
+  final String currency;
+
+  const DigestSummary({
+    required this.range,
+    required this.income,
+    required this.expense,
+    required this.net,
+    required this.savingsRate,
+    required this.transactionCount,
+    required this.topCategoryName,
+    required this.topCategoryAmount,
+    required this.currency,
+  });
+
+  factory DigestSummary.fromJson(Map<String, dynamic> json) {
+    final top = json['topCategory'] as Map<String, dynamic>?;
+    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    return DigestSummary(
+      range: (json['range'] as String?) ?? 'week',
+      income: d(json['income']),
+      expense: d(json['expense']),
+      net: d(json['net']),
+      savingsRate: d(json['savingsRate']),
+      transactionCount: (json['transactionCount'] as num?)?.toInt() ?? 0,
+      topCategoryName: top?['name'] as String?,
+      topCategoryAmount: d(top?['amount']),
+      currency: (json['currency'] as String?) ?? 'LKR',
+    );
+  }
+}
+
+/// A single templated spending insight (backend AnalyticsModel.getInsights).
+class Insight {
+  final String id;
+  final String tone; // 'positive' | 'warning' | 'neutral'
+  final String title;
+  final String body;
+
+  const Insight({required this.id, required this.tone, required this.title, required this.body});
+
+  factory Insight.fromJson(Map<String, dynamic> json) {
+    return Insight(
+      id: (json['id'] as String?) ?? '',
+      tone: (json['tone'] as String?) ?? 'neutral',
+      title: (json['title'] as String?) ?? '',
+      body: (json['body'] as String?) ?? '',
+    );
+  }
+}
+
 class AnalyticsSummary {
   final String period;
   final IncomeExpenseTrend trend;
