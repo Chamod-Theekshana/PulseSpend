@@ -18,6 +18,19 @@ class AnalyticsPeriodNotifier extends Notifier<String> {
 
 final analyticsPeriodProvider = NotifierProvider<AnalyticsPeriodNotifier, String>(AnalyticsPeriodNotifier.new);
 
+/// How the Income-vs-Expenses chart is drawn. Toggled from the card's ⋮ menu.
+enum AnalyticsChartType { line, bar }
+
+class AnalyticsChartTypeNotifier extends Notifier<AnalyticsChartType> {
+  @override
+  AnalyticsChartType build() => AnalyticsChartType.line;
+
+  void set(AnalyticsChartType type) => state = type;
+}
+
+final analyticsChartTypeProvider =
+    NotifierProvider<AnalyticsChartTypeNotifier, AnalyticsChartType>(AnalyticsChartTypeNotifier.new);
+
 /// Fetches analytics summary for a given period.
 /// Uses [keepAlive] so that switching tabs / rebuilding widgets does NOT
 /// trigger a new network request — the cached result is reused until the
@@ -26,6 +39,25 @@ final analyticsSummaryProvider = FutureProvider.family<AnalyticsSummary, String>
   // Keep this provider alive so navigating away and back doesn't re-fetch.
   ref.keepAlive();
   return ref.read(analyticsRepositoryProvider).getSummary(period);
+});
+
+/// Per-day totals for the spending heatmap, keyed by (year, month). Listens to
+/// the tx events as well as analytics:invalidate so a single missed event
+/// can't leave the grid stale; sessionSync also invalidates this on reconnect.
+final dailyTotalsProvider =
+    FutureProvider.autoDispose.family<List<DailyTotal>, (int, int)>((ref, ym) async {
+  final subs = [
+    SocketService.instance.on('analytics:invalidate', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:new', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:deleted', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
+  return ref.read(analyticsRepositoryProvider).getDaily(ym.$1, ym.$2);
 });
 
 /// Templated spending insights for the dashboard card. Invalidated live when

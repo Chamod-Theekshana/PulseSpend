@@ -5,12 +5,14 @@ import 'budgets_provider.dart';
 import 'categories_provider.dart';
 import 'currency_provider.dart';
 import 'goals_provider.dart';
+import 'groups_provider.dart';
 import 'notification_preferences_provider.dart';
 import 'notifications_provider.dart';
 import 'profile_provider.dart';
 import 'recurring_provider.dart';
 import 'reminders_provider.dart';
 import 'transactions_provider.dart';
+import 'wallets_provider.dart';
 
 /// Central coordinator that knows every account-scoped provider, so real-time
 /// recovery and account switching stay correct and leak-free. Exposed as a
@@ -32,9 +34,18 @@ class SessionSyncController extends Notifier<void> {
       ref.read(recurringControllerProvider.notifier).refresh(),
       ref.read(remindersControllerProvider.notifier).refresh(),
       ref.read(notificationsControllerProvider.notifier).refresh(),
+      ref.read(walletsControllerProvider.notifier).refresh(),
+      ref.read(groupsControllerProvider.notifier).refresh(),
     ]);
     // Family / future providers can't be refreshed by name → invalidate them.
+    // Missing one here means it goes permanently stale after any socket
+    // reconnect (missed events are never replayed) — list them ALL.
     ref.invalidate(analyticsSummaryProvider);
+    ref.invalidate(dailyTotalsProvider);
+    ref.invalidate(insightsProvider);
+    ref.invalidate(weeklyDigestProvider);
+    ref.invalidate(dashboardTransactionsProvider);
+    ref.invalidate(walletBalancesProvider);
     ref.invalidate(notificationPrefsControllerProvider);
     ref.invalidate(exchangeRatesProvider);
   }
@@ -51,6 +62,13 @@ class SessionSyncController extends Notifier<void> {
     ref.invalidate(notificationsControllerProvider);
     ref.invalidate(notificationPrefsControllerProvider);
     ref.invalidate(analyticsSummaryProvider);
+    ref.invalidate(dailyTotalsProvider);
+    ref.invalidate(insightsProvider);
+    ref.invalidate(weeklyDigestProvider);
+    ref.invalidate(dashboardTransactionsProvider);
+    ref.invalidate(walletBalancesProvider);
+    ref.invalidate(walletsControllerProvider);
+    ref.invalidate(groupsControllerProvider);
   }
 }
 

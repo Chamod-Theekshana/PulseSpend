@@ -67,3 +67,9 @@ final groupMembersProvider =
     FutureProvider.autoDispose.family<List<GroupMember>, int>((ref, groupId) async {
   return ref.read(groupRepositoryProvider).members(groupId);
 });
+
+/// Splitwise-lite balances + settle-up suggestions for a group.
+final groupBalancesProvider =
+    FutureProvider.autoDispose.family<GroupBalances, int>((ref, groupId) async {
+  return ref.read(groupRepositoryProvider).balances(groupId);
+});

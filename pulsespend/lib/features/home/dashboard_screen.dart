@@ -15,8 +15,10 @@ import '../../providers/budgets_provider.dart';
 import '../../providers/currency_provider.dart';
 import '../../providers/goals_provider.dart';
 import '../../providers/notifications_provider.dart';
+import '../../models/wallet_model.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/transactions_provider.dart';
+import '../../providers/wallets_provider.dart';
 import '../../l10n/l10n_ext.dart';
 import '../../shared/utils/image_utils.dart';
 
@@ -25,6 +27,7 @@ import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/profile_drawer.dart';
 import '../budgets/screens/budgets_screen.dart';
 import '../goals/screens/goals_screen.dart';
+import '../wallets/screens/wallets_screen.dart';
 import '../notifications/screens/notifications_screen.dart';
 import '../transactions/screens/transaction_detail_screen.dart';
 import '../transactions/screens/transactions_screen.dart';
@@ -35,7 +38,12 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final summaryAsync = ref.watch(transactionSummaryProvider);
-    final txState = ref.watch(transactionsControllerProvider);
+    // Unfiltered feed dedicated to the dashboard — the shared transactions
+    // controller carries the Transactions screen's filters (search, heatmap
+    // day-taps, "view transactions" deep-links) and must not drive the charts.
+    final dashboardTxAsync = ref.watch(dashboardTransactionsProvider);
+    final txItems = dashboardTxAsync.asData?.value ?? const <TransactionModel>[];
+    final txLoading = dashboardTxAsync.isLoading && txItems.isEmpty;
     final budgetsState = ref.watch(budgetsControllerProvider);
     final goalsState = ref.watch(goalsControllerProvider);
     final profile = ref.watch(profileControllerProvider);
@@ -73,6 +81,10 @@ class DashboardScreen extends ConsumerWidget {
         body: RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () async {
+            ref.invalidate(dashboardTransactionsProvider);
+            ref.invalidate(walletBalancesProvider);
+            ref.invalidate(insightsProvider);
+            ref.invalidate(weeklyDigestProvider);
             await Future.wait([
               ref.read(transactionsControllerProvider.notifier).refresh(),
               ref.read(budgetsControllerProvider.notifier).refresh(),
@@ -100,7 +112,7 @@ class DashboardScreen extends ConsumerWidget {
                 child: summaryAsync.when(
                   data: (summary) => _BalanceOverviewSection(
                     summary: summary,
-                    transactions: txState.items,
+                    transactions: txItems,
                     money: money,
                   ),
                   loading: () => const _BalanceSectionSkeleton(),
@@ -116,13 +128,18 @@ class DashboardScreen extends ConsumerWidget {
                     data: (summary) => _EarningsSpendingsRow(
                       summary: summary,
                       money: money,
-                      incomeCount: txState.items.where((t) => t.amount > 0).length,
-                      expenseCount: txState.items.where((t) => t.amount < 0).length,
+                      incomeCount: txItems.where((t) => t.amount > 0).length,
+                      expenseCount: txItems.where((t) => t.amount < 0).length,
                     ),
                     loading: () => const _EarningsRowSkeleton(),
                     error: (_, __) => const _EarningsRowSkeleton(),
                   ),
                 ),
+              ),
+
+              // ── 3.2 Wallet balances (only when wallets exist) ──
+              const SliverToBoxAdapter(
+                child: _WalletBalancesSection(),
               ),
 
               // ── 3.5 Insights & Weekly Recap ──
@@ -138,7 +155,7 @@ class DashboardScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
                   child: _TopSpendingSection(
-                    transactions: txState.items,
+                    transactions: txItems,
                     money: money,
                   ),
                 ),
@@ -185,9 +202,9 @@ class DashboardScreen extends ConsumerWidget {
               ),
 
               // ── Recent Transactions List ──
-              if (txState.isLoading && txState.items.isEmpty)
+              if (txLoading)
                 const SliverToBoxAdapter(child: SizedBox(height: 200))
-              else if (txState.items.isEmpty)
+              else if (txItems.isEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -202,7 +219,7 @@ class DashboardScreen extends ConsumerWidget {
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
-                      final tx = txState.items.take(6).toList()[i];
+                      final tx = txItems.take(6).toList()[i];
                       return Padding(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                         child: _TransactionRow(
@@ -216,7 +233,7 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       );
                     },
-                    childCount: txState.items.take(6).length,
+                    childCount: txItems.take(6).length,
                   ),
                 ),
 
@@ -1089,6 +1106,119 @@ class _EarningsRowSkeleton extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Horizontal per-wallet balance cards. Renders nothing until the user has
+/// created wallets (or has unassigned activity), so the dashboard is unchanged
+/// for users who don't use the feature.
+class _WalletBalancesSection extends ConsumerWidget {
+  const _WalletBalancesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final balances = ref.watch(walletBalancesProvider).asData?.value ?? const <WalletBalance>[];
+    final hasRealWallets = balances.any((b) => b.wallet.id != 0);
+    if (!hasRealWallets) return const SizedBox.shrink();
+
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Wallets',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: textPrimary),
+                    ),
+                    Text(
+                      'Balance per account',
+                      style: TextStyle(fontSize: 11, color: textSecondary),
+                    ),
+                  ],
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const WalletsScreen()),
+                  ),
+                  child: const Row(
+                    children: [
+                      Text(
+                        'Manage',
+                        style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: AppColors.primary, size: 18),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              scrollDirection: Axis.horizontal,
+              itemCount: balances.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, i) {
+                final b = balances[i];
+                return Container(
+                  width: 170,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkSurface : Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(b.wallet.icon, size: 16, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              b.wallet.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Text(
+                        CurrencyFormatter.formatCompact(b.balance, b.displayCurrency),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          color: b.balance < 0 ? AppColors.expense : textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

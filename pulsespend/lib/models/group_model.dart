@@ -121,3 +121,77 @@ class GroupFeed {
   final GroupSummary summary;
   const GroupFeed({required this.transactions, required this.summary});
 }
+
+/// One member's Splitwise-lite balance. net > 0 → gets back; net < 0 → owes.
+class MemberBalance {
+  final String userId;
+  final String name;
+  final double paid;
+  final double net;
+
+  const MemberBalance({required this.userId, required this.name, required this.paid, required this.net});
+
+  factory MemberBalance.fromJson(Map<String, dynamic> json) {
+    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    return MemberBalance(
+      userId: json['user_id'].toString(),
+      name: (json['name'] as String?) ?? 'Member',
+      paid: d(json['paid']),
+      net: d(json['net']),
+    );
+  }
+}
+
+/// A suggested repayment ("from pays to X") that zeroes the balances.
+class SettleSuggestion {
+  final String fromUserId;
+  final String fromName;
+  final String toUserId;
+  final String toName;
+  final double amount;
+
+  const SettleSuggestion({
+    required this.fromUserId,
+    required this.fromName,
+    required this.toUserId,
+    required this.toName,
+    required this.amount,
+  });
+
+  factory SettleSuggestion.fromJson(Map<String, dynamic> json) {
+    return SettleSuggestion(
+      fromUserId: json['from'].toString(),
+      fromName: (json['from_name'] as String?) ?? '',
+      toUserId: json['to'].toString(),
+      toName: (json['to_name'] as String?) ?? '',
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class GroupBalances {
+  final List<MemberBalance> members;
+  final List<SettleSuggestion> suggestions;
+  final double total;
+  final String currency;
+
+  const GroupBalances({
+    required this.members,
+    required this.suggestions,
+    required this.total,
+    required this.currency,
+  });
+
+  factory GroupBalances.fromJson(Map<String, dynamic> json) {
+    return GroupBalances(
+      members: (json['members'] as List<dynamic>? ?? const [])
+          .map((e) => MemberBalance.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      suggestions: (json['suggestions'] as List<dynamic>? ?? const [])
+          .map((e) => SettleSuggestion.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      total: (json['total'] as num?)?.toDouble() ?? 0,
+      currency: (json['currency'] as String?) ?? 'LKR',
+    );
+  }
+}

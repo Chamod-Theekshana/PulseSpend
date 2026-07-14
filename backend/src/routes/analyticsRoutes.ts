@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAnalytics, getDigest, getInsights } from '../controllers/analyticsController';
+import { getAnalytics, getDaily, getDigest, getInsights } from '../controllers/analyticsController';
 import { requireAuth } from '../middleware/requireAuth';
 
 const router = Router();
@@ -8,6 +8,7 @@ const router = Router();
 router.get('/', requireAuth, getAnalytics);
 router.get('/digest', requireAuth, getDigest);
 router.get('/insights', requireAuth, getInsights);
+router.get('/daily', requireAuth, getDaily);
 
 export default router;
 

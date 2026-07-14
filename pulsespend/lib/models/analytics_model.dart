@@ -91,6 +91,24 @@ class DigestSummary {
   }
 }
 
+/// One day's totals for the spending heatmap (backend AnalyticsModel.getDaily).
+class DailyTotal {
+  final DateTime date;
+  final double income;
+  final double expense;
+
+  const DailyTotal({required this.date, required this.income, required this.expense});
+
+  factory DailyTotal.fromJson(Map<String, dynamic> json) {
+    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    return DailyTotal(
+      date: DateTime.parse(json['date'].toString()),
+      income: d(json['income']),
+      expense: d(json['expense']),
+    );
+  }
+}
+
 /// A single templated spending insight (backend AnalyticsModel.getInsights).
 class Insight {
   final String id;

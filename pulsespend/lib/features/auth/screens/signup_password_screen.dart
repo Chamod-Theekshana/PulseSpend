@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
+import '../../../shared/widgets/auth_header.dart';
 import '../../../shared/widgets/primary_button.dart';
 
 /// Step 3 (final) of the passkey signup flow: choose a password and finish
@@ -43,7 +43,13 @@ class _SignupPasswordScreenState extends ConsumerState<SignupPasswordScreen> {
             password: _passwordController.text,
             signupToken: widget.signupToken,
           );
-      // AuthController flips to authenticated -> SplashGate swaps to HomeShell.
+      // AuthController flips to authenticated -> SplashGate (the root route) now
+      // builds HomeShell. But this password screen + the earlier signup screens
+      // are pushed ON TOP of that root, so we must pop back to it to actually
+      // reveal the app (otherwise "nothing happens" after Create Account).
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
@@ -65,14 +71,10 @@ class _SignupPasswordScreenState extends ConsumerState<SignupPasswordScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Set a password',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'At least 8 characters. Use something you don\'t use elsewhere.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.lightTextSecondary),
+                const AuthHeader(
+                  icon: Icons.lock_outline_rounded,
+                  title: 'Set a password',
+                  subtitle: Text("At least 8 characters. Use something you don't use elsewhere."),
                 ),
                 const SizedBox(height: 32),
                 AppTextField(

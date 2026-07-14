@@ -5,6 +5,8 @@ import {
   joinGroup,
   getMembers,
   getGroupTransactions,
+  getGroupBalances,
+  settleUp,
   leaveGroup,
 } from "../controllers/groupsController";
 import { requireAuth } from "../middleware/requireAuth";
@@ -20,6 +22,8 @@ router.post("/", asyncHandler(createGroup));
 router.post("/join", asyncHandler(joinGroup));
 router.get("/:id/members", validateNumericParam("id"), asyncHandler(getMembers));
 router.get("/:id/transactions", validateNumericParam("id"), asyncHandler(getGroupTransactions));
+router.get("/:id/balances", validateNumericParam("id"), asyncHandler(getGroupBalances));
+router.post("/:id/settle", validateNumericParam("id"), asyncHandler(settleUp));
 router.delete("/:id/leave", validateNumericParam("id"), asyncHandler(leaveGroup));
 
 export default router;

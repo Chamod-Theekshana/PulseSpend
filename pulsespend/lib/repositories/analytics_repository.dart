@@ -32,6 +32,28 @@ class AnalyticsRepository {
     }
   }
 
+  Future<List<DailyTotal>> getDaily(int year, int month) async {
+    try {
+      final res = await _dio.get(
+        ApiConfig.analyticsDaily,
+        queryParameters: {'year': year, 'month': month},
+      );
+      // Skip (rather than fail on) any row that doesn't parse — one malformed
+      // date must never error the whole heatmap.
+      final out = <DailyTotal>[];
+      for (final e in res.data['data'] as List<dynamic>) {
+        try {
+          out.add(DailyTotal.fromJson(e as Map<String, dynamic>));
+        } catch (_) {
+          // ignore malformed row
+        }
+      }
+      return out;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<List<Insight>> getInsights() async {
     try {
       final res = await _dio.get(ApiConfig.analyticsInsights);

@@ -35,6 +35,7 @@ export interface Transaction {
   deleted_at?: Date | null;
   notes?: string | null;
   receipt_url?: string | null;
+  wallet_id?: number | null;
   tags?: string[];
   splits?: TransactionSplit[];
 }
@@ -52,6 +53,7 @@ export interface TransactionFilters {
   minAmount?: number | null;      // amount >= (signed; expenses are negative)
   maxAmount?: number | null;      // amount <=
   type?: 'income' | 'expense' | null;
+  walletId?: number | null;       // wallet filter; 0 = the default (NULL) wallet
 }
 
 export class TransactionModel {
@@ -196,7 +198,7 @@ export class TransactionModel {
     limit: number,
     offset: number,
   ): Promise<Transaction[]> {
-    const { q, category, from, to, minAmount, maxAmount, type } = filters;
+    const { q, category, from, to, minAmount, maxAmount, type, walletId } = filters;
     const like = q && q.trim() ? `%${q.trim()}%` : null;
     const cat = category && category.trim() ? category.trim() : null;
     const fromDate = from || null;
@@ -204,6 +206,7 @@ export class TransactionModel {
     const minAmt = minAmount ?? null;
     const maxAmt = maxAmount ?? null;
     const txType = type || null;
+    const wallet = walletId ?? null;
 
     const transactions = await sql`
       SELECT * FROM transactions
@@ -217,6 +220,8 @@ export class TransactionModel {
         AND (${txType}::text IS NULL
              OR (${txType} = 'income' AND amount >= 0)
              OR (${txType} = 'expense' AND amount < 0))
+        AND (${wallet}::int IS NULL
+             OR (CASE WHEN ${wallet} = 0 THEN wallet_id IS NULL ELSE wallet_id = ${wallet} END))
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
@@ -229,7 +234,7 @@ export class TransactionModel {
   }
 
   static async countByUserFiltered(userId: string, filters: TransactionFilters): Promise<number> {
-    const { q, category, from, to, minAmount, maxAmount, type } = filters;
+    const { q, category, from, to, minAmount, maxAmount, type, walletId } = filters;
     const like = q && q.trim() ? `%${q.trim()}%` : null;
     const cat = category && category.trim() ? category.trim() : null;
     const fromDate = from || null;
@@ -237,6 +242,7 @@ export class TransactionModel {
     const minAmt = minAmount ?? null;
     const maxAmt = maxAmount ?? null;
     const txType = type || null;
+    const wallet = walletId ?? null;
 
     const rows = await sql`
       SELECT COUNT(*)::int AS count
@@ -251,6 +257,8 @@ export class TransactionModel {
         AND (${txType}::text IS NULL
              OR (${txType} = 'income' AND amount >= 0)
              OR (${txType} = 'expense' AND amount < 0))
+        AND (${wallet}::int IS NULL
+             OR (CASE WHEN ${wallet} = 0 THEN wallet_id IS NULL ELSE wallet_id = ${wallet} END))
     `;
     return Number((rows[0] as any)?.count || 0);
   }
@@ -267,12 +275,14 @@ export class TransactionModel {
     notes?: string | null,
     tags?: string[],
     clientOpId?: string | null,
+    walletId?: number | null,
   ): Promise<Transaction> {
     const cur = currency || 'LKR';
     const receipt = receiptUrl || null;
     const normalizedNotes = notes && notes.trim().length > 0 ? notes.trim() : null;
     const normalizedTags = this.normalizeTags(tags);
     const opId = clientOpId && clientOpId.trim() ? clientOpId.trim() : null;
+    const wallet = walletId && walletId > 0 ? walletId : null;
 
     // Idempotency: if this op was already applied (e.g. a queued offline create
     // replayed after the response was lost), return the existing row untouched.
@@ -288,13 +298,13 @@ export class TransactionModel {
 
     const result = createdAt
       ? await sql`
-          INSERT INTO transactions (user_id, title, amount, category, currency, created_at, receipt_url, notes, client_op_id)
-          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${createdAt}, ${receipt}, ${normalizedNotes}, ${opId})
+          INSERT INTO transactions (user_id, title, amount, category, currency, created_at, receipt_url, notes, client_op_id, wallet_id)
+          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${createdAt}, ${receipt}, ${normalizedNotes}, ${opId}, ${wallet})
           RETURNING *
         `
       : await sql`
-          INSERT INTO transactions (user_id, title, amount, category, currency, receipt_url, notes, client_op_id)
-          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${receipt}, ${normalizedNotes}, ${opId})
+          INSERT INTO transactions (user_id, title, amount, category, currency, receipt_url, notes, client_op_id, wallet_id)
+          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${receipt}, ${normalizedNotes}, ${opId}, ${wallet})
           RETURNING *
         `;
 
@@ -362,6 +372,7 @@ export class TransactionModel {
     splits?: TransactionSplitInput[],
     notes?: string | null,
     tags?: string[],
+    walletId?: number | null,
   ): Promise<Transaction | null> {
     const cur = currency || 'LKR';
     const receipt = receiptUrl !== undefined ? receiptUrl : null;
@@ -403,6 +414,12 @@ export class TransactionModel {
 
     const updated = (rows?.[0] as Transaction) || null;
     if (!updated) return null;
+
+    // Wallet assignment (undefined = untouched; 0/null = back to default).
+    if (walletId !== undefined) {
+      const wallet = walletId && walletId > 0 ? walletId : null;
+      await sql`UPDATE transactions SET wallet_id = ${wallet} WHERE id = ${id} AND user_id = ${userId}`;
+    }
 
     if (splits !== undefined) {
       await sql`DELETE FROM transaction_splits WHERE transaction_id = ${id} AND user_id = ${userId}`;

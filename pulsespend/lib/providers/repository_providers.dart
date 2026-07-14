@@ -12,6 +12,7 @@ import '../repositories/profile_repository.dart';
 import '../repositories/recurring_repository.dart';
 import '../repositories/reminder_repository.dart';
 import '../repositories/transaction_repository.dart';
+import '../repositories/wallet_repository.dart';
 
 final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) => AnalyticsRepository());
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
@@ -26,3 +27,4 @@ final notificationRepositoryProvider = Provider<NotificationRepository>((ref) =>
 final exchangeRateRepositoryProvider = Provider<ExchangeRateRepository>((ref) => ExchangeRateRepository());
 final feedbackRepositoryProvider = Provider<FeedbackRepository>((ref) => FeedbackRepository());
 final groupRepositoryProvider = Provider<GroupRepository>((ref) => GroupRepository());
+final walletRepositoryProvider = Provider<WalletRepository>((ref) => WalletRepository());

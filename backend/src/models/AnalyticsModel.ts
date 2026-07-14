@@ -38,6 +38,12 @@ export interface DigestSummary {
   currency: string;
 }
 
+export interface DailyTotal {
+  date: string;    // yyyy-MM-dd
+  income: number;
+  expense: number;
+}
+
 export type InsightTone = 'positive' | 'warning' | 'neutral';
 
 export interface Insight {
@@ -117,6 +123,49 @@ export class AnalyticsModel {
       topCategory: topEntry ? { name: topEntry[0], amount: topEntry[1] } : null,
       currency: preferredCurrency,
     };
+  }
+
+  /**
+   * Per-day income/expense totals for one calendar month (the spending
+   * heatmap). Amounts converted to the user's preferred currency, mirroring
+   * getDigest. Days with no activity are omitted — the client fills the grid.
+   */
+  static async getDaily(userId: string, year: number, month: number): Promise<DailyTotal[]> {
+    const userRows = await sql`SELECT currency FROM users WHERE id = ${userId}`;
+    const preferredCurrency = ((userRows[0] as any)?.currency as string) || 'LKR';
+
+    const from = new Date(year, month - 1, 1);
+    const to = new Date(year, month, 1);
+    const rows = await sql`
+      SELECT amount, currency, created_at::date AS day
+      FROM transactions
+      WHERE user_id = ${userId} AND deleted_at IS NULL
+        AND created_at >= ${from} AND created_at < ${to}
+    `;
+
+    const byDay = new Map<string, DailyTotal>();
+    for (const r of rows) {
+      const amt = Number((r as any).amount);
+      const cur = ((r as any).currency as string) || 'LKR';
+      // Neon parses DATE columns into JS Date objects — String(date) yields
+      // "Sun Jun 21 2026 ...", which is NOT ISO. Format explicitly.
+      const rawDay = (r as any).day;
+      const day =
+        rawDay instanceof Date
+          ? `${rawDay.getFullYear()}-${String(rawDay.getMonth() + 1).padStart(2, '0')}-${String(rawDay.getDate()).padStart(2, '0')}`
+          : String(rawDay).slice(0, 10);
+      let converted = amt;
+      try {
+        converted = await convert(amt, cur, preferredCurrency);
+      } catch {
+        converted = amt;
+      }
+      const entry = byDay.get(day) ?? { date: day, income: 0, expense: 0 };
+      if (converted >= 0) entry.income += converted;
+      else entry.expense += Math.abs(converted);
+      byDay.set(day, entry);
+    }
+    return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
   }
 
   /**
@@ -350,7 +399,7 @@ export class AnalyticsModel {
         percentage: currentExpense > 0 ? (amount / currentExpense) * 100 : 0
       }))
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5); // top 5
+      .slice(0, 20); // full-ish breakdown; the client shows the top 5 and lists the rest under "View all"
 
     return {
       period,

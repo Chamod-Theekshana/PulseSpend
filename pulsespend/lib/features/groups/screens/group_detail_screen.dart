@@ -7,8 +7,10 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/group_model.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
 import '../../../providers/groups_provider.dart';
+import '../../../providers/repository_providers.dart';
 import '../../../shared/widgets/category_icon.dart';
 
 /// A single shared group: merged summary, invite code, members and a combined
@@ -133,6 +135,10 @@ class GroupDetailScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 20),
 
+            // ── Balances (Splitwise-lite) ──
+            _BalancesSection(group: group, money: money, isDark: isDark),
+            const SizedBox(height: 20),
+
             // ── Combined activity ──
             Text('Combined activity', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
             const SizedBox(height: 10),
@@ -151,6 +157,142 @@ class GroupDetailScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Who-owes-whom over the group's shared expenses, with one-tap settle-up.
+class _BalancesSection extends ConsumerWidget {
+  final GroupModel group;
+  final MoneyFormatter money;
+  final bool isDark;
+
+  const _BalancesSection({required this.group, required this.money, required this.isDark});
+
+  Future<void> _settle(BuildContext context, WidgetRef ref, SettleSuggestion s, String currency) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Record payment?'),
+        content: Text(
+          'This records that you paid ${s.toName} '
+          '${s.amount.toStringAsFixed(2)} $currency. They\'ll be notified.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Record')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(groupRepositoryProvider).settle(
+            group.id,
+            toUser: s.toUserId,
+            amount: s.amount,
+            currency: currency,
+          );
+      ref.invalidate(groupBalancesProvider(group.id));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Payment recorded ✓'), backgroundColor: AppColors.income),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(DioClient.toApiException(e).message)),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final balancesAsync = ref.watch(groupBalancesProvider(group.id));
+    final myId = ref.watch(authControllerProvider).userId;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return balancesAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (balances) {
+        if (balances.total <= 0) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Balances',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
+              const SizedBox(height: 8),
+              Text(
+                'No shared expenses yet. Use "Share to group" when adding an expense '
+                'to split it with members.',
+                style: TextStyle(fontSize: 12.5, color: textSecondary, height: 1.4),
+              ),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Balances',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
+            const SizedBox(height: 4),
+            Text(
+              'Shared spend: ${money.formatCompact(balances.total, balances.currency)} · split equally',
+              style: TextStyle(fontSize: 12, color: textSecondary),
+            ),
+            const SizedBox(height: 10),
+            for (final m in balances.members)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        m.userId == myId ? '${m.name} (you)' : m.name,
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: textPrimary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      m.net.abs() < 0.01
+                          ? 'settled'
+                          : m.net > 0
+                              ? 'gets back ${money.formatCompact(m.net, balances.currency)}'
+                              : 'owes ${money.formatCompact(m.net.abs(), balances.currency)}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: m.net.abs() < 0.01
+                            ? textSecondary
+                            : m.net > 0
+                                ? AppColors.income
+                                : AppColors.expense,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Settle-up: only the suggestions where *I* am the payer.
+            for (final s in balances.suggestions.where((s) => s.fromUserId == myId)) ...[
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _settle(context, ref, s, balances.currency),
+                  icon: const Icon(Icons.handshake_outlined, size: 18),
+                  label: Text(
+                    'Settle up: pay ${s.toName} ${money.formatCompact(s.amount, balances.currency)}',
+                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }

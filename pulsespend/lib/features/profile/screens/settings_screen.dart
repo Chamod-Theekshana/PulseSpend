@@ -11,6 +11,7 @@ import '../../../shared/widgets/selection_sheet.dart';
 import '../../auth/screens/splash_gate.dart';
 import '../../groups/screens/groups_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
+import '../../wallets/screens/wallets_screen.dart';
 import '../widgets/settings_widgets.dart';
 import 'about_screen.dart';
 import 'accounts_screen.dart';
@@ -224,6 +225,13 @@ class SettingsScreen extends ConsumerWidget {
                 title: l.passwordSecurity,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const SecurityScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.account_balance_wallet_outlined,
+                title: 'Wallets',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const WalletsScreen()),
                 ),
               ),
               SettingsTile(

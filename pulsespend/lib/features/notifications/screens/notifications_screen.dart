@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/notifications/notification_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/notification_model.dart';
@@ -72,6 +73,14 @@ class NotificationsScreen extends ConsumerWidget {
                         onTap: () {
                           if (!n.read) {
                             ref.read(notificationsControllerProvider.notifier).markOneRead(n.id);
+                          }
+                          // Deep-link to the screen that gives this notification
+                          // context (same mapping as push taps).
+                          final screen = screenForNotificationType(n.type);
+                          if (screen != null) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => screen),
+                            );
                           }
                         },
                         icon: _iconForType(n.type),

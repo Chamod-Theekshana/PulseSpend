@@ -168,4 +168,113 @@ export class GroupModel {
     await sql`DELETE FROM group_members WHERE user_id = ${userId}`;
     await sql`DELETE FROM groups WHERE owner_id = ${userId}`;
   }
+
+  // ── Splitwise-lite balances ────────────────────────────────────────────────
+
+  /**
+   * Per-member balances over the group's SHARED expenses (transactions with
+   * group_id set), split equally between members, adjusted by settlements.
+   * net > 0 → the member gets money back; net < 0 → they owe. Also returns a
+   * greedy minimal-transfer suggestion list ("A pays B X").
+   */
+  static async memberBalances(groupId: string | number, preferredCurrency: string) {
+    const members = await this.listMembers(groupId);
+    if (members.length === 0) {
+      return { members: [], suggestions: [], total: 0, currency: preferredCurrency };
+    }
+
+    const shared = await sql`
+      SELECT user_id, amount, currency
+      FROM transactions
+      WHERE group_id = ${groupId} AND deleted_at IS NULL AND amount < 0
+    `;
+    const settlements = await sql`
+      SELECT from_user, to_user, amount, currency
+      FROM group_settlements
+      WHERE group_id = ${groupId}
+    `;
+
+    const paidBy = new Map<string, number>();
+    let total = 0;
+    for (const r of shared) {
+      const uid = String((r as any).user_id);
+      const amt = Math.abs(Number((r as any).amount));
+      const cur = ((r as any).currency as string) || 'LKR';
+      let converted = amt;
+      try {
+        converted = await convert(amt, cur, preferredCurrency);
+      } catch {
+        converted = amt;
+      }
+      paidBy.set(uid, (paidBy.get(uid) ?? 0) + converted);
+      total += converted;
+    }
+
+    const fairShare = total / members.length;
+    const net = new Map<string, number>();
+    for (const m of members) {
+      net.set(String(m.user_id), (paidBy.get(String(m.user_id)) ?? 0) - fairShare);
+    }
+
+    // Settlements: the payer's debt shrinks (net up), the receiver's credit
+    // shrinks (net down).
+    for (const s of settlements) {
+      const from = String((s as any).from_user);
+      const to = String((s as any).to_user);
+      const amt = Number((s as any).amount);
+      const cur = ((s as any).currency as string) || 'LKR';
+      let converted = amt;
+      try {
+        converted = await convert(amt, cur, preferredCurrency);
+      } catch {
+        converted = amt;
+      }
+      if (net.has(from)) net.set(from, net.get(from)! + converted);
+      if (net.has(to)) net.set(to, net.get(to)! - converted);
+    }
+
+    const nameOf = new Map(members.map((m) => [String(m.user_id), m.name || m.email.split('@')[0]]));
+    const result = members.map((m) => ({
+      user_id: String(m.user_id),
+      name: nameOf.get(String(m.user_id)),
+      paid: Math.round((paidBy.get(String(m.user_id)) ?? 0) * 100) / 100,
+      net: Math.round((net.get(String(m.user_id)) ?? 0) * 100) / 100,
+    }));
+
+    // Greedy transfer suggestions: biggest debtor pays biggest creditor.
+    const debtors = result.filter((r) => r.net < -0.01).map((r) => ({ ...r, left: -r.net })).sort((a, b) => b.left - a.left);
+    const creditors = result.filter((r) => r.net > 0.01).map((r) => ({ ...r, left: r.net })).sort((a, b) => b.left - a.left);
+    const suggestions: Array<{ from: string; from_name: string; to: string; to_name: string; amount: number }> = [];
+    let di = 0;
+    let ci = 0;
+    while (di < debtors.length && ci < creditors.length) {
+      const pay = Math.min(debtors[di].left, creditors[ci].left);
+      suggestions.push({
+        from: debtors[di].user_id,
+        from_name: String(debtors[di].name ?? ''),
+        to: creditors[ci].user_id,
+        to_name: String(creditors[ci].name ?? ''),
+        amount: Math.round(pay * 100) / 100,
+      });
+      debtors[di].left -= pay;
+      creditors[ci].left -= pay;
+      if (debtors[di].left <= 0.01) di++;
+      if (creditors[ci].left <= 0.01) ci++;
+    }
+
+    return { members: result, suggestions, total: Math.round(total * 100) / 100, currency: preferredCurrency };
+  }
+
+  static async createSettlement(
+    groupId: string | number,
+    fromUser: string,
+    toUser: string,
+    amount: number,
+    currency: string,
+  ): Promise<void> {
+    await sql`
+      INSERT INTO group_settlements (group_id, from_user, to_user, amount, currency)
+      VALUES (${groupId}, ${fromUser}, ${toUser}, ${amount}, ${currency})
+    `;
+  }
 }

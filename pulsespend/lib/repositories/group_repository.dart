@@ -65,4 +65,26 @@ class GroupRepository {
       throw DioClient.toApiException(e);
     }
   }
+
+  Future<GroupBalances> balances(int groupId) async {
+    try {
+      final res = await _dio.get(ApiConfig.groupBalances(groupId));
+      return GroupBalances.fromJson(res.data as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Records "I paid [toUser] [amount]" in the group's ledger.
+  Future<void> settle(int groupId, {required String toUser, required double amount, required String currency}) async {
+    try {
+      await _dio.post(ApiConfig.groupSettle(groupId), data: {
+        'to_user': toUser,
+        'amount': amount,
+        'currency': currency,
+      });
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
 }
