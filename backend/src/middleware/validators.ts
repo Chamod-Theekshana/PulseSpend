@@ -630,6 +630,37 @@ export function parsePagination(defaultLimit = 50, maxLimit = 200) {
   };
 }
 
+/**
+ * Reads the optional transaction filter params off the query string into a
+ * plain object suitable for TransactionModel's filtered queries. Lenient by
+ * design: anything malformed (e.g. a non-numeric amount) is simply dropped so
+ * the list still returns rather than 400-ing.
+ */
+export function parseTransactionFilters(req: Request) {
+  const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : null;
+  const category =
+    typeof req.query.category === 'string' && req.query.category.trim()
+      ? req.query.category.trim()
+      : null;
+
+  const isoDate = (v: unknown) =>
+    typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  const from = isoDate(req.query.from);
+  const to = isoDate(req.query.to);
+
+  const num = (v: unknown) => {
+    const n = Number(v);
+    return typeof v !== 'undefined' && v !== '' && Number.isFinite(n) ? n : null;
+  };
+  const minAmount = num(req.query.minAmount);
+  const maxAmount = num(req.query.maxAmount);
+
+  const rawType = typeof req.query.type === 'string' ? req.query.type.toLowerCase() : '';
+  const type = rawType === 'income' || rawType === 'expense' ? (rawType as 'income' | 'expense') : null;
+
+  return { q, category, from, to, minAmount, maxAmount, type };
+}
+
 const MAX_BULK_IDS = 200;
 
 export function validateIdListBody(field: string = 'ids') {

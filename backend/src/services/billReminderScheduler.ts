@@ -91,6 +91,33 @@ export class BillReminderScheduler {
           { retries: 2, delayMs: 500 }
         );
       }
+
+      // ── Overdue bills: fire once when a due date has passed unpaid ──
+      const overdueRows = await ReminderModel.listOverdue(today);
+      if (overdueRows.length) {
+        console.log(`[Bill Reminder] Sending ${overdueRows.length} overdue notification(s) for ${today}`);
+        for (const item of overdueRows) {
+          const amountLabel = `${Number(item.amount).toFixed(2)} ${item.currency || 'LKR'}`;
+          const body = `${item.title} was due on ${formatDueDateLabel(String(item.due_date))} • ${amountLabel} • ${item.category}. It looks overdue.`;
+
+          await withRetries(
+            () => sendPushToUser(String(item.user_id), 'Bill overdue ⏰', body, {
+              type: 'bill_reminder',
+              reminderId: String(item.id),
+              dueDate: String(item.due_date),
+              overdue: 'true',
+            }),
+            { retries: 1, delayMs: 500 },
+          );
+
+          emitToUser(String(item.user_id), 'reminder:due', { title: 'Bill overdue', body, reminder: item });
+
+          await withRetries(
+            () => ReminderModel.markNotified(Number(item.id), today),
+            { retries: 2, delayMs: 500 },
+          );
+        }
+      }
     } catch (err) {
       console.error('[Bill Reminder] Error while checking reminders:', err);
     } finally {

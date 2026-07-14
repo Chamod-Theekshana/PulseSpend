@@ -31,6 +31,16 @@ export class UserModel {
     return (result[0] as User) || null;
   }
 
+  /** Friendly display name for notifications: name, else the email local-part. */
+  static async displayName(id: string): Promise<string> {
+    const rows = await sql`SELECT name, email FROM users WHERE id = ${id}`;
+    const u = rows[0] as any;
+    if (!u) return 'A member';
+    const name = u.name ? String(u.name).trim() : '';
+    if (name) return name;
+    return String(u.email || 'A member').split('@')[0];
+  }
+
   static async create(email: string, hashedPassword: string): Promise<User> {
     const result = await sql`
       INSERT INTO users (email, password)
@@ -122,5 +132,34 @@ export class UserModel {
     `;
     const row = result[0] as any;
     return Number(row?.token_version || 0);
+  }
+
+  /**
+   * Permanently erases the account and every row that belongs to it (GDPR
+   * "right to be forgotten"). `transaction_splits` / `transaction_tags` are
+   * removed automatically by their `ON DELETE CASCADE` FK when the parent
+   * transaction row goes; the remaining tables key off `user_id` so we delete
+   * them explicitly. The `users` row is removed last.
+   *
+   * Neon's HTTP driver runs each statement independently (no cross-statement
+   * transaction), so we order deletes children-first to avoid leaving orphans
+   * if one call fails midway.
+   */
+  static async deleteAccount(userId: string): Promise<void> {
+    await sql`DELETE FROM transactions WHERE user_id = ${userId}`;
+    await sql`DELETE FROM categories WHERE user_id = ${userId}`;
+    await sql`DELETE FROM budgets WHERE user_id = ${userId}`;
+    await sql`DELETE FROM recurring_transactions WHERE user_id = ${userId}`;
+    await sql`DELETE FROM reminders WHERE user_id = ${userId}`;
+    await sql`DELETE FROM goals WHERE user_id = ${userId}`;
+    await sql`DELETE FROM notifications WHERE user_id = ${userId}`;
+    await sql`DELETE FROM notification_preferences WHERE user_id = ${userId}`;
+    await sql`DELETE FROM feedback WHERE user_id = ${userId}`;
+    await sql`DELETE FROM user_fcm_tokens WHERE user_id = ${userId}`;
+    // Group memberships + any groups this user owns (owned groups cascade-remove
+    // their remaining members).
+    await sql`DELETE FROM group_members WHERE user_id = ${userId}`;
+    await sql`DELETE FROM groups WHERE owner_id = ${userId}`;
+    await sql`DELETE FROM users WHERE id = ${userId}`;
   }
 }

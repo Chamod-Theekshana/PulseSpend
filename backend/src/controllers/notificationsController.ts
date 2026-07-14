@@ -80,6 +80,8 @@ const PREF_KEYS = [
   'goal_reminders',
   'budget_alerts',
   'recurring_alerts',
+  'summary_digest',
+  'group_activity',
 ] as const;
 
 /**

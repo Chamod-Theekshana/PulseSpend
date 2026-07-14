@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/session_sync.dart';
 import '../../home/home_shell.dart';
+import '../../onboarding/screens/onboarding_screen.dart';
 import 'sign_in_screen.dart';
 
 /// Root gate: shows a brief splash while [AuthController] bootstraps from
@@ -21,8 +23,56 @@ class SplashGate extends ConsumerWidget {
       case AuthStatus.authenticated:
         return const _DataLoadGate(child: HomeShell());
       case AuthStatus.unauthenticated:
-        return const SignInScreen();
+        return const _OnboardingGate();
     }
+  }
+}
+
+/// For signed-out users: shows the first-run walkthrough once (device-scoped),
+/// then the sign-in screen. The "seen" flag lives in secure storage so it
+/// survives restarts and account switches.
+class _OnboardingGate extends StatefulWidget {
+  const _OnboardingGate();
+
+  @override
+  State<_OnboardingGate> createState() => _OnboardingGateState();
+}
+
+class _OnboardingGateState extends State<_OnboardingGate> {
+  // null = still reading the flag; true/false = resolved. A plain bool (rather
+  // than a FutureBuilder) makes the "finish → show sign-in" transition
+  // deterministic instead of depending on FutureBuilder's snapshot timing.
+  bool? _seen;
+
+  @override
+  void initState() {
+    super.initState();
+    SecureStorageService.instance.onboardingSeen.then((value) {
+      if (mounted) setState(() => _seen = value);
+    }).catchError((_) {
+      // If the flag can't be read, don't get stuck on the splash — just show
+      // the walkthrough.
+      if (mounted) setState(() => _seen = false);
+    });
+  }
+
+  Future<void> _finishOnboarding() async {
+    // Persist the "seen" flag, but never let a storage failure trap the user on
+    // the walkthrough — advance to sign-in regardless.
+    try {
+      await SecureStorageService.instance.setOnboardingSeen();
+    } catch (_) {
+      // ignore — the transition below is what matters to the user
+    }
+    if (mounted) setState(() => _seen = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seen = _seen;
+    if (seen == null) return const _SplashView();
+    if (seen) return const SignInScreen();
+    return OnboardingScreen(onDone: _finishOnboarding);
   }
 }
 

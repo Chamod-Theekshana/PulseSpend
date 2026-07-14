@@ -1,16 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../repositories/analytics_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
 import '../repositories/exchange_rate_repository.dart';
 import '../repositories/feedback_repository.dart';
 import '../repositories/goal_repository.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/profile_repository.dart';
 import '../repositories/recurring_repository.dart';
 import '../repositories/reminder_repository.dart';
 import '../repositories/transaction_repository.dart';
 
+final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) => AnalyticsRepository());
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) => TransactionRepository());
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) => CategoryRepository());
@@ -22,3 +25,4 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) => ProfileRe
 final notificationRepositoryProvider = Provider<NotificationRepository>((ref) => NotificationRepository());
 final exchangeRateRepositoryProvider = Provider<ExchangeRateRepository>((ref) => ExchangeRateRepository());
 final feedbackRepositoryProvider = Provider<FeedbackRepository>((ref) => FeedbackRepository());
+final groupRepositoryProvider = Provider<GroupRepository>((ref) => GroupRepository());

@@ -140,6 +140,25 @@ export class ReminderModel {
     return rows as ReminderRow[];
   }
 
+  /**
+   * Active bills whose due date has passed and that haven't yet had an *overdue*
+   * notification. The `last_notified_on <= due_date` guard means only pre-due
+   * reminders (or none) have fired so far; once we notify overdue we stamp
+   * `last_notified_on = today` (> due_date) so it fires exactly once.
+   */
+  static async listOverdue(today: string): Promise<ReminderRow[]> {
+    const rows = await sql`
+      SELECT id, user_id, title, amount, currency, category, due_date, remind_days_before, is_active, last_notified_on, created_at
+      FROM reminders
+      WHERE is_active = true
+        AND deleted_at IS NULL
+        AND due_date < ${today}::date
+        AND (last_notified_on IS NULL OR last_notified_on::date <= due_date::date)
+      ORDER BY due_date ASC, id ASC
+    `;
+    return rows as ReminderRow[];
+  }
+
   static async markNotified(id: number, notificationDate: string): Promise<void> {
     await sql`
       UPDATE reminders

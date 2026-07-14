@@ -3,6 +3,7 @@ import { generateOTP, storeOTP, verifyOTP, canResendOTP, updateResendTime } from
 import { sendOTPEmail } from '../config/email';
 import { signAccessToken, signRefreshToken } from '../utils/jwt';
 import { CategoryModel } from '../models/CategoryModel';
+import { BCRYPT_ROUNDS } from '../config/security';
 import bcrypt from 'bcrypt';
 import type { Request, Response } from 'express';
 
@@ -55,7 +56,7 @@ export async function verifyOTPAndSignUp(req: Request, res: Response) {
 
   if (!user) {
     // Create user with a random non-usable password (OTP-based accounts)
-    const randomHash = await bcrypt.hash(Math.random().toString(36), 12);
+    const randomHash = await bcrypt.hash(Math.random().toString(36), BCRYPT_ROUNDS);
     const result = await sql`
       INSERT INTO users (email, password)
       VALUES (${normalizedEmail}, ${randomHash})

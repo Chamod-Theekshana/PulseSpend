@@ -52,6 +52,8 @@ class NotificationPrefsController extends Notifier<NotificationPrefsState> {
       'goal_reminders' => previous.copyWith(goalReminders: value),
       'budget_alerts' => previous.copyWith(budgetAlerts: value),
       'recurring_alerts' => previous.copyWith(recurringAlerts: value),
+      'summary_digest' => previous.copyWith(summaryDigest: value),
+      'group_activity' => previous.copyWith(groupActivity: value),
       _ => previous,
     };
     state = state.copyWith(prefs: optimistic);

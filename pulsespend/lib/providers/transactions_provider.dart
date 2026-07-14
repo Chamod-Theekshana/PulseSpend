@@ -1,8 +1,71 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/errors/api_exception.dart';
 import '../core/network/socket_service.dart';
+import '../core/storage/outbox_service.dart';
 import '../models/transaction_model.dart';
 import 'auth_provider.dart';
+import 'connectivity_provider.dart';
 import 'repository_providers.dart';
+
+/// Server-side filter set for the transactions list + CSV export. `type` is
+/// 'all' | 'income' | 'expense'; the advanced fields are optional. Maps to the
+/// query params parsed by parseTransactionFilters on the backend.
+class TransactionFilters {
+  final String query;
+  final String type; // all | income | expense
+  final String? category;
+  final DateTime? from;
+  final DateTime? to;
+  final double? minAmount;
+  final double? maxAmount;
+
+  const TransactionFilters({
+    this.query = '',
+    this.type = 'all',
+    this.category,
+    this.from,
+    this.to,
+    this.minAmount,
+    this.maxAmount,
+  });
+
+  /// Number of *advanced* (bottom-sheet) filters active — used to badge the
+  /// filter button. Query text and the type chips are shown separately.
+  int get advancedCount =>
+      [category, from, to, minAmount, maxAmount].where((e) => e != null).length;
+
+  bool get isActive => query.trim().isNotEmpty || type != 'all' || advancedCount > 0;
+
+  /// copyWith only overrides scalar fields (query/type). Advanced nullable
+  /// fields are preserved — to change them, build a fresh instance (the filter
+  /// sheet does exactly that so it can also clear them).
+  TransactionFilters copyWith({String? query, String? type}) {
+    return TransactionFilters(
+      query: query ?? this.query,
+      type: type ?? this.type,
+      category: category,
+      from: from,
+      to: to,
+      minAmount: minAmount,
+      maxAmount: maxAmount,
+    );
+  }
+
+  static String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Map<String, dynamic> toQueryParams() {
+    final p = <String, dynamic>{};
+    if (query.trim().isNotEmpty) p['q'] = query.trim();
+    if (type == 'income' || type == 'expense') p['type'] = type;
+    if (category != null && category!.trim().isNotEmpty) p['category'] = category!.trim();
+    if (from != null) p['from'] = _isoDate(from!);
+    if (to != null) p['to'] = _isoDate(to!);
+    if (minAmount != null) p['minAmount'] = minAmount;
+    if (maxAmount != null) p['maxAmount'] = maxAmount;
+    return p;
+  }
+}
 
 class TransactionsState {
   final List<TransactionModel> items;
@@ -10,6 +73,8 @@ class TransactionsState {
   final bool isLoadingMore;
   final bool hasMore;
   final String? error;
+  final TransactionFilters filters;
+  final int pendingSyncCount;
 
   const TransactionsState({
     this.items = const [],
@@ -17,6 +82,8 @@ class TransactionsState {
     this.isLoadingMore = false,
     this.hasMore = true,
     this.error,
+    this.filters = const TransactionFilters(),
+    this.pendingSyncCount = 0,
   });
 
   TransactionsState copyWith({
@@ -25,6 +92,8 @@ class TransactionsState {
     bool? isLoadingMore,
     bool? hasMore,
     String? error,
+    TransactionFilters? filters,
+    int? pendingSyncCount,
   }) {
     return TransactionsState(
       items: items ?? this.items,
@@ -32,6 +101,8 @@ class TransactionsState {
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       hasMore: hasMore ?? this.hasMore,
       error: error,
+      filters: filters ?? this.filters,
+      pendingSyncCount: pendingSyncCount ?? this.pendingSyncCount,
     );
   }
 }
@@ -42,18 +113,65 @@ class TransactionsState {
 class TransactionsController extends Notifier<TransactionsState> {
   static const _pageSize = 30;
 
+  int _opSeq = 0;
+
   @override
   TransactionsState build() {
     _attachSocketListeners();
-    Future.microtask(refresh);
+    // Flush the offline queue whenever the realtime link (re)connects.
+    ref.listen(socketStatusProvider, (prev, next) {
+      if (next == SocketStatus.connected) {
+        flushOutbox();
+      }
+    });
+    Future.microtask(() async {
+      await refresh();
+      await _loadPendingCount();
+      await flushOutbox();
+    });
     return const TransactionsState();
   }
 
   void _attachSocketListeners() {
-    SocketService.instance.on('tx:new', (_) => refresh());
-    SocketService.instance.on('tx:updated', (_) => refresh());
-    SocketService.instance.on('tx:deleted', (_) => refresh());
+    final subs = [
+      SocketService.instance.on('tx:new', (_) => refresh()),
+      SocketService.instance.on('tx:updated', (_) => refresh()),
+      SocketService.instance.on('tx:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
   }
+
+  String? get _userIdOrNull => ref.read(authControllerProvider).userId;
+
+  Future<void> _loadPendingCount() async {
+    final userId = _userIdOrNull;
+    if (userId == null) return;
+    final count = await OutboxService.instance.countForUser(userId);
+    state = state.copyWith(pendingSyncCount: count);
+  }
+
+  String _newOpId(String userId) =>
+      '$userId-${DateTime.now().microsecondsSinceEpoch}-${_opSeq++}';
+
+  /// Builds an optimistic clone of [t] with the given local (negative) id so it
+  /// renders immediately while the real create is queued for sync.
+  TransactionModel _cloneWithId(TransactionModel t, int id, String userId) => TransactionModel(
+        id: id,
+        userId: userId,
+        title: t.title,
+        amount: t.amount,
+        currency: t.currency,
+        category: t.category,
+        createdAt: t.createdAt,
+        notes: t.notes,
+        receiptUrl: t.receiptUrl,
+        tags: t.tags,
+        splits: t.splits,
+      );
 
   Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
@@ -61,7 +179,7 @@ class TransactionsController extends Notifier<TransactionsState> {
       final userId = ref.read(currentUserIdProvider);
       final result = await ref
           .read(transactionRepositoryProvider)
-          .list(userId: userId, limit: _pageSize, offset: 0);
+          .list(userId: userId, limit: _pageSize, offset: 0, filters: state.filters);
       state = state.copyWith(
         items: result.items,
         isLoading: false,
@@ -70,6 +188,14 @@ class TransactionsController extends Notifier<TransactionsState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
+  }
+
+  /// Replaces the active filter set and reloads from the first page. All list
+  /// filtering is server-side, so the whole history is searched — not just the
+  /// pages already loaded.
+  Future<void> setFilters(TransactionFilters filters) async {
+    state = state.copyWith(filters: filters);
+    await refresh();
   }
 
   Future<void> loadMore() async {
@@ -81,6 +207,7 @@ class TransactionsController extends Notifier<TransactionsState> {
             userId: userId,
             limit: _pageSize,
             offset: state.items.length,
+            filters: state.filters,
           );
       state = state.copyWith(
         items: [...state.items, ...result.items],
@@ -93,8 +220,31 @@ class TransactionsController extends Notifier<TransactionsState> {
   }
 
   Future<void> create(TransactionModel transaction) async {
-    final created = await ref.read(transactionRepositoryProvider).create(transaction);
-    state = state.copyWith(items: [created, ...state.items]);
+    final userId = _userIdOrNull ?? '';
+    final opId = _newOpId(userId);
+    // Every create carries a stable idempotency key so that a lost response
+    // (timeout after the server already saved it) doesn't create a duplicate
+    // when the op is later replayed from the outbox.
+    final body = {...transaction.toRequestJson(), 'client_op_id': opId};
+    try {
+      final created = await ref.read(transactionRepositoryProvider).createRaw(body);
+      state = state.copyWith(items: [created, ...state.items]);
+    } on ApiException catch (e) {
+      if (!e.isNetworkError) rethrow;
+      // Offline: queue for sync and show an optimistic entry immediately.
+      await OutboxService.instance.add(OutboxOp(
+        opId: opId,
+        userId: userId,
+        type: 'create',
+        body: body,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      final optimistic = _cloneWithId(transaction, -DateTime.now().millisecondsSinceEpoch, userId);
+      state = state.copyWith(
+        items: [optimistic, ...state.items],
+        pendingSyncCount: state.pendingSyncCount + 1,
+      );
+    }
   }
 
   Future<void> update(int id, TransactionModel transaction) async {
@@ -105,13 +255,80 @@ class TransactionsController extends Notifier<TransactionsState> {
   }
 
   Future<void> delete(int id) async {
-    await ref.read(transactionRepositoryProvider).delete(id);
-    state = state.copyWith(items: state.items.where((t) => t.id != id).toList());
+    // A negative id is an optimistic, not-yet-synced create — just drop it from
+    // the queue and the list; nothing exists server-side to delete.
+    if (id < 0) {
+      state = state.copyWith(items: state.items.where((t) => t.id != id).toList());
+      return;
+    }
+    final userId = _userIdOrNull ?? '';
+    try {
+      await ref.read(transactionRepositoryProvider).delete(id);
+      state = state.copyWith(items: state.items.where((t) => t.id != id).toList());
+    } on ApiException catch (e) {
+      if (!e.isNetworkError) rethrow;
+      await OutboxService.instance.add(OutboxOp(
+        opId: _newOpId(userId),
+        userId: userId,
+        type: 'delete',
+        body: {'id': id},
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      // Optimistically remove; the delete will replay on reconnect.
+      state = state.copyWith(
+        items: state.items.where((t) => t.id != id).toList(),
+        pendingSyncCount: state.pendingSyncCount + 1,
+      );
+    }
+  }
+
+  /// Replays every queued offline write for the current user, oldest first.
+  /// Stops on the first network failure (still offline) and leaves the rest
+  /// queued. Idempotency keys make re-running a partially-applied op safe.
+  Future<void> flushOutbox() async {
+    final userId = _userIdOrNull;
+    if (userId == null) return;
+    final ops = await OutboxService.instance.opsForUser(userId);
+    if (ops.isEmpty) {
+      if (state.pendingSyncCount != 0) state = state.copyWith(pendingSyncCount: 0);
+      return;
+    }
+
+    final repo = ref.read(transactionRepositoryProvider);
+    var flushedAny = false;
+    for (final op in ops) {
+      try {
+        if (op.type == 'create') {
+          await repo.createRaw(op.body);
+        } else if (op.type == 'delete') {
+          await repo.delete((op.body['id'] as num).toInt());
+        }
+        await OutboxService.instance.remove(op.opId);
+        flushedAny = true;
+      } on ApiException catch (e) {
+        if (e.isNetworkError) break; // still offline — retry later
+        // A non-network failure (e.g. the row was already deleted, 404): drop
+        // the op so it doesn't wedge the queue forever.
+        await OutboxService.instance.remove(op.opId);
+        flushedAny = true;
+      }
+    }
+
+    await _loadPendingCount();
+    if (flushedAny) await refresh();
   }
 
   Future<void> bulkDelete(List<int> ids) async {
     await ref.read(transactionRepositoryProvider).bulkDelete(ids);
     state = state.copyWith(items: state.items.where((t) => !ids.contains(t.id)).toList());
+  }
+
+  /// Returns the CSV text for the transactions matching the active filters.
+  Future<String> exportCsv() {
+    final userId = ref.read(currentUserIdProvider);
+    return ref
+        .read(transactionRepositoryProvider)
+        .exportCsv(userId: userId, filters: state.filters);
   }
 }
 

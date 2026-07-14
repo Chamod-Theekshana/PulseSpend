@@ -1,6 +1,22 @@
 import { GoalModel } from '../models/GoalModel';
 import { emitToUser } from '../socket';
+import { sendPushToUser } from '../services/pushService';
 import type { AuthedRequest } from '../middleware/requireAuth';
+
+/** Celebration notification sent the first time a goal crosses 100%. */
+async function notifyGoalReached(userId: string, goal: any): Promise<void> {
+  try {
+    const amount = `${Number(goal.target_amount).toFixed(0)} ${goal.currency || 'LKR'}`;
+    await sendPushToUser(
+      userId,
+      'Goal reached! 🎉',
+      `You hit your "${goal.name}" goal of ${amount}. Amazing work — time to set the next one!`,
+      { type: 'goal_completed', goalId: String(goal.id) },
+    );
+  } catch (err) {
+    console.error('[Goals] Failed to send goal-reached notification:', err);
+  }
+}
 
 export async function listGoals(req: AuthedRequest, res: any) {
   const userId = String(req.user!.id);
@@ -63,7 +79,10 @@ export async function contributeToGoal(req: AuthedRequest, res: any) {
       // Proceed with raw amount but flag it in the response
       const goal = await GoalModel.addContribution(userId, id, contributionAmount);
       if (!goal) return res.status(404).json({ message: 'Not found' });
-      if (goal.is_completed) emitToUser(userId, 'goal:completed', { goal });
+      if (goal.is_completed) {
+        emitToUser(userId, 'goal:completed', { goal });
+        if (!existing.is_completed) await notifyGoalReached(userId, goal);
+      }
       return res.json({ goal, conversion_warning: `Rate unavailable for ${fromCurrency}→${toCurrency}. Amount recorded as-is.` });
     }
   }
@@ -74,6 +93,7 @@ export async function contributeToGoal(req: AuthedRequest, res: any) {
   emitToUser(userId, 'goal:updated', { goal });
   if (goal.is_completed) {
     emitToUser(userId, 'goal:completed', { goal });
+    if (!existing.is_completed) await notifyGoalReached(userId, goal);
   }
 
   return res.json({ goal });

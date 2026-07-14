@@ -13,15 +13,26 @@
 ///  ⚠️  When using a real device, also update [_realDeviceIp] below
 ///      to your PC's current LAN IP address.
 ///      Run: ipconfig   → look for "IPv4 Address" under Wi-Fi adapter.
+///
+///  Production / staging (REQUIRED — use HTTPS, never ship the http:// dev URLs):
+///    flutter build apk --dart-define=API_BASE_URL=https://api.yourdomain.com
+///  This override takes precedence over every dev default below and applies to
+///  both REST (Dio) and the realtime socket.
 /// ════════════════════════════════════════════════════════════════════
 class ApiConfig {
   ApiConfig._();
 
   // ── Configuration ─────────────────────────────────────────────────
 
+  /// Explicit base URL override (e.g. a production HTTPS host). When set via
+  /// --dart-define=API_BASE_URL=... it wins over the dev defaults, so release
+  /// builds never fall back to cleartext http:// LAN addresses.
+  static const String _baseUrlOverride =
+      String.fromEnvironment('API_BASE_URL', defaultValue: '');
+
   /// Set this to your PC's LAN IP when testing on a real device.
   /// e.g. '192.168.1.100'
-  static const String _realDeviceIp = '10.177.81.188';
+  static const String _realDeviceIp = '10.169.229.180';
 
   static const int _port = 5001;
 
@@ -29,12 +40,19 @@ class ApiConfig {
   static const bool _useRealDevice =
       bool.fromEnvironment('USE_REAL_DEVICE', defaultValue: false);
 
-  /// Base URL — resolved at compile time via dart-define flag.
+  /// Base URL — resolved at compile time.
   ///
-  ///  Emulator  →  http://10.0.2.2:5001   (Android loopback alias to host)
-  ///  Real device → http://<_realDeviceIp>:5001
-  static String get baseUrl =>
-      _useRealDevice ? 'http://$_realDeviceIp:$_port' : 'http://10.0.2.2:$_port';
+  ///  API_BASE_URL set → that value   (production HTTPS host)
+  ///  Emulator         → http://10.0.2.2:5001   (Android loopback alias to host)
+  ///  Real device      → http://<_realDeviceIp>:5001
+  static String get baseUrl {
+    if (_baseUrlOverride.isNotEmpty) return _baseUrlOverride;
+    return _useRealDevice ? 'http://$_realDeviceIp:$_port' : 'http://10.0.2.2:$_port';
+  }
+
+  /// True when talking to the backend over plaintext HTTP (dev only). Useful to
+  /// gate warnings or refuse to persist sensitive data in insecure builds.
+  static bool get isInsecureTransport => baseUrl.startsWith('http://');
 
   static const String apiPrefix = '/api';
 
@@ -53,6 +71,7 @@ class ApiConfig {
   static const String transactions = '$apiPrefix/transaction';
   static String transactionsByUser(String userId) => '$apiPrefix/transaction/$userId';
   static String transactionSummary(String userId) => '$apiPrefix/transaction/summary/$userId';
+  static String transactionExportCsv(String userId) => '$apiPrefix/transaction/export/$userId';
   static String transactionById(String id) => '$apiPrefix/transaction/id/$id';
   static String transactionDelete(String id) => '$apiPrefix/transaction/$id';
   static String transactionUpdate(String id) => '$apiPrefix/transaction/$id';
@@ -99,8 +118,20 @@ class ApiConfig {
   static const String notificationClear = '$apiPrefix/notifications/clear';
   static const String notificationPreferences = '$apiPrefix/notifications/preferences';
 
+  // ── Analytics ────────────────────────────────────────────────────
+  static const String analytics = '$apiPrefix/analytics';
+  static const String analyticsDigest = '$apiPrefix/analytics/digest';
+  static const String analyticsInsights = '$apiPrefix/analytics/insights';
+
   // ── Feedback / Report a Problem ──────────────────────────────────
   static const String feedback = '$apiPrefix/feedback';
+
+  // ── Shared / Family Groups ───────────────────────────────────────
+  static const String groups = '$apiPrefix/groups';
+  static const String groupJoin = '$apiPrefix/groups/join';
+  static String groupMembers(int id) => '$apiPrefix/groups/$id/members';
+  static String groupTransactions(int id) => '$apiPrefix/groups/$id/transactions';
+  static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';

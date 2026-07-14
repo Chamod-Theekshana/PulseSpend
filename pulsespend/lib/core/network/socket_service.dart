@@ -100,11 +100,28 @@ class SocketService {
   }
 
   /// Subscribe to a server event. Safe to call before [connect].
-  void on(String event, void Function(dynamic data) callback) {
+  ///
+  /// Returns a [SocketSubscription]; call `.cancel()` (typically in
+  /// `ref.onDispose`) to remove *only this* callback. Removing the whole event
+  /// with [off] would also drop callbacks other providers registered for the
+  /// same event (e.g. several controllers listen to `tx:new`).
+  SocketSubscription on(String event, void Function(dynamic data) callback) {
     _listeners.putIfAbsent(event, () => []).add(callback);
     _socket?.on(event, callback);
+    return SocketSubscription._(this, event, callback);
   }
 
+  void _removeListener(String event, void Function(dynamic) callback) {
+    final list = _listeners[event];
+    if (list != null) {
+      list.remove(callback);
+      if (list.isEmpty) _listeners.remove(event);
+    }
+    // socket_io_client removes only the matching handler when one is passed.
+    _socket?.off(event, callback);
+  }
+
+  /// Removes *all* callbacks for [event]. Prefer [SocketSubscription.cancel].
   void off(String event) {
     _listeners.remove(event);
     _socket?.off(event);
@@ -115,5 +132,22 @@ class SocketService {
     _socket = null;
     _hasConnectedOnce = false;
     status.value = SocketStatus.disconnected;
+  }
+}
+
+/// Handle to a single [SocketService.on] registration. Call [cancel] to remove
+/// just this listener (idempotent).
+class SocketSubscription {
+  final SocketService _service;
+  final String _event;
+  final void Function(dynamic) _callback;
+  bool _cancelled = false;
+
+  SocketSubscription._(this._service, this._event, this._callback);
+
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    _service._removeListener(_event, _callback);
   }
 }

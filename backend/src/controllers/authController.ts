@@ -2,9 +2,27 @@ import { UserModel } from '../models/UserModel';
 import bcrypt from 'bcrypt';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { CategoryModel } from '../models/CategoryModel';
+import { BCRYPT_ROUNDS } from '../config/security';
+import { loginFailRatelimit } from '../config/upstash';
 import type { Request, Response } from 'express';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Record a failed sign-in for an account and report whether it is now locked
+ * out. Consumes a lockout token only on failure, so successful logins are never
+ * throttled. Fails open (returns false) if the limiter is unavailable — per-IP
+ * `authRateLimiter` still guards the Redis-down case by failing closed.
+ */
+async function isLockedAfterFailure(email: string): Promise<boolean> {
+  try {
+    const { success } = await loginFailRatelimit.limit(email);
+    return !success;
+  } catch (err) {
+    console.error('[Auth] Login-failure counter unavailable:', err);
+    return false;
+  }
+}
 
 export async function signUp(req: Request, res: Response) {
   const { email, password } = req.body ?? {};
@@ -27,7 +45,7 @@ export async function signUp(req: Request, res: Response) {
     return res.status(409).json({ message: 'Email already registered' });
   }
 
-  const hashedPassword = await bcrypt.hash(String(password), 12);
+  const hashedPassword = await bcrypt.hash(String(password), BCRYPT_ROUNDS);
   const user = await UserModel.create(normalizedEmail, hashedPassword);
 
   // Best-effort: seed default categories — must not fail signup after user insert
@@ -60,12 +78,22 @@ export async function signIn(req: Request, res: Response) {
   const user = await UserModel.findByEmail(normalizedEmail);
 
   if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password' });
+    const locked = await isLockedAfterFailure(normalizedEmail);
+    return res.status(locked ? 429 : 401).json({
+      message: locked
+        ? 'Too many failed attempts. Please try again later.'
+        : 'Invalid email or password',
+    });
   }
 
   const isValidPassword = await bcrypt.compare(String(password), user.password);
   if (!isValidPassword) {
-    return res.status(401).json({ message: 'Invalid email or password' });
+    const locked = await isLockedAfterFailure(normalizedEmail);
+    return res.status(locked ? 429 : 401).json({
+      message: locked
+        ? 'Too many failed attempts. Please try again later.'
+        : 'Invalid email or password',
+    });
   }
 
   const tokenVersion = user.token_version || 0;

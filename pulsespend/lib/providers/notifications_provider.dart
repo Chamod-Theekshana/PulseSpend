@@ -37,6 +37,10 @@ class NotificationsState {
 /// the bell badge accurate without a dedicated event per type.
 class NotificationsController extends Notifier<NotificationsState> {
   static const _liveEvents = [
+    // Emitted by the backend for EVERY saved notification (see pushService.ts)
+    // — the single source of truth that keeps the inbox + badge live.
+    'notification:new',
+    // Domain events that also imply the inbox may have changed.
     'tx:new',
     'tx:updated',
     'tx:deleted',
@@ -52,9 +56,14 @@ class NotificationsController extends Notifier<NotificationsState> {
 
   @override
   NotificationsState build() {
-    for (final event in _liveEvents) {
-      SocketService.instance.on(event, (_) => refresh());
-    }
+    final subs = [
+      for (final event in _liveEvents) SocketService.instance.on(event, (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const NotificationsState();
   }

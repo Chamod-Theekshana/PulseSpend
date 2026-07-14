@@ -7,6 +7,7 @@ import helmet from 'helmet';
 // Load env FIRST before any module that reads process.env
 dotenv.config();
 
+import { validateEnv } from './config/env';
 import { initDB } from './config/db';
 import rateLimiter from './middleware/RateLimiter';
 import { requestLogger } from './middleware/requestLogger';
@@ -25,13 +26,36 @@ import exchangeRateRoutes from './routes/exchangeRateRoutes';
 import otpRoutes from './routes/otpRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import feedbackRoutes from './routes/feedbackRoutes';
+import groupsRoutes from './routes/groupsRoutes';
 import { initSocket } from './socket';
 import { startRecurringScheduler } from './services/recurringScheduler';
 import { GoalReminderService } from './services/GoalReminderService';
 import { BillReminderScheduler } from './services/billReminderScheduler';
+import { SummaryDigestScheduler } from './services/summaryDigestScheduler';
+import { ReengagementScheduler } from './services/reengagementScheduler';
+
+// Parse TRUST_PROXY into the value Express expects (boolean | number | subnet).
+function parseTrustProxy(v?: string): boolean | number | string {
+  if (!v) return false;
+  const t = v.trim();
+  if (t === 'true') return true;
+  if (t === 'false') return false;
+  const n = Number(t);
+  return Number.isNaN(n) ? t : n;
+}
+
+// Abort immediately if a required secret is missing/weak.
+validateEnv();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+
+// Trust proxy — controls how Express derives req.ip from X-Forwarded-For.
+// MUST reflect the number of proxies/load-balancers in front of the app; a
+// wrong value re-opens IP-based rate-limit spoofing. Default: don't trust any.
+//   TRUST_PROXY=1        → one reverse proxy (typical PaaS / Nginx)
+//   TRUST_PROXY=false    → direct connections (local dev)
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
 
 // Security headers
 app.disable('x-powered-by');
@@ -79,6 +103,7 @@ app.use('/api/goals', goalsRoutes);
 app.use('/api/exchange-rates', exchangeRateRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/groups', groupsRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
@@ -94,6 +119,8 @@ initDB()
     GoalReminderService.startDailyReminders();
     BillReminderScheduler.startDailyReminders();
     await BillReminderScheduler.checkAndSendReminders();
+    SummaryDigestScheduler.start();
+    ReengagementScheduler.start();
     server.listen(PORT, () => {
       console.log(`[Server] Running on port ${PORT}`);
     });

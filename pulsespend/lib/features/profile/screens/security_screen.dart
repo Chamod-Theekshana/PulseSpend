@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/security/biometric_service.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../providers/profile_provider.dart';
 import '../widgets/settings_widgets.dart';
 import 'change_password_screen.dart';
@@ -38,16 +40,35 @@ class SecurityScreen extends ConsumerWidget {
               SettingsSwitchTile(
                 icon: Icons.fingerprint_rounded,
                 title: 'Biometric unlock',
-                subtitle: 'Use fingerprint or face to open the app',
+                subtitle: 'Use fingerprint, face, or device passcode to open the app',
                 value: user?.biometricEnabled ?? false,
                 onChanged: (v) async {
+                  final messenger = ScaffoldMessenger.of(context);
                   try {
+                    // Enabling: verify the device can authenticate, then confirm
+                    // with a live prompt so we never turn on a lock the user
+                    // can't pass.
+                    if (v) {
+                      final canAuth =
+                          await BiometricService.instance.canAuthenticate();
+                      if (!canAuth) {
+                        messenger.showSnackBar(const SnackBar(
+                          content: Text(
+                            'Set up a fingerprint, face unlock, or device passcode first.',
+                          ),
+                        ));
+                        return;
+                      }
+                      final confirmed = await BiometricService.instance
+                          .authenticate(reason: 'Confirm to enable biometric unlock');
+                      if (!confirmed) return;
+                    }
                     await ref
                         .read(profileControllerProvider.notifier)
                         .update(biometricEnabled: v);
+                    await SecureStorageService.instance.setBiometricEnabled(v);
                   } catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       SnackBar(content: Text(DioClient.toApiException(e).message)),
                     );
                   }

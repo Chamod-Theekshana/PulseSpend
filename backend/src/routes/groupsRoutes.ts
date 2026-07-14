@@ -1,0 +1,25 @@
+import express from "express";
+import {
+  createGroup,
+  listGroups,
+  joinGroup,
+  getMembers,
+  getGroupTransactions,
+  leaveGroup,
+} from "../controllers/groupsController";
+import { requireAuth } from "../middleware/requireAuth";
+import { validateNumericParam } from "../middleware/validators";
+import { asyncHandler } from "../middleware/asyncHandler";
+
+const router = express.Router();
+
+router.use(requireAuth);
+
+router.get("/", asyncHandler(listGroups));
+router.post("/", asyncHandler(createGroup));
+router.post("/join", asyncHandler(joinGroup));
+router.get("/:id/members", validateNumericParam("id"), asyncHandler(getMembers));
+router.get("/:id/transactions", validateNumericParam("id"), asyncHandler(getGroupTransactions));
+router.delete("/:id/leave", validateNumericParam("id"), asyncHandler(leaveGroup));
+
+export default router;

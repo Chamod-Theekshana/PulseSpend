@@ -85,4 +85,15 @@ class ProfileRepository {
       throw DioClient.toApiException(e);
     }
   }
+
+  /// Permanently deletes the account and all its data. The current [password]
+  /// is re-checked server-side before anything is wiped — see deleteAccount
+  /// in profileController.ts.
+  Future<void> deleteAccount(String userId, {required String password}) async {
+    try {
+      await _dio.delete(ApiConfig.profile(userId), data: {'password': password});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
 }

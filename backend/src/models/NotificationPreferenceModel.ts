@@ -7,6 +7,8 @@ export interface NotificationPreferences {
   goal_reminders: boolean;
   budget_alerts: boolean;
   recurring_alerts: boolean;
+  summary_digest: boolean;
+  group_activity: boolean;
   updated_at?: Date | string;
 }
 
@@ -16,11 +18,15 @@ const DEFAULTS: Omit<NotificationPreferences, 'user_id' | 'updated_at'> = {
   goal_reminders: true,
   budget_alerts: true,
   recurring_alerts: true,
+  summary_digest: true,
+  group_activity: true,
 };
 
 /** Maps a push `data.type` value to the preference flag that gates it. */
 function flagForType(type: string): keyof typeof DEFAULTS | null {
   const t = (type || '').toLowerCase();
+  if (t.includes('summary') || t.includes('digest')) return 'summary_digest';
+  if (t.includes('group')) return 'group_activity';
   if (t.includes('bill') || t.includes('reminder')) return 'bill_reminders';
   if (t.includes('goal')) return 'goal_reminders';
   if (t.includes('budget')) return 'budget_alerts';
@@ -48,19 +54,23 @@ export class NotificationPreferenceModel {
       goal_reminders: updates.goal_reminders ?? current.goal_reminders,
       budget_alerts: updates.budget_alerts ?? current.budget_alerts,
       recurring_alerts: updates.recurring_alerts ?? current.recurring_alerts,
+      summary_digest: updates.summary_digest ?? current.summary_digest,
+      group_activity: updates.group_activity ?? current.group_activity,
     };
 
     const rows = await sql`
       INSERT INTO notification_preferences
-        (user_id, push_enabled, bill_reminders, goal_reminders, budget_alerts, recurring_alerts, updated_at)
+        (user_id, push_enabled, bill_reminders, goal_reminders, budget_alerts, recurring_alerts, summary_digest, group_activity, updated_at)
       VALUES
-        (${userId}, ${next.push_enabled}, ${next.bill_reminders}, ${next.goal_reminders}, ${next.budget_alerts}, ${next.recurring_alerts}, CURRENT_TIMESTAMP)
+        (${userId}, ${next.push_enabled}, ${next.bill_reminders}, ${next.goal_reminders}, ${next.budget_alerts}, ${next.recurring_alerts}, ${next.summary_digest}, ${next.group_activity}, CURRENT_TIMESTAMP)
       ON CONFLICT (user_id) DO UPDATE SET
         push_enabled = EXCLUDED.push_enabled,
         bill_reminders = EXCLUDED.bill_reminders,
         goal_reminders = EXCLUDED.goal_reminders,
         budget_alerts = EXCLUDED.budget_alerts,
         recurring_alerts = EXCLUDED.recurring_alerts,
+        summary_digest = EXCLUDED.summary_digest,
+        group_activity = EXCLUDED.group_activity,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `;

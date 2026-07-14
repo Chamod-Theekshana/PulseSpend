@@ -3,6 +3,16 @@ import type { AuthedRequest } from '../middleware/requireAuth';
 import { FeedbackModel, FEEDBACK_CATEGORIES } from '../models/FeedbackModel';
 import { transporter } from '../config/nodemailer';
 
+/** Escape user-controlled values before interpolating them into HTML email. */
+function escapeHtml(input: unknown): string {
+  return String(input ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * POST /api/feedback
  * Submits a "Report a Problem" / feedback message. Persists it and — if SMTP
@@ -51,12 +61,12 @@ export async function submitFeedback(req: AuthedRequest, res: Response) {
         replyTo: contactEmail ?? undefined,
         subject: `[PulseSpend ${cat}] ${feedback.subject}`,
         html: `
-          <h2>New ${cat} report</h2>
-          <p><strong>From user:</strong> ${userId} (${contactEmail ?? 'no email'})</p>
-          <p><strong>Subject:</strong> ${feedback.subject}</p>
-          <p><strong>Platform:</strong> ${feedback.platform ?? '—'} · <strong>App:</strong> ${feedback.app_version ?? '—'}</p>
+          <h2>New ${escapeHtml(cat)} report</h2>
+          <p><strong>From user:</strong> ${escapeHtml(userId)} (${escapeHtml(contactEmail ?? 'no email')})</p>
+          <p><strong>Subject:</strong> ${escapeHtml(feedback.subject)}</p>
+          <p><strong>Platform:</strong> ${escapeHtml(feedback.platform ?? '—')} · <strong>App:</strong> ${escapeHtml(feedback.app_version ?? '—')}</p>
           <hr/>
-          <p style="white-space:pre-wrap">${feedback.message}</p>
+          <p style="white-space:pre-wrap">${escapeHtml(feedback.message)}</p>
         `,
       })
       .catch((err) => console.error('[Feedback] Support email failed:', err?.message));

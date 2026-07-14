@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import '../core/config/api_config.dart';
 import '../core/network/dio_client.dart';
 import '../models/page_info.dart';
 import '../models/transaction_model.dart';
+import '../providers/transactions_provider.dart';
 
 class TransactionRepository {
   final _dio = DioClient.instance.dio;
@@ -10,17 +12,41 @@ class TransactionRepository {
     required String userId,
     int limit = 50,
     int offset = 0,
+    TransactionFilters? filters,
   }) async {
     try {
       final res = await _dio.get(
         ApiConfig.transactionsByUser(userId),
-        queryParameters: {'limit': limit, 'offset': offset},
+        queryParameters: {
+          'limit': limit,
+          'offset': offset,
+          ...?filters?.toQueryParams(),
+        },
       );
       final list = (res.data['transactions'] as List<dynamic>)
           .map((e) => TransactionModel.fromJson(e as Map<String, dynamic>))
           .toList();
       final page = PageInfo.fromJson(res.data['page'] as Map<String, dynamic>);
       return PagedResult(items: list, page: page);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Fetches the server-generated CSV of transactions matching [filters] (or
+  /// everything when null). Returns the raw CSV text for the caller to save
+  /// and share.
+  Future<String> exportCsv({
+    required String userId,
+    TransactionFilters? filters,
+  }) async {
+    try {
+      final res = await _dio.get<String>(
+        ApiConfig.transactionExportCsv(userId),
+        queryParameters: filters?.toQueryParams(),
+        options: Options(responseType: ResponseType.plain),
+      );
+      return res.data ?? '';
     } catch (e) {
       throw DioClient.toApiException(e);
     }
@@ -47,6 +73,18 @@ class TransactionRepository {
   Future<TransactionModel> create(TransactionModel transaction) async {
     try {
       final res = await _dio.post(ApiConfig.transactions, data: transaction.toRequestJson());
+      return TransactionModel.fromJson(res.data['transaction'] as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Posts a pre-built request body (used by the offline outbox, which stores
+  /// the exact body — including the `client_op_id` idempotency key — so a
+  /// replay after reconnect is byte-for-byte the original request).
+  Future<TransactionModel> createRaw(Map<String, dynamic> body) async {
+    try {
+      final res = await _dio.post(ApiConfig.transactions, data: body);
       return TransactionModel.fromJson(res.data['transaction'] as Map<String, dynamic>);
     } catch (e) {
       throw DioClient.toApiException(e);

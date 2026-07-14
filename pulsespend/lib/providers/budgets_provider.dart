@@ -67,15 +67,22 @@ class BudgetsController extends Notifier<BudgetsState> {
   }
 
   void _attachSocketListeners() {
-    SocketService.instance.on('budget:alert', (data) {
-      if (data is Map<String, dynamic>) {
-        state = state.copyWith(latestAlert: BudgetAlert.fromSocket(data));
+    final subs = [
+      SocketService.instance.on('budget:alert', (data) {
+        if (data is Map<String, dynamic>) {
+          state = state.copyWith(latestAlert: BudgetAlert.fromSocket(data));
+        }
+        refresh();
+      }),
+      SocketService.instance.on('budget:created', (_) => refresh()),
+      SocketService.instance.on('budget:updated', (_) => refresh()),
+      SocketService.instance.on('budget:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
       }
-      refresh();
     });
-    SocketService.instance.on('budget:created', (_) => refresh());
-    SocketService.instance.on('budget:updated', (_) => refresh());
-    SocketService.instance.on('budget:deleted', (_) => refresh());
   }
 
   void dismissAlert() => state = state.copyWith(clearAlert: true);
