@@ -90,6 +90,59 @@ export async function getGroupTransactions(req: AuthedRequest, res: Response) {
   return res.status(200).json({ transactions, summary });
 }
 
+/** GET /api/groups/:id/balances — Splitwise-lite member balances + suggestions. */
+export async function getGroupBalances(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+  const balances = await GroupModel.memberBalances(groupId, await preferredCurrency(userId));
+  return res.status(200).json(balances);
+}
+
+/**
+ * POST /api/groups/:id/settle — record "I paid <to_user> <amount>". Both sides
+ * get a group_activity notification and balances shift accordingly.
+ */
+export async function settleUp(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+  const { to_user, amount, currency } = req.body ?? {};
+
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+  const toUser = String(to_user ?? '');
+  if (!toUser || toUser === userId || !(await GroupModel.isMember(groupId, toUser))) {
+    return res.status(400).json({ message: 'to_user must be another member of this group' });
+  }
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000_000) {
+    return res.status(400).json({ message: 'Amount must be a positive number' });
+  }
+  const cur = typeof currency === 'string' && currency.trim() ? currency.trim().toUpperCase().slice(0, 10) : 'LKR';
+
+  await GroupModel.createSettlement(groupId, userId, toUser, Math.round(amt * 100) / 100, cur);
+
+  const group = await GroupModel.findById(groupId);
+  void (async () => {
+    try {
+      const payerName = await UserModel.displayName(userId);
+      await sendPushToUser(
+        toUser,
+        `Settled up in ${group?.name ?? 'your group'}`,
+        `${payerName} recorded a payment of ${amt.toFixed(2)} ${cur} to you.`,
+        { type: 'group_activity', groupId: String(groupId) },
+      );
+    } catch (err) {
+      console.error('[Groups] settle notification failed:', err);
+    }
+  })();
+
+  return res.status(201).json({ message: 'Settlement recorded' });
+}
+
 /**
  * DELETE /api/groups/:id/leave — leave a group. If the owner leaves, the whole
  * group is disbanded (members cascade); otherwise just their membership is removed.

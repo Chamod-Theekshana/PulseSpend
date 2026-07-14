@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/categories_provider.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 
 /// Bottom sheet for the advanced (server-side) transaction filters: category,
 /// date range and amount range. Returns the merged [TransactionFilters]
@@ -38,6 +39,7 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
   late String? _category = widget.current.category;
   late DateTime? _from = widget.current.from;
   late DateTime? _to = widget.current.to;
+  late int? _walletId = widget.current.walletId;
   late final _minController =
       TextEditingController(text: widget.current.minAmount?.toString() ?? '');
   late final _maxController =
@@ -82,6 +84,7 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
         to: _to,
         minAmount: min,
         maxAmount: max,
+        walletId: _walletId,
       ),
     );
   }
@@ -151,6 +154,43 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
             ),
           ),
           const SizedBox(height: 18),
+
+          // Wallet filter — only offered once wallets exist.
+          Consumer(builder: (context, ref, _) {
+            final wallets = ref.watch(walletsControllerProvider).items;
+            if (wallets.isEmpty) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _label('Wallet', textPrimary),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int?>(
+                      value: _walletId == null || _walletId == 0 || wallets.any((w) => w.id == _walletId)
+                          ? _walletId
+                          : null,
+                      isExpanded: true,
+                      hint: const Text('All wallets'),
+                      items: [
+                        const DropdownMenuItem<int?>(value: null, child: Text('All wallets')),
+                        const DropdownMenuItem<int?>(value: 0, child: Text('Default wallet')),
+                        for (final w in wallets)
+                          DropdownMenuItem<int?>(value: w.id, child: Text(w.name)),
+                      ],
+                      onChanged: (v) => setState(() => _walletId = v),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
+            );
+          }),
 
           _label('Date range', textPrimary),
           const SizedBox(height: 8),

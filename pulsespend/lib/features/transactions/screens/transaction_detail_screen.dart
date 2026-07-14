@@ -6,6 +6,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
 
@@ -140,7 +141,57 @@ class TransactionDetailScreen extends ConsumerWidget {
                 children: transaction.tags.map((t) => Chip(label: Text('#$t'))).toList(),
               ),
             ],
+            if (transaction.receiptUrl != null && transaction.receiptUrl!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Receipt', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => _ReceiptViewer(url: transaction.receiptUrl!),
+                  ),
+                ),
+                borderRadius: BorderRadius.circular(16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image(
+                    image: getProfileImageProvider(transaction.receiptUrl!),
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      height: 80,
+                      alignment: Alignment.center,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkSurfaceAlt
+                          : AppColors.lightSurfaceAlt,
+                      child: const Text('Receipt unavailable'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen, zoomable receipt view.
+class _ReceiptViewer extends StatelessWidget {
+  final String url;
+  const _ReceiptViewer({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
+      body: Center(
+        child: InteractiveViewer(
+          maxScale: 5,
+          child: Image(image: getProfileImageProvider(url)),
         ),
       ),
     );

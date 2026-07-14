@@ -7,6 +7,7 @@ import {
   getTransactionSummaryByUserId,
   updateTransaction,
   bulkDeleteTransactions,
+  bulkImportTransactions,
   exportTransactionsCsv,
 } from "../controllers/transactionsController";
 import { parsePagination, validateIdListBody, validateNumericParam, validateTransactionBody } from "../middleware/validators";
@@ -53,5 +54,7 @@ router.post(
   validateIdListBody("ids"),
   asyncHandler(bulkDeleteTransactions)
 );
+
+router.post("/bulk-import", asyncHandler(bulkImportTransactions));
 
 export default router;

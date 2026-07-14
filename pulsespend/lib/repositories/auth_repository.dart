@@ -83,6 +83,48 @@ class AuthRepository {
     }
   }
 
+  // ── Password reset (see passwordResetController.ts) ──────────────────────
+
+  /// Sends a reset passkey to [email]. The backend responds identically whether
+  /// or not the address is registered (no account probing).
+  Future<void> sendResetOTP(String email) async {
+    try {
+      await _dio.post(ApiConfig.resetSend, data: {'email': email});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Verifies the reset passkey; returns a short-lived `resetToken`.
+  Future<String> verifyResetOTP({required String email, required String passkey}) async {
+    try {
+      final res = await _dio.post(
+        ApiConfig.resetVerify,
+        data: {'email': email, 'passkey': passkey},
+      );
+      return res.data['resetToken'] as String;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Sets the new password. Old sessions are revoked server-side; the user
+  /// signs in fresh afterwards.
+  Future<void> completeReset({
+    required String email,
+    required String password,
+    required String resetToken,
+  }) async {
+    try {
+      await _dio.post(
+        ApiConfig.resetComplete,
+        data: {'email': email, 'password': password, 'resetToken': resetToken},
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post(ApiConfig.logout);

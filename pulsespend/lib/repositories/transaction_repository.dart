@@ -119,4 +119,22 @@ class TransactionRepository {
       throw DioClient.toApiException(e);
     }
   }
+
+  /// Bulk CSV import. Each row: title, amount, category, created_at (yyyy-MM-dd),
+  /// currency?, client_op_id (dedupes re-imports server-side). Returns counts.
+  Future<({int imported, int duplicates, int skipped})> bulkImport(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    try {
+      final res = await _dio.post(ApiConfig.transactionsBulkImport, data: {'rows': rows});
+      int n(dynamic v) => int.tryParse((v ?? 0).toString()) ?? 0;
+      return (
+        imported: n(res.data['imported']),
+        duplicates: n(res.data['duplicates']),
+        skipped: n(res.data['skipped']),
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
 }

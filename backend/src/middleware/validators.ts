@@ -658,7 +658,14 @@ export function parseTransactionFilters(req: Request) {
   const rawType = typeof req.query.type === 'string' ? req.query.type.toLowerCase() : '';
   const type = rawType === 'income' || rawType === 'expense' ? (rawType as 'income' | 'expense') : null;
 
-  return { q, category, from, to, minAmount, maxAmount, type };
+  // Wallet filter: a positive id, or 0 for "the default (unassigned) wallet".
+  const rawWallet = Number(req.query.wallet_id);
+  const walletId =
+    typeof req.query.wallet_id !== 'undefined' && Number.isInteger(rawWallet) && rawWallet >= 0
+      ? rawWallet
+      : null;
+
+  return { q, category, from, to, minAmount, maxAmount, type, walletId };
 }
 
 const MAX_BULK_IDS = 200;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/notifications/notification_router.dart';
 import 'core/security/app_lock_gate.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/screens/splash_gate.dart';
@@ -20,6 +21,8 @@ class PulseSpendApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'PulseSpend',
+      // Root navigator key so notification taps can deep-link from anywhere.
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

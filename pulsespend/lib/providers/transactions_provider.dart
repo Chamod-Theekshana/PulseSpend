@@ -19,6 +19,10 @@ class TransactionFilters {
   final double? minAmount;
   final double? maxAmount;
 
+  /// Wallet filter: null = all wallets, 0 = the default (unassigned) wallet,
+  /// otherwise a wallet id.
+  final int? walletId;
+
   const TransactionFilters({
     this.query = '',
     this.type = 'all',
@@ -27,12 +31,13 @@ class TransactionFilters {
     this.to,
     this.minAmount,
     this.maxAmount,
+    this.walletId,
   });
 
   /// Number of *advanced* (bottom-sheet) filters active — used to badge the
   /// filter button. Query text and the type chips are shown separately.
   int get advancedCount =>
-      [category, from, to, minAmount, maxAmount].where((e) => e != null).length;
+      [category, from, to, minAmount, maxAmount, walletId].where((e) => e != null).length;
 
   bool get isActive => query.trim().isNotEmpty || type != 'all' || advancedCount > 0;
 
@@ -48,6 +53,7 @@ class TransactionFilters {
       to: to,
       minAmount: minAmount,
       maxAmount: maxAmount,
+      walletId: walletId,
     );
   }
 
@@ -63,6 +69,7 @@ class TransactionFilters {
     if (to != null) p['to'] = _isoDate(to!);
     if (minAmount != null) p['minAmount'] = minAmount;
     if (maxAmount != null) p['maxAmount'] = maxAmount;
+    if (walletId != null) p['wallet_id'] = walletId;
     return p;
   }
 }
@@ -341,4 +348,31 @@ final transactionSummaryProvider = FutureProvider.autoDispose<TransactionSummary
   ref.watch(transactionsControllerProvider); // re-run when list refreshes
   final userId = ref.read(currentUserIdProvider);
   return ref.read(transactionRepositoryProvider).summary(userId);
+});
+
+/// UNFILTERED recent transactions for the dashboard (chart, top categories,
+/// recent list). Deliberately separate from [transactionsControllerProvider]:
+/// that controller carries the Transactions screen's server-side filters
+/// (search, date/category/wallet, heatmap day-taps), which must never bleed
+/// into the dashboard's charts.
+final dashboardTransactionsProvider =
+    FutureProvider.autoDispose<List<TransactionModel>>((ref) async {
+  final subs = [
+    SocketService.instance.on('tx:new', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:deleted', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
+
+  final userId = ref.watch(authControllerProvider).userId;
+  if (userId == null) return const [];
+  // 200 most-recent rows comfortably covers the 6-month balance chart.
+  final result = await ref
+      .read(transactionRepositoryProvider)
+      .list(userId: userId, limit: 200, offset: 0);
+  return result.items;
 });

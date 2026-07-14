@@ -67,6 +67,11 @@ class ApiConfig {
   static const String verifyPasskey = '$apiPrefix/auth/verify-passkey';
   static const String setPassword = '$apiPrefix/auth/set-password';
 
+  // Self-service password reset (email OTP)
+  static const String resetSend = '$apiPrefix/auth/reset/send';
+  static const String resetVerify = '$apiPrefix/auth/reset/verify';
+  static const String resetComplete = '$apiPrefix/auth/reset/complete';
+
   // ── Transactions ─────────────────────────────────────────────────
   static const String transactions = '$apiPrefix/transaction';
   static String transactionsByUser(String userId) => '$apiPrefix/transaction/$userId';
@@ -76,6 +81,7 @@ class ApiConfig {
   static String transactionDelete(String id) => '$apiPrefix/transaction/$id';
   static String transactionUpdate(String id) => '$apiPrefix/transaction/$id';
   static const String transactionsBulkDelete = '$apiPrefix/transaction/bulk-delete';
+  static const String transactionsBulkImport = '$apiPrefix/transaction/bulk-import';
 
   // ── Profile ──────────────────────────────────────────────────────
   static String profile(String id) => '$apiPrefix/profile/$id';
@@ -122,6 +128,7 @@ class ApiConfig {
   static const String analytics = '$apiPrefix/analytics';
   static const String analyticsDigest = '$apiPrefix/analytics/digest';
   static const String analyticsInsights = '$apiPrefix/analytics/insights';
+  static const String analyticsDaily = '$apiPrefix/analytics/daily';
 
   // ── Feedback / Report a Problem ──────────────────────────────────
   static const String feedback = '$apiPrefix/feedback';
@@ -131,7 +138,14 @@ class ApiConfig {
   static const String groupJoin = '$apiPrefix/groups/join';
   static String groupMembers(int id) => '$apiPrefix/groups/$id/members';
   static String groupTransactions(int id) => '$apiPrefix/groups/$id/transactions';
+  static String groupBalances(int id) => '$apiPrefix/groups/$id/balances';
+  static String groupSettle(int id) => '$apiPrefix/groups/$id/settle';
   static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
+
+  // ── Wallets / Accounts ───────────────────────────────────────────
+  static const String wallets = '$apiPrefix/wallets';
+  static const String walletBalances = '$apiPrefix/wallets/balances';
+  static String walletById(int id) => '$apiPrefix/wallets/$id';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';

@@ -1,11 +1,18 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/transaction_model.dart';
+import '../../../shared/utils/image_utils.dart';
 import '../../../providers/categories_provider.dart';
 import '../../../providers/profile_provider.dart';
+import '../../../providers/groups_provider.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../widgets/split_editor.dart';
@@ -38,6 +45,20 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   bool _isSplitMode = false;
   bool _isLoading = false;
 
+  /// Receipt image: an https URL (kept from the existing transaction), a
+  /// data:image/... URI (newly picked, uploaded server-side to Cloudinary), or
+  /// null (none / removed). The backend clears the receipt when absent, so on
+  /// edit the existing URL is resent to preserve it.
+  String? _receipt;
+
+  /// Selected wallet id; null on create = default wallet, 0 on edit = move
+  /// back to the default wallet (the backend treats 0 as "clear").
+  int? _walletId;
+
+  /// When set, this expense is shared with that group (Splitwise-lite: split
+  /// equally between members in the group's balance view).
+  int? _groupId;
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -54,6 +75,36 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       _tags = List.of(tx.tags);
       _splits = List.of(tx.splits);
       _isSplitMode = tx.isSplit;
+      _receipt = tx.receiptUrl;
+      _walletId = tx.walletId;
+    }
+  }
+
+  /// Pick a receipt photo (same pattern as the profile photo picker): gallery
+  /// image → 1MB cap (body limit is 2MB and base64 inflates ~37%) → data URI.
+  Future<void> _pickReceipt() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result == null || result.files.single.path == null) return;
+      final bytes = await File(result.files.single.path!).readAsBytes();
+      if (bytes.lengthInBytes > 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image is too large. Please pick one under 1MB.'),
+              backgroundColor: AppColors.expense,
+            ),
+          );
+        }
+        return;
+      }
+      setState(() => _receipt = 'data:image/jpeg;base64,${base64Encode(bytes)}');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: AppColors.expense),
+        );
+      }
     }
   }
 
@@ -139,6 +190,9 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         category: _isSplitMode ? (_splits.first.category) : _selectedCategory!,
         createdAt: _date,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        receiptUrl: _receipt,
+        walletId: _walletId,
+        groupId: _isExpense ? _groupId : null,
         tags: _tags,
         splits: _isSplitMode ? _splits : const [],
       );
@@ -254,6 +308,37 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   ),
                 ),
               ),
+              // ── Wallet (only shown once the user has created wallets) ──
+              Consumer(builder: (context, ref, _) {
+                final wallets = ref.watch(walletsControllerProvider).items;
+                if (wallets.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    Text('Wallet', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _CategoryChip(
+                          label: 'Default',
+                          selected: _walletId == null || _walletId == 0,
+                          onTap: () => setState(
+                              () => _walletId = _isEditing ? 0 : null),
+                        ),
+                        for (final w in wallets)
+                          _CategoryChip(
+                            label: w.name,
+                            selected: _walletId == w.id,
+                            onTap: () => setState(() => _walletId = w.id),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 16),
               if (!_isSplitMode) ...[
                 Text('Category', style: Theme.of(context).textTheme.labelLarge),
@@ -290,6 +375,44 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     categories: relevantCategories.map((c) => c.name).toList(),
                     onChanged: (splits) => setState(() => _splits = splits),
                   ),
+                // ── Share to group (Splitwise-lite; expenses only) ──
+                Consumer(builder: (context, ref, _) {
+                  final groups = ref.watch(groupsControllerProvider).items;
+                  if (groups.isEmpty || !_isExpense) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 16),
+                      Text('Share to group', style: Theme.of(context).textTheme.labelLarge),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Split equally between members in the group balance view',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _CategoryChip(
+                            label: 'Not shared',
+                            selected: _groupId == null,
+                            onTap: () => setState(() => _groupId = null),
+                          ),
+                          for (final g in groups)
+                            _CategoryChip(
+                              label: g.name,
+                              selected: _groupId == g.id,
+                              onTap: () => setState(() => _groupId = g.id),
+                            ),
+                        ],
+                      ),
+                    ],
+                  );
+                }),
               ],
               const SizedBox(height: 16),
               AppTextField(
@@ -297,6 +420,75 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 label: 'Notes (optional)',
                 maxLines: 3,
               ),
+              const SizedBox(height: 16),
+              Text('Receipt (optional)', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              if (_receipt == null)
+                InkWell(
+                  onTap: _pickReceipt,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: surfaceAlt,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.receipt_long_outlined, size: 20, color: AppColors.primary),
+                        SizedBox(width: 12),
+                        Text('Attach a receipt photo', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image(
+                        image: getProfileImageProvider(_receipt!),
+                        height: 140,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: InkWell(
+                        onTap: () => setState(() => _receipt = null),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: InkWell(
+                        onTap: _pickReceipt,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.edit_rounded, color: Colors.white, size: 18),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 16),
               Text('Tags', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),

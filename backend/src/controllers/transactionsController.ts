@@ -7,8 +7,24 @@ import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
 import { convert } from '../services/exchangeRateService';
 import { parseTransactionFilters } from '../middleware/validators';
+import cloudinary from '../config/cloudinary';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middleware/requireAuth';
+
+/**
+ * Accepts either a ready URL or a base64 data-URI for a receipt. Data-URIs are
+ * uploaded to Cloudinary (same pattern as profile photos) and swapped for the
+ * hosted URL. Returns null on empty input; throws only on a failed upload so
+ * the caller can surface a clean 500 message.
+ */
+async function resolveReceiptUrl(receipt: unknown): Promise<string | null> {
+  if (!receipt || typeof receipt !== 'string') return null;
+  if (!receipt.startsWith('data:image/')) return receipt;
+  const uploadResponse = await cloudinary.uploader.upload(receipt, {
+    folder: 'pulsespend/receipts',
+  });
+  return uploadResponse.secure_url;
+}
 
 // Expenses at or above this magnitude (in the transaction's own currency) notify
 // the user's shared-group members. A heuristic to surface "big" spends without
@@ -184,8 +200,16 @@ export async function exportTransactionsCsv(req: AuthedRequest, res: Response) {
 }
 
 export async function createTransaction(req: AuthedRequest, res: Response) {
-  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, client_op_id } = req.body;
+  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, client_op_id, wallet_id, group_id } = req.body;
   const user_id = String(req.user!.id);
+
+  let resolvedReceipt: string | null;
+  try {
+    resolvedReceipt = await resolveReceiptUrl(receipt_url);
+  } catch (err) {
+    console.error('[Tx] Receipt upload failed:', err);
+    return res.status(500).json({ message: 'Failed to upload receipt image' });
+  }
 
   const transaction = await TransactionModel.create(
     user_id,
@@ -194,11 +218,12 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
     category,
     created_at,
     currency,
-    receipt_url || null,
+    resolvedReceipt,
     splits,
     notes,
     tags,
     client_op_id || null,
+    Number.isFinite(Number(wallet_id)) ? Number(wallet_id) : null,
   );
 
   emitToUser(user_id, 'tx:new', {
@@ -218,10 +243,118 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
     await checkBudgetAlert(user_id, affectedCategory);
   }
 
-  // Let shared-group members know about a sizeable expense (fire-and-forget).
-  void notifyGroupsOfExpense(user_id, Number(transaction.amount), String(transaction.title || title), String(transaction.currency || currency || 'LKR'));
+  // Explicitly shared with a group → mark it + notify THAT group (any amount).
+  // Otherwise keep the legacy heuristic: big expenses ping all the user's groups.
+  const sharedGroupId = Number(group_id);
+  if (Number.isInteger(sharedGroupId) && sharedGroupId > 0 && (await GroupModel.isMember(sharedGroupId, user_id))) {
+    await sql`UPDATE transactions SET group_id = ${sharedGroupId} WHERE id = ${transaction.id} AND user_id = ${user_id}`;
+    (transaction as any).group_id = sharedGroupId;
+    void (async () => {
+      try {
+        const actor = await UserModel.displayName(user_id);
+        const group = await GroupModel.findById(sharedGroupId);
+        const amountLabel = `${Math.abs(Number(transaction.amount)).toFixed(0)} ${transaction.currency || 'LKR'}`;
+        for (const memberId of await GroupModel.memberIds(sharedGroupId)) {
+          if (memberId === user_id) continue;
+          await sendPushToUser(
+            memberId,
+            `Shared expense in ${group?.name ?? 'your group'}`,
+            `${actor} added ${amountLabel} · ${transaction.title}`,
+            { type: 'group_activity', groupId: String(sharedGroupId) },
+          );
+        }
+      } catch (err) {
+        console.error('[Groups] shared-expense notification failed:', err);
+      }
+    })();
+  } else {
+    void notifyGroupsOfExpense(user_id, Number(transaction.amount), String(transaction.title || title), String(transaction.currency || currency || 'LKR'));
+  }
 
   return res.status(201).json({ message: 'Transaction created successfully', transaction });
+}
+
+const BULK_IMPORT_MAX_ROWS = 500;
+
+/**
+ * POST /api/transaction/bulk-import — bank-statement CSV import.
+ * Validates each row leniently (bad rows are skipped, not fatal) and inserts
+ * everything in ONE UNNEST query — row-by-row inserts over Neon's HTTP driver
+ * would take minutes for a big statement. `client_op_id` + the partial unique
+ * index make re-importing the same file a no-op instead of duplicating.
+ * Budget alerts are intentionally skipped (a 300-row import would spam push).
+ */
+export async function bulkImportTransactions(req: AuthedRequest, res: Response) {
+  const user_id = String(req.user!.id);
+  const rows = (req.body as any)?.rows;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ message: 'rows must be a non-empty array' });
+  }
+  if (rows.length > BULK_IMPORT_MAX_ROWS) {
+    return res.status(400).json({ message: `A maximum of ${BULK_IMPORT_MAX_ROWS} rows per import` });
+  }
+
+  const titles: string[] = [];
+  const amounts: number[] = [];
+  const categories: string[] = [];
+  const dates: string[] = [];
+  const currencies: string[] = [];
+  const opIds: (string | null)[] = [];
+  let skipped = 0;
+
+  for (const row of rows) {
+    const title = typeof row?.title === 'string' ? row.title.trim().slice(0, 200) : '';
+    const amount = Number(row?.amount);
+    const category =
+      typeof row?.category === 'string' && row.category.trim() ? row.category.trim().slice(0, 255) : 'Imported';
+    const created_at = typeof row?.created_at === 'string' ? row.created_at : '';
+    const currency = typeof row?.currency === 'string' && row.currency.trim() ? row.currency.trim().toUpperCase().slice(0, 10) : 'LKR';
+    const opId = typeof row?.client_op_id === 'string' && row.client_op_id.trim() ? row.client_op_id.trim().slice(0, 64) : null;
+
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(created_at);
+    if (!title || !Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000_000 || !validDate) {
+      skipped++;
+      continue;
+    }
+
+    titles.push(title);
+    amounts.push(Math.round(amount * 100) / 100);
+    categories.push(category);
+    dates.push(created_at);
+    currencies.push(currency);
+    opIds.push(opId);
+  }
+
+  if (titles.length === 0) {
+    return res.status(400).json({ message: 'No valid rows to import', skipped });
+  }
+
+  const inserted = await sql`
+    INSERT INTO transactions (user_id, title, amount, category, currency, created_at, client_op_id)
+    SELECT ${user_id}, t.title, t.amount, t.category, t.currency, t.created_at::date, t.client_op_id
+    FROM UNNEST(
+      ${titles}::text[],
+      ${amounts}::numeric[],
+      ${categories}::text[],
+      ${currencies}::text[],
+      ${dates}::text[],
+      ${opIds}::text[]
+    ) AS t(title, amount, category, currency, created_at, client_op_id)
+    ON CONFLICT (user_id, client_op_id) WHERE client_op_id IS NOT NULL DO NOTHING
+    RETURNING id
+  `;
+
+  emitToUser(user_id, 'tx:new', { title: 'Import complete', body: `${inserted.length} transactions imported` });
+  emitToUser(user_id, 'tx:summary:invalidate', { user_id });
+  emitToUser(user_id, 'analytics:invalidate', { user_id });
+
+  return res.status(201).json({
+    message: 'Import complete',
+    imported: inserted.length,
+    duplicates: titles.length - inserted.length,
+    skipped,
+  });
 }
 
 export async function deleteTransaction(req: AuthedRequest, res: Response) {
@@ -298,7 +431,15 @@ export async function getTransactionById(req: AuthedRequest, res: Response) {
 export async function updateTransaction(req: AuthedRequest, res: Response) {
   const id = String(req.params.id);
   const authed = String(req.user!.id);
-  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags } = req.body;
+  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, wallet_id } = req.body;
+
+  let resolvedReceipt: string | null | undefined;
+  try {
+    resolvedReceipt = receipt_url !== undefined ? await resolveReceiptUrl(receipt_url) : undefined;
+  } catch (err) {
+    console.error('[Tx] Receipt upload failed:', err);
+    return res.status(500).json({ message: 'Failed to upload receipt image' });
+  }
 
   const tx = await TransactionModel.updateByUser(
     id,
@@ -308,10 +449,11 @@ export async function updateTransaction(req: AuthedRequest, res: Response) {
     category,
     created_at,
     currency,
-    receipt_url !== undefined ? receipt_url : undefined,
+    resolvedReceipt,
     splits,
     notes,
     tags,
+    wallet_id !== undefined ? (Number.isFinite(Number(wallet_id)) ? Number(wallet_id) : null) : undefined,
   );
 
   if (!tx) return res.status(404).json({ message: 'Transaction not found' });

@@ -40,6 +40,8 @@ class TransactionModel {
   final DateTime createdAt;
   final String? notes;
   final String? receiptUrl;
+  final int? walletId;
+  final int? groupId; // shared with this group (Splitwise-lite) when set
   final List<String> tags;
   final List<TransactionSplit> splits;
 
@@ -53,6 +55,8 @@ class TransactionModel {
     required this.createdAt,
     this.notes,
     this.receiptUrl,
+    this.walletId,
+    this.groupId,
     this.tags = const [],
     this.splits = const [],
   });
@@ -72,6 +76,8 @@ class TransactionModel {
       createdAt: DateTime.parse(json['created_at'].toString()),
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
+      walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
+      groupId: json['group_id'] != null ? int.tryParse(json['group_id'].toString()) : null,
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
       splits: (json['splits'] as List<dynamic>?)
               ?.map((e) => TransactionSplit.fromJson(e as Map<String, dynamic>))
@@ -92,6 +98,9 @@ class TransactionModel {
       'currency': currency,
       if (receiptUrl != null) 'receipt_url': receiptUrl,
       if (notes != null) 'notes': notes,
+      // 0 = explicitly back to the default wallet; absent = untouched-on-create.
+      if (walletId != null) 'wallet_id': walletId,
+      if (groupId != null) 'group_id': groupId,
       if (tags.isNotEmpty) 'tags': tags,
       if (splits.isNotEmpty) 'splits': splits.map((s) => s.toRequestJson()).toList(),
     };
@@ -105,6 +114,7 @@ class TransactionModel {
     DateTime? createdAt,
     String? notes,
     String? receiptUrl,
+    int? walletId,
     List<String>? tags,
     List<TransactionSplit>? splits,
   }) {
@@ -118,6 +128,7 @@ class TransactionModel {
       createdAt: createdAt ?? this.createdAt,
       notes: notes ?? this.notes,
       receiptUrl: receiptUrl ?? this.receiptUrl,
+      walletId: walletId ?? this.walletId,
       tags: tags ?? this.tags,
       splits: splits ?? this.splits,
     );

@@ -14,6 +14,7 @@ import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_transaction_screen.dart';
+import 'csv_import_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'transaction_filter_sheet.dart';
 
@@ -153,6 +154,13 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Import CSV',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CsvImportScreen()),
+            ),
+            icon: const Icon(Icons.file_download_outlined),
+          ),
           IconButton(
             tooltip: 'Export CSV',
             onPressed: _isExporting ? null : _exportCsv,

@@ -144,6 +144,23 @@ async function _runMigrations() {
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS client_op_id VARCHAR(64)`;
         await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_user_op ON transactions(user_id, client_op_id) WHERE client_op_id IS NOT NULL`;
 
+        // ── WALLETS / ACCOUNTS ────────────────────────────────────────────────
+        // Cash / bank / card accounts. transactions.wallet_id is nullable —
+        // NULL means the default wallet (legacy rows keep working untouched).
+        await sql`CREATE TABLE IF NOT EXISTS wallets(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            type VARCHAR(20) NOT NULL DEFAULT 'cash',
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP,
+            UNIQUE(user_id, name)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_wallets_user ON wallets(user_id)`;
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_wallet ON transactions(wallet_id)`;
+
         await sql`CREATE TABLE IF NOT EXISTS transaction_splits(
             id SERIAL PRIMARY KEY,
             transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
@@ -328,4 +345,21 @@ async function _runMigrations() {
         )`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)`;
+
+        // ── GROUP SETTLEMENTS (Splitwise-lite) ────────────────────────────────
+        // transactions.group_id marks an expense as SHARED with a group (split
+        // equally between members for balance math). group_settlements records
+        // member-to-member repayments so balances converge to zero.
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_id INTEGER`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)`;
+        await sql`CREATE TABLE IF NOT EXISTS group_settlements(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            from_user VARCHAR(255) NOT NULL,
+            to_user VARCHAR(255) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_settlements_group ON group_settlements(group_id)`;
 }

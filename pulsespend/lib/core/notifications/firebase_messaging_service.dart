@@ -2,8 +2,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'package:flutter/material.dart';
+
 import '../config/api_config.dart';
 import '../network/dio_client.dart';
+import 'notification_router.dart';
 
 /// Background isolate handler. Must be a top-level function annotated with
 /// `@pragma('vm:entry-point')`. The backend sends a `notification` block, so FCM
@@ -71,6 +74,9 @@ class FirebaseMessagingService {
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
           iOS: DarwinInitializationSettings(),
         ),
+        // Foreground-banner tap → deep-link (payload = the FCM data.type).
+        onDidReceiveNotificationResponse: (response) =>
+            handleNotificationTap(response.payload),
       );
       final androidPlugin = _localNotifications
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
@@ -79,6 +85,19 @@ class FirebaseMessagingService {
       // are silently dropped.
       await androidPlugin?.requestNotificationsPermission();
       FirebaseMessaging.onMessage.listen(_showForegroundNotification);
+
+      // Deep-linking: tap on a system banner while the app was backgrounded…
+      FirebaseMessaging.onMessageOpenedApp.listen(
+        (message) => handleNotificationTap(message.data['type'] as String?),
+      );
+      // …or while it was fully terminated (deferred until the first frame so
+      // the navigator exists before we push).
+      final initial = await messaging.getInitialMessage();
+      if (initial != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => handleNotificationTap(initial.data['type'] as String?),
+        );
+      }
 
       _token = await messaging.getToken();
       messaging.onTokenRefresh.listen((token) {
@@ -119,6 +138,8 @@ class FirebaseMessagingService {
         ),
         iOS: const DarwinNotificationDetails(),
       ),
+      // Carried through to onDidReceiveNotificationResponse for deep-linking.
+      payload: message.data['type'] as String?,
     );
   }
 
@@ -127,7 +148,9 @@ class FirebaseMessagingService {
     if (!_available) return null;
     if (_token != null) return _token;
     try {
-      _token = await FirebaseMessaging.instance.getToken();
+      // Bounded so a slow/hanging FCM lookup can never stall the signup flow
+      // (this is awaited in AuthController.completeSignup).
+      _token = await FirebaseMessaging.instance.getToken().timeout(const Duration(seconds: 8));
     } catch (_) {}
     return _token;
   }
