@@ -31,7 +31,8 @@
     "nodemailer": "^7.0.12",
     "otplib": "^13.4.1",
     "pdfkit": "^0.19.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "tsx": "^4.0.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
@@ -43,7 +44,6 @@
     "@types/nodemailer": "^6.4.14",
     "@types/pdfkit": "^0.17.6",
     "nodemon": "^3.1.11",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
   }

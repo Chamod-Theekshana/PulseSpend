@@ -1,0 +1,62 @@
+# Render Blueprint (optional convenience) for the PulseSpend backend.
+# Render reads this from the repository root. Railway/Fly.io don't use it —
+# they build from backend/Dockerfile directly.
+#
+# IMPORTANT: `plan: starter` is intentional — it is ALWAYS-ON. The free tier
+# sleeps after ~15 min of inactivity, which stops every cron scheduler
+# (recurring auto-posting, reminders, digests, GDPR purge, pacing alerts) and
+# drops realtime sockets. Do not downgrade to free.
+#
+# Secrets are `sync: false` → set their real values in the Render dashboard;
+# they are never stored in this file / git.
+services:
+  - type: web
+    name: pulsespend-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile   # relative to rootDir
+    plan: starter                  # always-on (see note above)
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ── Config (non-secret) ──
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 30d
+      # ── Secrets — set values in the dashboard ──
+      - key: JWT_SECRET            # must be ≥ 32 characters
+        sync: false
+      - key: DATABASE_URL          # Neon connection string
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON   # full service-account JSON as a string
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: EXCHANGE_RATE_API_KEY
+        sync: false
+      # NOTE: do NOT set PORT — Render injects it and the app binds process.env.PORT.
