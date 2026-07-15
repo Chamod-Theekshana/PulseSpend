@@ -35,6 +35,12 @@ async function processRecurringTransactions(): Promise<void> {
             item.category,
             new Date().toISOString().slice(0, 10),
             item.currency || 'LKR',
+            null,        // receiptUrl
+            undefined,   // splits
+            null,        // notes
+            undefined,   // tags
+            null,        // clientOpId
+            item.wallet_id ?? null, // post into the rule's wallet
           ),
           { retries: 2, delayMs: 500 }
         );

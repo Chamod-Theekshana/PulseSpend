@@ -38,6 +38,8 @@ import { ReengagementScheduler } from './services/reengagementScheduler';
 import { SubscriptionDetector } from './services/subscriptionDetector';
 import { GoalAutoContributeScheduler } from './services/goalAutoContributeScheduler';
 import { AccountPurgeScheduler } from './services/accountPurgeScheduler';
+import { RecurringReminderScheduler } from './services/recurringReminderScheduler';
+import { BudgetPacingScheduler } from './services/budgetPacingScheduler';
 
 // Parse TRUST_PROXY into the value Express expects (boolean | number | subnet).
 function parseTrustProxy(v?: string): boolean | number | string {
@@ -131,6 +133,8 @@ initDB()
     SubscriptionDetector.start();
     GoalAutoContributeScheduler.start();
     AccountPurgeScheduler.start();
+    RecurringReminderScheduler.start();
+    BudgetPacingScheduler.start();
     server.listen(PORT, () => {
       console.log(`[Server] Running on port ${PORT}`);
     });

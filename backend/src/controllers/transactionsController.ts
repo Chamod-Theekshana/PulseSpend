@@ -100,38 +100,37 @@ async function checkBudgetAlert(userId: string, category: string): Promise<void>
     const budget = await BudgetModel.findByCategory(userId, category);
     if (!budget) return;
 
-    const spent = await BudgetModel.getCategorySpent(userId, category, budget.currency);
+    // Measure spend over the budget's own period window (weekly/monthly/yearly).
+    const { startDate, endDate } = BudgetModel.periodWindow(budget.period || 'monthly');
+    const spent = await BudgetModel.getCategorySpent(userId, category, budget.currency, startDate, endDate);
     const percentage = budget.amount > 0 ? Math.round((spent / Number(budget.amount)) * 100) : 0;
 
-    if (percentage >= 100) {
-      emitToUser(userId, 'budget:alert', {
-        category,
-        percentage,
-        spent,
-        limit: Number(budget.amount),
-        level: 'exceeded',
-      });
-      await sendPushToUser(
-        userId,
-        `🚨 Budget Exceeded: ${category}`,
-        `You've spent ${spent.toFixed(2)} of your ${Number(budget.amount).toFixed(2)} ${category} budget (${percentage}%).`,
-        { type: 'budget_alert', category, level: 'exceeded' }
-      );
-    } else if (percentage >= 80) {
-      emitToUser(userId, 'budget:alert', {
-        category,
-        percentage,
-        spent,
-        limit: Number(budget.amount),
-        level: 'warning',
-      });
-      await sendPushToUser(
-        userId,
-        `⚠️ Budget Warning: ${category}`,
-        `You've used ${percentage}% of your ${category} budget (${spent.toFixed(2)} / ${Number(budget.amount).toFixed(2)}).`,
-        { type: 'budget_alert', category, level: 'warning' }
-      );
-    }
+    const level = percentage >= 100 ? 100 : percentage >= 80 ? 80 : 0;
+    if (level === 0) return;
+
+    // Dedupe: within one period window, only alert when crossing a NEW, higher
+    // threshold — so repeated spending doesn't re-ping the same 80%/100% alert.
+    const state = await BudgetModel.getAlertState(budget.id);
+    if (state.period === startDate && state.level >= level) return;
+
+    const isExceeded = level === 100;
+    emitToUser(userId, 'budget:alert', {
+      category,
+      percentage,
+      spent,
+      limit: Number(budget.amount),
+      level: isExceeded ? 'exceeded' : 'warning',
+    });
+    await sendPushToUser(
+      userId,
+      isExceeded ? `🚨 Budget Exceeded: ${category}` : `⚠️ Budget Warning: ${category}`,
+      isExceeded
+        ? `You've spent ${spent.toFixed(2)} of your ${Number(budget.amount).toFixed(2)} ${category} budget (${percentage}%).`
+        : `You've used ${percentage}% of your ${category} budget (${spent.toFixed(2)} / ${Number(budget.amount).toFixed(2)}).`,
+      { type: 'budget_alert', category, level: isExceeded ? 'exceeded' : 'warning' }
+    );
+
+    await BudgetModel.setAlertLevel(budget.id, startDate, level);
   } catch (err) {
     console.error('[BudgetAlert] Error checking budget:', err);
   }

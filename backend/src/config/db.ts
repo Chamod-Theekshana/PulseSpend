@@ -213,6 +213,12 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Alert dedupe + pacing state. alert_period is the current window's start
+        // date (ISO); alert_level is the highest threshold (80/100) already
+        // pushed this period; pace_alerted marks the one pacing alert per period.
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_period VARCHAR(10)`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_level SMALLINT NOT NULL DEFAULT 0`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS pace_alerted BOOLEAN NOT NULL DEFAULT false`;
 
         await sql`CREATE TABLE IF NOT EXISTS recurring_transactions(
             id SERIAL PRIMARY KEY,
@@ -229,6 +235,22 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Recurring rules can target a specific wallet; the materialized
+        // transaction inherits it (NULL = the default wallet bucket).
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        // Day-before reminder dedupe: last date we pushed an "upcoming" reminder.
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS last_reminded_on DATE`;
+
+        // Subscriptions the user dismissed from the "Detected subscriptions"
+        // list, keyed by the detector's normalized series key so they stay
+        // hidden across re-detections.
+        await sql`CREATE TABLE IF NOT EXISTS dismissed_subscriptions(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            series_key VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_dismissed_sub ON dismissed_subscriptions(user_id, series_key)`;
 
         await sql`CREATE TABLE IF NOT EXISTS reminders(
             id SERIAL PRIMARY KEY,
@@ -330,6 +352,10 @@ async function _runMigrations() {
         // request; a daily purge job hard-deletes once the grace period lapses.
         // Signing in during the window lets the user cancel (restore).
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP`;
+
+        // Optional overall monthly spending cap (NULL = off), separate from the
+        // per-category budgets. Measured in the user's preferred currency.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_budget DECIMAL(12,2)`;
 
         // ── TOTP 2FA ──────────────────────────────────────────────────────────
         // totp_secret is stored on enroll but 2FA only enforces once the user

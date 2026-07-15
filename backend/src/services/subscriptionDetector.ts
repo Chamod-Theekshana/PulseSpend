@@ -10,10 +10,14 @@ export interface TxRow {
   created_at: string | Date;
 }
 
+export type CadenceLabel = 'weekly' | 'monthly' | 'yearly';
+
 export interface DetectedSubscription {
   name: string;
+  seriesKey: string; // normalized key, used to dismiss/hide the series
   occurrences: number;
   cadenceDays: number;
+  cadenceLabel: CadenceLabel;
   lastAmount: number;
   previousAmount: number;
   changePct: number; // latest vs previous occurrence, in %
@@ -32,13 +36,28 @@ export function normalizeTitle(title: string): string {
 }
 
 /**
- * Pure detection over a user's expense history: series of ≥3 same-title
- * expenses recurring at a ~monthly cadence (25–35 day median gap) are treated
- * as subscriptions. This intentionally analyses REAL transactions — the app's
- * own recurring engine emits fixed amounts, so price changes can only be seen
- * in actual history (e.g. imported/manual entries).
+ * Buckets a median inter-charge gap into a cadence. Each cadence sets its own
+ * minimum occurrences and recency window so we only surface subscriptions that
+ * still look active (a cancelled monthly sub goes stale after ~45 days; a
+ * yearly one is expected to be silent for up to ~13 months).
  */
-export function detectSubscriptions(rows: TxRow[]): DetectedSubscription[] {
+function classifyCadence(
+  median: number,
+): { label: CadenceLabel; minOccurrences: number; recencyDays: number } | null {
+  if (median >= 5 && median <= 9) return { label: 'weekly', minOccurrences: 3, recencyDays: 14 };
+  if (median >= 25 && median <= 35) return { label: 'monthly', minOccurrences: 3, recencyDays: 45 };
+  if (median >= 350 && median <= 380) return { label: 'yearly', minOccurrences: 2, recencyDays: 400 };
+  return null;
+}
+
+/**
+ * Pure detection over a user's expense history: same-title expense series with
+ * a stable weekly / monthly / yearly cadence are treated as subscriptions. This
+ * intentionally analyses REAL transactions — the app's own recurring engine
+ * emits fixed amounts, so price changes can only be seen in actual history.
+ * `nowMs` is injectable for deterministic tests.
+ */
+export function detectSubscriptions(rows: TxRow[], nowMs: number = Date.now()): DetectedSubscription[] {
   const series = new Map<string, TxRow[]>();
   for (const row of rows) {
     if (row.amount >= 0) continue; // subscriptions are expenses
@@ -48,8 +67,8 @@ export function detectSubscriptions(rows: TxRow[]): DetectedSubscription[] {
   }
 
   const out: DetectedSubscription[] = [];
-  for (const [, txs] of series) {
-    if (txs.length < 3) continue;
+  for (const [key, txs] of series) {
+    if (txs.length < 2) continue; // need ≥1 gap
     const sorted = [...txs].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
@@ -63,25 +82,33 @@ export function detectSubscriptions(rows: TxRow[]): DetectedSubscription[] {
     }
     gaps.sort((a, b) => a - b);
     const median = gaps[Math.floor(gaps.length / 2)];
-    if (median < 25 || median > 35) continue; // not monthly-ish
+
+    const cadence = classifyCadence(median);
+    if (!cadence) continue;
+    if (sorted.length < cadence.minOccurrences) continue;
 
     const last = sorted[sorted.length - 1];
+    const lastDateObj = new Date(last.created_at);
+    // Skip series that have gone quiet — likely cancelled, not active.
+    if (nowMs - lastDateObj.getTime() > cadence.recencyDays * 24 * 60 * 60 * 1000) continue;
+
     const prev = sorted[sorted.length - 2];
     const lastAmount = Math.abs(Number(last.amount));
     const previousAmount = Math.abs(Number(prev.amount));
     const changePct =
       previousAmount > 0 ? ((lastAmount - previousAmount) / previousAmount) * 100 : 0;
 
-    const lastDate = new Date(last.created_at);
     out.push({
       name: last.title,
+      seriesKey: key,
       occurrences: sorted.length,
       cadenceDays: Math.round(median),
+      cadenceLabel: cadence.label,
       lastAmount: Math.round(lastAmount * 100) / 100,
       previousAmount: Math.round(previousAmount * 100) / 100,
       changePct: Math.round(changePct * 10) / 10,
       currency: last.currency || 'LKR',
-      lastDate: `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`,
+      lastDate: `${lastDateObj.getFullYear()}-${String(lastDateObj.getMonth() + 1).padStart(2, '0')}-${String(lastDateObj.getDate()).padStart(2, '0')}`,
     });
   }
 
@@ -89,15 +116,32 @@ export function detectSubscriptions(rows: TxRow[]): DetectedSubscription[] {
 }
 
 export async function detectForUser(userId: string): Promise<DetectedSubscription[]> {
+  // 24-month window so yearly subscriptions (≥2 charges) can be seen; the
+  // per-cadence recency guard drops anything that looks cancelled.
   const rows = await sql`
     SELECT title, amount, currency, created_at
     FROM transactions
     WHERE user_id = ${userId} AND deleted_at IS NULL AND amount < 0
       AND transfer_id IS NULL
-      AND created_at >= NOW() - INTERVAL '12 months'
+      AND created_at >= NOW() - INTERVAL '24 months'
     ORDER BY created_at ASC
   `;
-  return detectSubscriptions(rows as unknown as TxRow[]);
+  const dismissedRows = await sql`
+    SELECT series_key FROM dismissed_subscriptions WHERE user_id = ${userId}
+  `;
+  const dismissed = new Set(dismissedRows.map((r: any) => String(r.series_key)));
+  return detectSubscriptions(rows as unknown as TxRow[]).filter((s) => !dismissed.has(s.seriesKey));
+}
+
+/** Hides a detected subscription series (by display name) from future lists. */
+export async function dismissSubscription(userId: string, name: string): Promise<void> {
+  const key = normalizeTitle(String(name || ''));
+  if (key.length < 3) return;
+  await sql`
+    INSERT INTO dismissed_subscriptions (user_id, series_key)
+    VALUES (${userId}, ${key})
+    ON CONFLICT (user_id, series_key) DO NOTHING
+  `;
 }
 
 let isRunning = false;

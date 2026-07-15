@@ -10,13 +10,16 @@ export type RecurringRow = {
   frequency: string;
   next_run: string;
   is_active: boolean;
+  wallet_id?: number | null;
   created_at: string;
 };
 
+// NOTE: every SELECT below includes currency + wallet_id — omitting `currency`
+// was the root cause of recurring charges always posting in LKR.
 export class RecurringModel {
   static async listByUser(userId: string, limit: number, offset: number): Promise<RecurringRow[]> {
     const rows = await sql`
-      SELECT id, user_id, title, amount, category, frequency, next_run, is_active, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
       FROM recurring_transactions
       WHERE user_id = ${userId} AND deleted_at IS NULL
       ORDER BY next_run ASC
@@ -36,7 +39,7 @@ export class RecurringModel {
 
   static async findById(userId: string, id: number): Promise<RecurringRow | null> {
     const rows = await sql`
-      SELECT id, user_id, title, amount, category, frequency, next_run, is_active, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
       FROM recurring_transactions
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
     `;
@@ -49,12 +52,15 @@ export class RecurringModel {
     amount: number,
     category: string,
     frequency: string,
-    nextRun: string
+    nextRun: string,
+    currency: string = 'LKR',
+    walletId: number | null = null,
   ): Promise<RecurringRow> {
+    const wallet = walletId && walletId > 0 ? walletId : null;
     const rows = await sql`
-      INSERT INTO recurring_transactions (user_id, title, amount, category, frequency, next_run)
-      VALUES (${userId}, ${title}, ${amount}, ${category}, ${frequency}, ${nextRun}::date)
-      RETURNING id, user_id, title, amount, category, frequency, next_run, is_active, created_at
+      INSERT INTO recurring_transactions (user_id, title, amount, currency, category, frequency, next_run, wallet_id)
+      VALUES (${userId}, ${title}, ${amount}, ${currency}, ${category}, ${frequency}, ${nextRun}::date, ${wallet})
+      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
     `;
     return rows[0] as RecurringRow;
   }
@@ -62,18 +68,34 @@ export class RecurringModel {
   static async update(
     userId: string,
     id: number,
-    fields: { title?: string; amount?: number; category?: string; frequency?: string; is_active?: boolean }
+    fields: {
+      title?: string;
+      amount?: number;
+      currency?: string;
+      category?: string;
+      frequency?: string;
+      is_active?: boolean;
+      wallet_id?: number | null;
+      next_run?: string;
+    }
   ): Promise<RecurringRow | null> {
+    // wallet_id needs to distinguish "unchanged" (undefined) from "clear to
+    // default" (null), so COALESCE won't do — apply it only when provided.
+    const walletProvided = fields.wallet_id !== undefined;
+    const wallet = fields.wallet_id && fields.wallet_id > 0 ? fields.wallet_id : null;
     const rows = await sql`
       UPDATE recurring_transactions
       SET
         title = COALESCE(${fields.title ?? null}, title),
         amount = COALESCE(${fields.amount ?? null}, amount),
+        currency = COALESCE(${fields.currency ?? null}, currency),
         category = COALESCE(${fields.category ?? null}, category),
         frequency = COALESCE(${fields.frequency ?? null}, frequency),
-        is_active = COALESCE(${fields.is_active ?? null}, is_active)
+        is_active = COALESCE(${fields.is_active ?? null}, is_active),
+        next_run = COALESCE(${fields.next_run ?? null}::date, next_run),
+        wallet_id = CASE WHEN ${walletProvided} THEN ${wallet} ELSE wallet_id END
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
-      RETURNING id, user_id, title, amount, category, frequency, next_run, is_active, created_at
+      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
     `;
     return (rows[0] as RecurringRow) || null;
   }
@@ -111,7 +133,7 @@ export class RecurringModel {
     console.log('[Recurring] Checking due recurrences for local date:', today);
     // Use AT TIME ZONE 'UTC' to strip Neon's timezone offset on DATE columns
     const rows = await sql`
-      SELECT id, user_id, title, amount, category, frequency, next_run, is_active, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
       FROM recurring_transactions
       WHERE is_active = true
         AND deleted_at IS NULL
@@ -119,6 +141,26 @@ export class RecurringModel {
       ORDER BY next_run ASC
     `;
     return rows as RecurringRow[];
+  }
+
+  /**
+   * Active rules charging tomorrow that we haven't reminded about today yet
+   * (day-before "upcoming charge" reminder, deduped via last_reminded_on).
+   */
+  static async listDueForReminder(tomorrowISO: string, todayISO: string): Promise<RecurringRow[]> {
+    const rows = await sql`
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      FROM recurring_transactions
+      WHERE is_active = true
+        AND deleted_at IS NULL
+        AND (next_run AT TIME ZONE 'UTC')::date = ${tomorrowISO}::date
+        AND (last_reminded_on IS NULL OR last_reminded_on <> ${todayISO}::date)
+    `;
+    return rows as RecurringRow[];
+  }
+
+  static async markReminded(id: number, todayISO: string): Promise<void> {
+    await sql`UPDATE recurring_transactions SET last_reminded_on = ${todayISO}::date WHERE id = ${id}`;
   }
 
   /**

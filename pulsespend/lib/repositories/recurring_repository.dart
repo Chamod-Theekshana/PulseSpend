@@ -34,6 +34,15 @@ class RecurringRepository {
     }
   }
 
+  /// Hides a detected subscription series from future detection lists.
+  Future<void> dismissDetected(String name) async {
+    try {
+      await _dio.post(ApiConfig.recurringDetectedDismiss, data: {'name': name});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<RecurringModel> create(RecurringModel rule) async {
     try {
       final res = await _dio.post(ApiConfig.recurring, data: rule.toCreateRequestJson());

@@ -106,12 +106,15 @@ class ApiConfig {
   // ── Budgets ──────────────────────────────────────────────────────
   static const String budgets = '$apiPrefix/budgets';
   static const String budgetStatus = '$apiPrefix/budgets/status';
+  static const String budgetTotalStatus = '$apiPrefix/budgets/total-status';
+  static const String budgetTotal = '$apiPrefix/budgets/total';
   static String budgetById(int id) => '$apiPrefix/budgets/$id';
   static const String budgetsBulkDelete = '$apiPrefix/budgets/bulk-delete';
 
   // ── Recurring ────────────────────────────────────────────────────
   static const String recurring = '$apiPrefix/recurring';
   static const String recurringDetected = '$apiPrefix/recurring/detected';
+  static const String recurringDetectedDismiss = '$apiPrefix/recurring/detected/dismiss';
   static String recurringById(int id) => '$apiPrefix/recurring/$id';
   static const String recurringBulkDelete = '$apiPrefix/recurring/bulk-delete';
 

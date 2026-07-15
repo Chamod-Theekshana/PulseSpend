@@ -34,6 +34,7 @@ import '../wallets/screens/wallets_screen.dart';
 import '../notifications/screens/notifications_screen.dart';
 import '../transactions/screens/transaction_detail_screen.dart';
 import '../transactions/screens/transactions_screen.dart';
+import 'widgets/month_calendar_sheet.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -560,18 +561,22 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
                   ),
                 ],
               ),
-              // Calendar accent chip
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.10),
+              // Calendar chip → month spending calendar sheet
+              Material(
+                color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.10),
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.calendar_month_outlined,
-                  color: AppColors.primary,
-                  size: 22,
+                  onTap: () => MonthCalendarSheet.show(context),
+                  child: const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Icon(
+                      Icons.calendar_month_outlined,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                  ),
                 ),
               ),
             ],

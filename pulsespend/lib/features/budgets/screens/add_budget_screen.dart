@@ -9,8 +9,8 @@ import '../../../providers/profile_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
 
-/// Create a monthly budget limit for a category. Mirrors POST /api/budgets
-/// (category, amount, currency, period — period is always 'monthly' today).
+/// Create a budget limit for a category. Mirrors POST /api/budgets
+/// (category, amount, currency, period ∈ weekly | monthly | yearly).
 class AddBudgetScreen extends ConsumerStatefulWidget {
   const AddBudgetScreen({super.key});
 
@@ -22,13 +22,22 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   String? _selectedCategory;
+  String _period = 'monthly';
   bool _isLoading = false;
+
+  static const _periods = ['weekly', 'monthly', 'yearly'];
 
   @override
   void dispose() {
     _amountController.dispose();
     super.dispose();
   }
+
+  String _periodLabel(String p) => switch (p) {
+        'weekly' => 'Weekly',
+        'yearly' => 'Yearly',
+        _ => 'Monthly',
+      };
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -45,7 +54,7 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
         category: _selectedCategory!,
         amount: double.parse(_amountController.text.trim()),
         currency: currency,
-        period: 'monthly',
+        period: _period,
       );
       await ref.read(budgetsControllerProvider.notifier).create(budget);
       if (!mounted) return;
@@ -107,9 +116,27 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
                     .toList(),
               ),
               const SizedBox(height: 20),
+              Text('Period', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: _periods
+                    .map((p) => ChoiceChip(
+                          label: Text(_periodLabel(p)),
+                          selected: _period == p,
+                          onSelected: (_) => setState(() => _period = p),
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            color: _period == p ? Colors.white : textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 20),
               AppTextField(
                 controller: _amountController,
-                label: 'Monthly limit ($currency)',
+                label: '${_periodLabel(_period)} limit ($currency)',
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 prefixIcon: const Icon(Icons.attach_money_rounded),
                 validator: (v) {

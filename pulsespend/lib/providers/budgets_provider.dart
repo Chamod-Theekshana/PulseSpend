@@ -114,3 +114,22 @@ class BudgetsController extends Notifier<BudgetsState> {
 }
 
 final budgetsControllerProvider = NotifierProvider<BudgetsController, BudgetsState>(BudgetsController.new);
+
+/// Overall monthly budget cap vs actual. Re-fetches when budgets or
+/// transactions change so the master ring stays live.
+final totalBudgetStatusProvider = FutureProvider.autoDispose<TotalBudgetStatus>((ref) async {
+  final subs = [
+    SocketService.instance.on('budget:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('budget:created', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('budget:deleted', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:new', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:deleted', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
+  return ref.read(budgetRepositoryProvider).totalStatus();
+});

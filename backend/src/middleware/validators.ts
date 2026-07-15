@@ -378,8 +378,8 @@ export function validateBudgetBody(req: Request, res: Response, next: NextFuncti
   }
 
   const p = (period || 'monthly') as string;
-  if (!['monthly'].includes(p)) {
-    return res.status(400).json({ message: 'Period must be: monthly' });
+  if (!['weekly', 'monthly', 'yearly'].includes(p)) {
+    return res.status(400).json({ message: 'Period must be one of: weekly, monthly, yearly' });
   }
 
   const c = normalizeCurrency(currency, 'LKR');
@@ -533,6 +533,21 @@ export function validateRecurringBody(req: Request, res: Response, next: NextFun
     (req.body as any).startDate = undefined;
   }
 
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+
   (req.body as any).title = title.trim();
   (req.body as any).category = category.trim();
   (req.body as any).amount = numAmount;
@@ -586,12 +601,29 @@ export function validateRecurringUpdateBody(req: Request, res: Response, next: N
     (req.body as any).is_active = Boolean(is_active);
   }
 
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+
   if (
     title === undefined &&
     amount === undefined &&
     category === undefined &&
     frequency === undefined &&
-    is_active === undefined
+    is_active === undefined &&
+    currency === undefined &&
+    wallet_id === undefined
   ) {
     return res.status(400).json({ message: 'At least one field must be provided' });
   }
