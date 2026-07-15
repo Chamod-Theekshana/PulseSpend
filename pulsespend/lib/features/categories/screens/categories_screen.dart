@@ -42,7 +42,7 @@ class CategoriesScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     }
   }
 
@@ -187,7 +187,7 @@ class _CategoryEditorSheetState extends ConsumerState<_CategoryEditorSheet> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

@@ -6,6 +6,7 @@ import {
   getMembers,
   getGroupTransactions,
   getGroupBalances,
+  getGroupGoals,
   settleUp,
   leaveGroup,
 } from "../controllers/groupsController";
@@ -23,6 +24,7 @@ router.post("/join", asyncHandler(joinGroup));
 router.get("/:id/members", validateNumericParam("id"), asyncHandler(getMembers));
 router.get("/:id/transactions", validateNumericParam("id"), asyncHandler(getGroupTransactions));
 router.get("/:id/balances", validateNumericParam("id"), asyncHandler(getGroupBalances));
+router.get("/:id/goals", validateNumericParam("id"), asyncHandler(getGroupGoals));
 router.post("/:id/settle", validateNumericParam("id"), asyncHandler(settleUp));
 router.delete("/:id/leave", validateNumericParam("id"), asyncHandler(leaveGroup));
 

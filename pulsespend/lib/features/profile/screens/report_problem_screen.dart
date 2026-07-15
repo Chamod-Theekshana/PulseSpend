@@ -66,7 +66,7 @@ class _ReportProblemScreenState extends ConsumerState<ReportProblemScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(DioClient.toApiException(e).message)),
+        SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);

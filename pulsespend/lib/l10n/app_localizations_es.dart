@@ -203,4 +203,31 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get createAccount => 'Crear cuenta';
+
+  @override
+  String get errNetwork =>
+      'Sin conexión. Comprueba tu internet e inténtalo de nuevo.';
+
+  @override
+  String get errTimeout =>
+      'Se agotó el tiempo de conexión. Inténtalo de nuevo.';
+
+  @override
+  String get errUnauthorized =>
+      'Tu sesión ha caducado. Vuelve a iniciar sesión.';
+
+  @override
+  String get errValidation =>
+      'No se pudo procesar la solicitud. Revisa los datos e inténtalo de nuevo.';
+
+  @override
+  String get errRateLimited =>
+      'Demasiados intentos. Espera un momento e inténtalo de nuevo.';
+
+  @override
+  String get errServer =>
+      'Hubo un problema en el servidor. Inténtalo de nuevo en breve.';
+
+  @override
+  String get errUnknown => 'Algo salió mal. Inténtalo de nuevo.';
 }

@@ -35,7 +35,7 @@ class GroupsScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(DioClient.toApiException(e).message)),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
         );
       }
     }
@@ -66,7 +66,7 @@ class GroupsScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(DioClient.toApiException(e).message)),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
         );
       }
     }

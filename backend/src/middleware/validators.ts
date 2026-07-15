@@ -479,8 +479,9 @@ export function validateGoalUpdateBody(req: Request, res: Response, next: NextFu
 export function validateGoalContributionBody(req: Request, res: Response, next: NextFunction) {
   const { amount, currency } = req.body ?? {};
   const numAmount = Number(amount);
-  if (!Number.isFinite(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ message: 'amount must be a positive number' });
+  // Negative = withdrawal (goal timeline supports both directions); zero is meaningless.
+  if (!Number.isFinite(numAmount) || numAmount === 0 || Math.abs(numAmount) > 1_000_000_000) {
+    return res.status(400).json({ message: 'amount must be a non-zero number' });
   }
   const cur = normalizeCurrency(currency, 'LKR');
   if (cur.length < 3 || cur.length > 10) {

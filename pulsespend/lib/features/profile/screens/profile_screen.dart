@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
@@ -31,6 +32,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   String? _selectedGender;
   bool _isSaving = false;
   bool _isExporting = false;
+  bool _isExportingCsv = false;
   bool _isImporting = false;
   bool _isDeleting = false;
   String? _pickedProfilePhoto;
@@ -92,7 +94,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -114,11 +116,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
       if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  /// GDPR-portable CSV bundle (one titled section per entity) — opens in any
+  /// spreadsheet, unlike the JSON backup which is for re-import.
+  Future<void> _exportDataCsv() async {
+    setState(() => _isExportingCsv = true);
+    try {
+      final userId = ref.read(currentUserIdProvider);
+      final csv = await ref.read(profileRepositoryProvider).exportDataCsv(userId);
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/pulsespend_export.csv');
+      await file.writeAsString(csv);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'My PulseSpend Data (CSV)');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingCsv = false);
     }
   }
 
@@ -146,7 +172,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -186,7 +212,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -382,6 +408,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     const SizedBox(width: 14),
                     Expanded(
                       child: _softAction(
+                        icon: Icons.table_view_rounded,
+                        label: 'CSV',
+                        loading: _isExportingCsv,
+                        onTap: _exportDataCsv,
+                        isDark: isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _softAction(
                         icon: Icons.upload_rounded,
                         label: 'Import',
                         loading: _isImporting,
@@ -395,7 +431,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Export a JSON backup of your data, or restore one you saved earlier.',
+                    'Export a JSON backup (re-importable) or a CSV bundle for spreadsheets.',
                     style: TextStyle(
                       color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
                       fontSize: 12.5,
@@ -415,7 +451,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Permanently delete your account and all associated data. This cannot be undone.',
+                    'Deletes your account and all data after a 7-day grace period. '
+                    'Signing in again within 7 days lets you cancel.',
                     style: TextStyle(
                       color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
                       fontSize: 12.5,

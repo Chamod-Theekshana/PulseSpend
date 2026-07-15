@@ -1,7 +1,15 @@
 import type { Response } from 'express';
 import { RecurringModel } from '../models/RecurringModel';
+import { detectForUser } from '../services/subscriptionDetector';
 import type { AuthedRequest } from '../middleware/requireAuth';
 import { emitToUser } from '../socket';
+
+/** GET /api/recurring/detected — subscription-like series found in real history. */
+export async function listDetectedSubscriptions(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const detected = await detectForUser(userId);
+  return res.json({ detected });
+}
 
 export async function listRecurring(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);

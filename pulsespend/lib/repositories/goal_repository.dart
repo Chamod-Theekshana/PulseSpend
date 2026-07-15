@@ -57,6 +57,31 @@ class GoalRepository {
     }
   }
 
+  /// Sets (amount+day) or clears (nulls) the monthly auto-contribution rule.
+  Future<GoalModel> setAutoRule(int id, {double? amount, int? day}) async {
+    try {
+      final res = await _dio.put(
+        ApiConfig.goalAutoRule(id),
+        data: {'auto_amount': amount, 'auto_day': day},
+      );
+      return GoalModel.fromJson(res.data['goal'] as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Deposit/withdrawal timeline for a goal, newest first.
+  Future<List<GoalContribution>> contributions(int id) async {
+    try {
+      final res = await _dio.get(ApiConfig.goalContributions(id));
+      return (res.data['contributions'] as List<dynamic>)
+          .map((e) => GoalContribution.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<void> delete(int id) async {
     try {
       await _dio.delete(ApiConfig.goalById(id));

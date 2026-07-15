@@ -28,12 +28,16 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import feedbackRoutes from './routes/feedbackRoutes';
 import groupsRoutes from './routes/groupsRoutes';
 import walletsRoutes from './routes/walletsRoutes';
+import debtsRoutes from './routes/debtsRoutes';
 import { initSocket } from './socket';
 import { startRecurringScheduler } from './services/recurringScheduler';
 import { GoalReminderService } from './services/GoalReminderService';
 import { BillReminderScheduler } from './services/billReminderScheduler';
 import { SummaryDigestScheduler } from './services/summaryDigestScheduler';
 import { ReengagementScheduler } from './services/reengagementScheduler';
+import { SubscriptionDetector } from './services/subscriptionDetector';
+import { GoalAutoContributeScheduler } from './services/goalAutoContributeScheduler';
+import { AccountPurgeScheduler } from './services/accountPurgeScheduler';
 
 // Parse TRUST_PROXY into the value Express expects (boolean | number | subnet).
 function parseTrustProxy(v?: string): boolean | number | string {
@@ -106,6 +110,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/wallets', walletsRoutes);
+app.use('/api/debts', debtsRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
@@ -123,6 +128,9 @@ initDB()
     await BillReminderScheduler.checkAndSendReminders();
     SummaryDigestScheduler.start();
     ReengagementScheduler.start();
+    SubscriptionDetector.start();
+    GoalAutoContributeScheduler.start();
+    AccountPurgeScheduler.start();
     server.listen(PORT, () => {
       console.log(`[Server] Running on port ${PORT}`);
     });

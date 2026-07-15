@@ -9,6 +9,7 @@ import '../../../providers/profile_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/selection_sheet.dart';
 import '../../auth/screens/splash_gate.dart';
+import '../../debts/screens/debts_screen.dart';
 import '../../groups/screens/groups_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
 import '../../wallets/screens/wallets_screen.dart';
@@ -69,7 +70,7 @@ class SettingsScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(DioClient.toApiException(e).message)),
+        SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
       );
     }
   }
@@ -232,6 +233,13 @@ class SettingsScreen extends ConsumerWidget {
                 title: 'Wallets',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const WalletsScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.handshake_outlined,
+                title: 'IOUs',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DebtsScreen()),
                 ),
               ),
               SettingsTile(

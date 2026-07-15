@@ -1,3 +1,40 @@
+/// A subscription-like series detected from real transaction history
+/// (backend subscriptionDetector.ts) — NOT a recurring rule the user created.
+class DetectedSubscription {
+  final String name;
+  final int occurrences;
+  final int cadenceDays;
+  final double lastAmount;
+  final double previousAmount;
+  final double changePct;
+  final String currency;
+
+  const DetectedSubscription({
+    required this.name,
+    required this.occurrences,
+    required this.cadenceDays,
+    required this.lastAmount,
+    required this.previousAmount,
+    required this.changePct,
+    required this.currency,
+  });
+
+  bool get priceIncreased => changePct > 10;
+
+  factory DetectedSubscription.fromJson(Map<String, dynamic> json) {
+    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    return DetectedSubscription(
+      name: (json['name'] as String?) ?? '',
+      occurrences: (json['occurrences'] as num?)?.toInt() ?? 0,
+      cadenceDays: (json['cadenceDays'] as num?)?.toInt() ?? 30,
+      lastAmount: d(json['lastAmount']),
+      previousAmount: d(json['previousAmount']),
+      changePct: d(json['changePct']),
+      currency: (json['currency'] as String?) ?? 'LKR',
+    );
+  }
+}
+
 /// Mirrors `RecurringRow` in RecurringModel.ts.
 class RecurringModel {
   final int id;

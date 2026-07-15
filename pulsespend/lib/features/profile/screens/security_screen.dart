@@ -3,8 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/security/biometric_service.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
+import '../../../providers/repository_providers.dart';
+import '../../../shared/widgets/app_text_field.dart';
 import '../widgets/settings_widgets.dart';
+import '../widgets/two_factor_enroll_sheet.dart';
 import 'change_password_screen.dart';
 
 class SecurityScreen extends ConsumerWidget {
@@ -69,11 +73,43 @@ class SecurityScreen extends ConsumerWidget {
                     await SecureStorageService.instance.setBiometricEnabled(v);
                   } catch (e) {
                     messenger.showSnackBar(
-                      SnackBar(content: Text(DioClient.toApiException(e).message)),
+                      SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
                     );
                   }
                 },
               ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Two-factor authentication'),
+          SettingsCard(
+            children: [
+              Consumer(builder: (context, ref, _) {
+                final statusAsync = ref.watch(twoFactorStatusProvider);
+                final enabled = statusAsync.value ?? false;
+                return SettingsSwitchTile(
+                  icon: Icons.verified_user_outlined,
+                  title: 'Authenticator app (TOTP)',
+                  subtitle: enabled
+                      ? 'A 6-digit code is required when signing in'
+                      : 'Require a 6-digit code from an authenticator app at sign-in',
+                  value: enabled,
+                  onChanged: statusAsync.isLoading
+                      ? null
+                      : (v) async {
+                          if (v) {
+                            final done = await TwoFactorEnrollSheet.show(context);
+                            if (done == true) ref.invalidate(twoFactorStatusProvider);
+                          } else {
+                            final disabled = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => const _DisableTwoFactorDialog(),
+                            );
+                            if (disabled == true) ref.invalidate(twoFactorStatusProvider);
+                          }
+                        },
+                );
+              }),
             ],
           ),
           const SizedBox(height: 16),
@@ -86,6 +122,97 @@ class SecurityScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Turning 2FA off needs the password AND a current authenticator (or
+/// recovery) code — matches the backend's disable requirements.
+class _DisableTwoFactorDialog extends ConsumerStatefulWidget {
+  const _DisableTwoFactorDialog();
+
+  @override
+  ConsumerState<_DisableTwoFactorDialog> createState() => _DisableTwoFactorDialogState();
+}
+
+class _DisableTwoFactorDialogState extends ConsumerState<_DisableTwoFactorDialog> {
+  final _passwordController = TextEditingController();
+  final _codeController = TextEditingController();
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _disable() async {
+    final password = _passwordController.text;
+    final code = _codeController.text.trim();
+    if (password.isEmpty || code.isEmpty) {
+      setState(() => _error = 'Password and code are required');
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .disableTwoFactor(password: password, code: code);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = DioClient.toApiException(e).localizedMessage(context));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Turn off two-factor?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Confirm with your password and a current authenticator code '
+            '(or a recovery code).',
+            style: TextStyle(fontSize: 13.5, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          AppTextField(
+            controller: _passwordController,
+            label: 'Password',
+            obscureText: true,
+          ),
+          const SizedBox(height: 12),
+          AppTextField(
+            controller: _codeController,
+            label: 'Authenticator or recovery code',
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12.5)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _isLoading ? null : _disable,
+          child: Text(_isLoading ? 'Turning off…' : 'Turn off'),
+        ),
+      ],
     );
   }
 }

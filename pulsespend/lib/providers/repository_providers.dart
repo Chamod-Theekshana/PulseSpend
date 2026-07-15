@@ -3,6 +3,7 @@ import '../repositories/analytics_repository.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
+import '../repositories/debt_repository.dart';
 import '../repositories/exchange_rate_repository.dart';
 import '../repositories/feedback_repository.dart';
 import '../repositories/goal_repository.dart';
@@ -28,3 +29,4 @@ final exchangeRateRepositoryProvider = Provider<ExchangeRateRepository>((ref) =>
 final feedbackRepositoryProvider = Provider<FeedbackRepository>((ref) => FeedbackRepository());
 final groupRepositoryProvider = Provider<GroupRepository>((ref) => GroupRepository());
 final walletRepositoryProvider = Provider<WalletRepository>((ref) => WalletRepository());
+final debtRepositoryProvider = Provider<DebtRepository>((ref) => DebtRepository());

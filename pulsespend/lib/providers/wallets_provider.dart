@@ -60,6 +60,23 @@ class WalletsController extends Notifier<WalletsState> {
 final walletsControllerProvider =
     NotifierProvider<WalletsController, WalletsState>(WalletsController.new);
 
+/// Assets − liabilities snapshot for the dashboard. Same refresh triggers as
+/// the balances (wallet + transaction events).
+final netWorthProvider = FutureProvider.autoDispose<NetWorth>((ref) async {
+  final subs = [
+    SocketService.instance.on('wallet:changed', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:new', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:deleted', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
+  return ref.read(walletRepositoryProvider).netWorth();
+});
+
 /// Per-wallet balances for the dashboard cards. Refreshes when transactions or
 /// wallets change (socket events fire for both).
 final walletBalancesProvider = FutureProvider.autoDispose<List<WalletBalance>>((ref) async {

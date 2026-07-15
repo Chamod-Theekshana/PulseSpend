@@ -9,7 +9,11 @@ import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
 
 class AddRecurringScreen extends ConsumerStatefulWidget {
-  const AddRecurringScreen({super.key});
+  /// Optional pre-fill (e.g. "Track as recurring" from a detected subscription).
+  final String? initialTitle;
+  final double? initialAmount;
+
+  const AddRecurringScreen({super.key, this.initialTitle, this.initialAmount});
 
   @override
   ConsumerState<AddRecurringScreen> createState() => _AddRecurringScreenState();
@@ -17,8 +21,10 @@ class AddRecurringScreen extends ConsumerStatefulWidget {
 
 class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
-  final _amountController = TextEditingController();
+  late final _titleController = TextEditingController(text: widget.initialTitle ?? '');
+  late final _amountController = TextEditingController(
+    text: widget.initialAmount != null ? widget.initialAmount!.toStringAsFixed(2) : '',
+  );
   bool _isExpense = true;
   String? _selectedCategory;
   String _frequency = 'monthly';
@@ -68,7 +74,7 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

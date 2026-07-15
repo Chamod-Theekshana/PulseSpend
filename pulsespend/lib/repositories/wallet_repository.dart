@@ -27,6 +27,30 @@ class WalletRepository {
     }
   }
 
+  Future<NetWorth> netWorth() async {
+    try {
+      final res = await _dio.get(ApiConfig.walletNetWorth);
+      return NetWorth.fromJson(res.data as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Moves money between two wallets (id 0 = the default bucket). The backend
+  /// records a −/+ transaction pair that shifts balances but stays out of
+  /// income/expense analytics.
+  Future<void> transfer({required int fromWalletId, required int toWalletId, required double amount}) async {
+    try {
+      await _dio.post(ApiConfig.walletTransfer, data: {
+        'from_wallet_id': fromWalletId,
+        'to_wallet_id': toWalletId,
+        'amount': amount,
+      });
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<WalletModel> create({required String name, required String type, required String currency}) async {
     try {
       final res = await _dio.post(ApiConfig.wallets, data: {'name': name, 'type': type, 'currency': currency});

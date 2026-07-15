@@ -203,4 +203,29 @@ class AppLocalizationsSi extends AppLocalizations {
 
   @override
   String get createAccount => 'ගිණුමක් සාදන්න';
+
+  @override
+  String get errNetwork =>
+      'සම්බන්ධතාවයක් නැත. ඔබගේ අන්තර්ජාලය පරීක්ෂා කර නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get errTimeout => 'සම්බන්ධතාවය කල් ඉකුත් විය. නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get errUnauthorized => 'ඔබගේ සැසිය කල් ඉකුත් වී ඇත. නැවත පුරනය වන්න.';
+
+  @override
+  String get errValidation =>
+      'ඉල්ලීම සැකසිය නොහැකි විය. විස්තර පරීක්ෂා කර නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get errRateLimited =>
+      'උත්සාහයන් වැඩියි. මොහොතක් රැඳී නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get errServer =>
+      'සේවාදායකයේ ගැටලුවක් ඇති විය. ටික වේලාවකින් නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get errUnknown => 'යමක් වැරදුණා. නැවත උත්සාහ කරන්න.';
 }

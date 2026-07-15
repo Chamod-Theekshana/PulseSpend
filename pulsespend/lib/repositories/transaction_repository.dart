@@ -52,6 +52,21 @@ class TransactionRepository {
     }
   }
 
+  /// Downloads the server-rendered monthly PDF report ([month] = 'YYYY-MM',
+  /// null = current month). Returns the raw bytes for the caller to save/share.
+  Future<List<int>> reportPdf({required String userId, String? month}) async {
+    try {
+      final res = await _dio.get<List<int>>(
+        ApiConfig.transactionReportPdf(userId),
+        queryParameters: {if (month != null) 'month': month},
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return res.data ?? const [];
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<TransactionSummary> summary(String userId) async {
     try {
       final res = await _dio.get(ApiConfig.transactionSummary(userId));
@@ -85,6 +100,17 @@ class TransactionRepository {
   Future<TransactionModel> createRaw(Map<String, dynamic> body) async {
     try {
       final res = await _dio.post(ApiConfig.transactions, data: body);
+      return TransactionModel.fromJson(res.data['transaction'] as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// PUT with a pre-built body — the outbox's offline-edit replay. Updates are
+  /// last-write-wins server-side, so replaying the same body is idempotent.
+  Future<TransactionModel> updateRaw(int id, Map<String, dynamic> body) async {
+    try {
+      final res = await _dio.put(ApiConfig.transactionUpdate(id.toString()), data: body);
       return TransactionModel.fromJson(res.data['transaction'] as Map<String, dynamic>);
     } catch (e) {
       throw DioClient.toApiException(e);

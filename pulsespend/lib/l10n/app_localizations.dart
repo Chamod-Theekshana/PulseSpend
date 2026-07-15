@@ -497,6 +497,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Create Account'**
   String get createAccount;
+
+  /// No description provided for @errNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'No connection. Check your internet and try again.'**
+  String get errNetwork;
+
+  /// No description provided for @errTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection timed out. Please try again.'**
+  String get errTimeout;
+
+  /// No description provided for @errUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'Your session has expired. Please sign in again.'**
+  String get errUnauthorized;
+
+  /// No description provided for @errValidation.
+  ///
+  /// In en, this message translates to:
+  /// **'That request couldn\'t be processed. Check the details and try again.'**
+  String get errValidation;
+
+  /// No description provided for @errRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Please wait a moment and try again.'**
+  String get errRateLimited;
+
+  /// No description provided for @errServer.
+  ///
+  /// In en, this message translates to:
+  /// **'The server had a problem. Please try again shortly.'**
+  String get errServer;
+
+  /// No description provided for @errUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get errUnknown;
 }
 
 class _AppLocalizationsDelegate

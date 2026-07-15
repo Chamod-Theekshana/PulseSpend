@@ -64,5 +64,12 @@
   "forgotPassword": "¿Olvidaste tu contraseña?",
   "signIn": "Iniciar sesión",
   "newHere": "¿Eres nuevo? ",
-  "createAccount": "Crear cuenta"
+  "createAccount": "Crear cuenta",
+  "errNetwork": "Sin conexión. Comprueba tu internet e inténtalo de nuevo.",
+  "errTimeout": "Se agotó el tiempo de conexión. Inténtalo de nuevo.",
+  "errUnauthorized": "Tu sesión ha caducado. Vuelve a iniciar sesión.",
+  "errValidation": "No se pudo procesar la solicitud. Revisa los datos e inténtalo de nuevo.",
+  "errRateLimited": "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
+  "errServer": "Hubo un problema en el servidor. Inténtalo de nuevo en breve.",
+  "errUnknown": "Algo salió mal. Inténtalo de nuevo."
 }

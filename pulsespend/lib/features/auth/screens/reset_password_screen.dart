@@ -65,7 +65,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       setState(() => _step = _ResetStep.otp);
       _showSnack('If that email is registered, a passkey is on its way.');
     } catch (e) {
-      _showSnack(DioClient.toApiException(e).message, color: AppColors.expense);
+      _showSnack(DioClient.toApiException(e).localizedMessage(context), color: AppColors.expense);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -87,7 +87,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       if (!mounted) return;
       setState(() => _step = _ResetStep.password);
     } catch (e) {
-      setState(() => _otpError = DioClient.toApiException(e).message);
+      setState(() => _otpError = DioClient.toApiException(e).localizedMessage(context));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -99,7 +99,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       await ref.read(authRepositoryProvider).sendResetOTP(_email);
       _showSnack('Passkey resent — check your inbox');
     } catch (e) {
-      _showSnack(DioClient.toApiException(e).message, color: AppColors.expense);
+      _showSnack(DioClient.toApiException(e).localizedMessage(context), color: AppColors.expense);
     } finally {
       if (mounted) setState(() => _isResending = false);
     }
@@ -118,7 +118,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       Navigator.of(context).pop();
       _showSnack('Password reset! Sign in with your new password.', color: AppColors.income);
     } catch (e) {
-      _showSnack(DioClient.toApiException(e).message, color: AppColors.expense);
+      _showSnack(DioClient.toApiException(e).localizedMessage(context), color: AppColors.expense);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

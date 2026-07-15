@@ -1,5 +1,5 @@
 import express from "express";
-import { exportUserData, importUserData, getProfile, updateProfile, updatePassword, deleteAccount } from "../controllers/profileController";
+import { exportUserData, importUserData, getProfile, updateProfile, updatePassword, updateRoundup, deleteAccount, cancelDeletion } from "../controllers/profileController";
 import { validateNumericParam, validateProfileUpdateBody } from "../middleware/validators";
 import { requireAuth, requireUserMatchParam } from "../middleware/requireAuth";
 import { asyncHandler } from "../middleware/asyncHandler";
@@ -44,11 +44,25 @@ router.put(
   asyncHandler(updatePassword)
 );
 
+router.put(
+  "/:user_id/roundup",
+  validateNumericParam("user_id"),
+  requireUserMatchParam("user_id"),
+  asyncHandler(updateRoundup)
+);
+
 router.delete(
   "/:user_id",
   validateNumericParam("user_id"),
   requireUserMatchParam("user_id"),
   asyncHandler(deleteAccount)
+);
+
+router.post(
+  "/:user_id/cancel-deletion",
+  validateNumericParam("user_id"),
+  requireUserMatchParam("user_id"),
+  asyncHandler(cancelDeletion)
 );
 
 export default router;

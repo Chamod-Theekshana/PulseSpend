@@ -4,6 +4,7 @@ import 'analytics_provider.dart';
 import 'budgets_provider.dart';
 import 'categories_provider.dart';
 import 'currency_provider.dart';
+import 'debts_provider.dart';
 import 'goals_provider.dart';
 import 'groups_provider.dart';
 import 'notification_preferences_provider.dart';
@@ -36,6 +37,7 @@ class SessionSyncController extends Notifier<void> {
       ref.read(notificationsControllerProvider.notifier).refresh(),
       ref.read(walletsControllerProvider.notifier).refresh(),
       ref.read(groupsControllerProvider.notifier).refresh(),
+      ref.read(debtsControllerProvider.notifier).refresh(),
     ]);
     // Family / future providers can't be refreshed by name → invalidate them.
     // Missing one here means it goes permanently stale after any socket
@@ -69,6 +71,7 @@ class SessionSyncController extends Notifier<void> {
     ref.invalidate(walletBalancesProvider);
     ref.invalidate(walletsControllerProvider);
     ref.invalidate(groupsControllerProvider);
+    ref.invalidate(debtsControllerProvider);
   }
 }
 

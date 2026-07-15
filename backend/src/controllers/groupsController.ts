@@ -90,6 +90,18 @@ export async function getGroupTransactions(req: AuthedRequest, res: Response) {
   return res.status(200).json({ transactions, summary });
 }
 
+/** GET /api/groups/:id/goals — savings goals shared with this group. */
+export async function getGroupGoals(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+  const { GoalModel } = await import('../models/GoalModel');
+  const goals = await GoalModel.listByGroup(Number(groupId));
+  return res.status(200).json({ goals });
+}
+
 /** GET /api/groups/:id/balances — Splitwise-lite member balances + suggestions. */
 export async function getGroupBalances(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);

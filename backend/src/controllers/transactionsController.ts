@@ -7,6 +7,8 @@ import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
 import { convert } from '../services/exchangeRateService';
 import { parseTransactionFilters } from '../middleware/validators';
+import { csvCell, sanitizeImportRows } from '../utils/financeMath';
+import { collectMonthlyReportData, renderMonthlyReportPdf } from '../services/pdfReportService';
 import cloudinary from '../config/cloudinary';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middleware/requireAuth';
@@ -30,6 +32,31 @@ async function resolveReceiptUrl(receipt: unknown): Promise<string | null> {
 // the user's shared-group members. A heuristic to surface "big" spends without
 // spamming a notification for every small purchase.
 const GROUP_BIG_EXPENSE_THRESHOLD = 2000;
+
+/**
+ * Round-up savings: if the user has a round-up rule, the spare change between
+ * an expense and the next multiple of `roundup_to` is auto-contributed to
+ * their chosen goal. Fire-and-forget — must never slow or fail the create.
+ */
+async function applyRoundUp(userId: string, amount: number): Promise<void> {
+  if (amount >= 0) return; // expenses only
+  try {
+    const rows = await sql`SELECT roundup_goal_id, roundup_to FROM users WHERE id = ${userId}`;
+    const goalId = Number((rows[0] as any)?.roundup_goal_id);
+    const roundTo = Number((rows[0] as any)?.roundup_to);
+    if (!Number.isInteger(goalId) || goalId <= 0 || !Number.isInteger(roundTo) || roundTo <= 0) return;
+
+    const spent = Math.abs(amount);
+    const spare = Math.round((roundTo - (spent % roundTo)) * 100) / 100;
+    if (spare <= 0 || spare >= roundTo) return; // already a clean multiple
+
+    const { GoalModel } = await import('../models/GoalModel');
+    const goal = await GoalModel.addContribution(userId, goalId, spare, 'roundup');
+    if (goal) emitToUser(userId, 'goal:updated', { goal });
+  } catch (err) {
+    console.error('[RoundUp] failed:', err);
+  }
+}
 
 /**
  * When a member logs a sizeable expense, let the other members of their shared
@@ -147,15 +174,6 @@ export async function getTransactionByUserId(req: AuthedRequest, res: Response) 
 
 const CSV_EXPORT_LIMIT = 10000;
 
-/** Escapes a single CSV cell per RFC 4180 (quote if it contains "," '"' or newline). */
-function csvCell(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
 /**
  * Streams the user's transactions as a CSV download. Honours the same filter
  * params as the list endpoint (q/category/from/to/minAmount/maxAmount/type) so
@@ -197,6 +215,33 @@ export async function exportTransactionsCsv(req: AuthedRequest, res: Response) {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   return res.status(200).send(csv);
+}
+
+/**
+ * Streams a monthly PDF report (?month=YYYY-MM, default: current month) —
+ * income/expense/net, category breakdown, budget-vs-actual and a net-worth
+ * snapshot. Numbers match the analytics screen (transfers excluded).
+ */
+export async function exportMonthlyReportPdf(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+
+  const raw = String(req.query.month || '');
+  const match = /^(\d{4})-(\d{2})$/.exec(raw);
+  const now = new Date();
+  const year = match ? Number(match[1]) : now.getFullYear();
+  const month = match ? Number(match[2]) : now.getMonth() + 1;
+  if (month < 1 || month > 12 || year < 2000 || year > 2100) {
+    return res.status(400).json({ message: 'month must be YYYY-MM' });
+  }
+
+  const data = await collectMonthlyReportData(userId, year, month);
+  const doc = renderMonthlyReportPdf(data);
+
+  const filename = `pulsespend_report_${year}-${String(month).padStart(2, '0')}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  doc.pipe(res);
+  return;
 }
 
 export async function createTransaction(req: AuthedRequest, res: Response) {
@@ -242,6 +287,10 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
   for (const affectedCategory of affectedCategories) {
     await checkBudgetAlert(user_id, affectedCategory);
   }
+
+  // Spare-change savings (only for interactively created expenses — the bulk
+  // importer doesn't run through this endpoint, so imports never round up).
+  void applyRoundUp(user_id, Number(transaction.amount));
 
   // Explicitly shared with a group → mark it + notify THAT group (any amount).
   // Otherwise keep the legacy heuristic: big expenses ping all the user's groups.
@@ -295,40 +344,17 @@ export async function bulkImportTransactions(req: AuthedRequest, res: Response) 
     return res.status(400).json({ message: `A maximum of ${BULK_IMPORT_MAX_ROWS} rows per import` });
   }
 
-  const titles: string[] = [];
-  const amounts: number[] = [];
-  const categories: string[] = [];
-  const dates: string[] = [];
-  const currencies: string[] = [];
-  const opIds: (string | null)[] = [];
-  let skipped = 0;
-
-  for (const row of rows) {
-    const title = typeof row?.title === 'string' ? row.title.trim().slice(0, 200) : '';
-    const amount = Number(row?.amount);
-    const category =
-      typeof row?.category === 'string' && row.category.trim() ? row.category.trim().slice(0, 255) : 'Imported';
-    const created_at = typeof row?.created_at === 'string' ? row.created_at : '';
-    const currency = typeof row?.currency === 'string' && row.currency.trim() ? row.currency.trim().toUpperCase().slice(0, 10) : 'LKR';
-    const opId = typeof row?.client_op_id === 'string' && row.client_op_id.trim() ? row.client_op_id.trim().slice(0, 64) : null;
-
-    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(created_at);
-    if (!title || !Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000_000 || !validDate) {
-      skipped++;
-      continue;
-    }
-
-    titles.push(title);
-    amounts.push(Math.round(amount * 100) / 100);
-    categories.push(category);
-    dates.push(created_at);
-    currencies.push(currency);
-    opIds.push(opId);
-  }
-
-  if (titles.length === 0) {
+  const { valid, skipped } = sanitizeImportRows(rows);
+  if (valid.length === 0) {
     return res.status(400).json({ message: 'No valid rows to import', skipped });
   }
+
+  const titles = valid.map((r) => r.title);
+  const amounts = valid.map((r) => r.amount);
+  const categories = valid.map((r) => r.category);
+  const dates = valid.map((r) => r.created_at);
+  const currencies = valid.map((r) => r.currency);
+  const opIds: (string | null)[] = valid.map((r) => r.client_op_id);
 
   const inserted = await sql`
     INSERT INTO transactions (user_id, title, amount, category, currency, created_at, client_op_id)
@@ -390,7 +416,7 @@ export async function getTransactionSummaryByUserId(req: AuthedRequest, res: Res
 
   const transactions = await sql`
     SELECT amount, currency FROM transactions
-    WHERE user_id = ${userId} AND deleted_at IS NULL
+    WHERE user_id = ${userId} AND deleted_at IS NULL AND transfer_id IS NULL
   `;
 
   let income = 0;

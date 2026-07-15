@@ -203,4 +203,31 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get createAccount => 'खाता बनाएं';
+
+  @override
+  String get errNetwork =>
+      'कोई कनेक्शन नहीं। अपना इंटरनेट जांचें और फिर से कोशिश करें।';
+
+  @override
+  String get errTimeout =>
+      'कनेक्शन का समय समाप्त हो गया। कृपया फिर से कोशिश करें।';
+
+  @override
+  String get errUnauthorized =>
+      'आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।';
+
+  @override
+  String get errValidation =>
+      'अनुरोध संसाधित नहीं हो सका। विवरण जांचें और फिर से कोशिश करें।';
+
+  @override
+  String get errRateLimited =>
+      'बहुत अधिक प्रयास। कृपया थोड़ी देर रुककर फिर से कोशिश करें।';
+
+  @override
+  String get errServer =>
+      'सर्वर में समस्या आई। कृपया थोड़ी देर में फिर से कोशिश करें।';
+
+  @override
+  String get errUnknown => 'कुछ गलत हो गया। कृपया फिर से कोशिश करें।';
 }

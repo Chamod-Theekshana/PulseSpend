@@ -77,6 +77,20 @@ class ProfileRepository {
     }
   }
 
+  /// Same backup as [exportData] but as a single CSV bundle (one titled
+  /// section per entity) — spreadsheet-friendly GDPR portability.
+  Future<String> exportDataCsv(String userId) async {
+    try {
+      final res = await _dio.get(
+        ApiConfig.profileDataExport(userId),
+        queryParameters: {'format': 'csv'},
+      );
+      return res.data as String;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   /// Import user data
   Future<void> importData(String userId, Map<String, dynamic> data) async {
     try {
@@ -86,12 +100,33 @@ class ProfileRepository {
     }
   }
 
-  /// Permanently deletes the account and all its data. The current [password]
-  /// is re-checked server-side before anything is wiped — see deleteAccount
-  /// in profileController.ts.
+  /// Configure round-up savings; null goalId turns it off.
+  Future<void> updateRoundup(String userId, {int? goalId, int? roundTo}) async {
+    try {
+      await _dio.put(
+        ApiConfig.profileRoundup(userId),
+        data: {'goal_id': goalId, 'round_to': roundTo},
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Schedules account deletion (7-day grace window). The current [password]
+  /// is re-checked server-side; sessions are revoked immediately. Signing in
+  /// again during the window offers [cancelDeletion].
   Future<void> deleteAccount(String userId, {required String password}) async {
     try {
       await _dio.delete(ApiConfig.profile(userId), data: {'password': password});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Restores an account that is inside its deletion grace window.
+  Future<void> cancelDeletion(String userId) async {
+    try {
+      await _dio.post(ApiConfig.profileCancelDeletion(userId));
     } catch (e) {
       throw DioClient.toApiException(e);
     }

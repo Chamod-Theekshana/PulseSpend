@@ -17,6 +17,15 @@ class UserModel {
   final bool biometricEnabled;
   final DateTime? createdAt;
 
+  /// Round-up savings rule (null = off): expenses round up to [roundupTo] and
+  /// the spare change auto-contributes to goal [roundupGoalId].
+  final int? roundupGoalId;
+  final int? roundupTo;
+
+  /// Set while the account is inside its 7-day deletion grace window; the app
+  /// offers a "Restore account" banner until it is cancelled or purged.
+  final DateTime? deletionRequestedAt;
+
   const UserModel({
     required this.id,
     required this.email,
@@ -33,6 +42,9 @@ class UserModel {
     this.contactNo,
     this.biometricEnabled = false,
     this.createdAt,
+    this.roundupGoalId,
+    this.roundupTo,
+    this.deletionRequestedAt,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -52,6 +64,12 @@ class UserModel {
       contactNo: json['contact_no'] as String?,
       biometricEnabled: json['biometric_enabled'] == true,
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+      roundupGoalId:
+          json['roundup_goal_id'] != null ? int.tryParse(json['roundup_goal_id'].toString()) : null,
+      roundupTo: json['roundup_to'] != null ? int.tryParse(json['roundup_to'].toString()) : null,
+      deletionRequestedAt: json['deletion_requested_at'] != null
+          ? DateTime.tryParse(json['deletion_requested_at'].toString())
+          : null,
     );
   }
 
@@ -98,6 +116,9 @@ class UserModel {
       contactNo: contactNo ?? this.contactNo,
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
       createdAt: createdAt,
+      roundupGoalId: roundupGoalId,
+      roundupTo: roundupTo,
+      deletionRequestedAt: deletionRequestedAt,
     );
   }
 }

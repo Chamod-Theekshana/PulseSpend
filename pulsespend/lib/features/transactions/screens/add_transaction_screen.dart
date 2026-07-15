@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/ocr/receipt_parser.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/transaction_model.dart';
 import '../../../shared/utils/image_utils.dart';
@@ -82,11 +83,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
 
   /// Pick a receipt photo (same pattern as the profile photo picker): gallery
   /// image → 1MB cap (body limit is 2MB and base64 inflates ~37%) → data URI.
-  Future<void> _pickReceipt() async {
+  /// Returns the picked file's path (for OCR), or null.
+  Future<String?> _pickReceipt() async {
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.image);
-      if (result == null || result.files.single.path == null) return;
-      final bytes = await File(result.files.single.path!).readAsBytes();
+      if (result == null || result.files.single.path == null) return null;
+      final path = result.files.single.path!;
+      final bytes = await File(path).readAsBytes();
       if (bytes.lengthInBytes > 1024 * 1024) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -96,16 +99,61 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
             ),
           );
         }
-        return;
+        return null;
       }
       setState(() => _receipt = 'data:image/jpeg;base64,${base64Encode(bytes)}');
+      return path;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: AppColors.expense),
         );
       }
+      return null;
     }
+  }
+
+  /// "Scan receipt": attach the photo AND OCR it on-device (ML Kit) to pre-fill
+  /// title/amount/date. Low-confidence fields stay untouched — the user always
+  /// confirms before submitting; failure just leaves the photo attached.
+  Future<void> _scanReceipt() async {
+    final path = await _pickReceipt();
+    if (path == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Scanning receipt…')));
+    final scan = await ReceiptParser.scan(path);
+    if (!mounted) return;
+    messenger.hideCurrentSnackBar();
+
+    if (scan.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Couldn\'t read the receipt — photo attached, fill in manually.')),
+      );
+      return;
+    }
+
+    final filled = <String>[];
+    setState(() {
+      if (scan.amount != null) {
+        _amountController.text = scan.amount!.toStringAsFixed(2);
+        filled.add('amount');
+      }
+      if (scan.merchant != null && _titleController.text.trim().isEmpty) {
+        _titleController.text = scan.merchant!;
+        filled.add('title');
+      }
+      if (scan.date != null) {
+        _date = scan.date!;
+        filled.add('date');
+      }
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Filled ${filled.join(', ')} from the receipt — please verify.'),
+        backgroundColor: AppColors.income,
+      ),
+    );
   }
 
   @override
@@ -207,7 +255,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -424,26 +472,67 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               Text('Receipt (optional)', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),
               if (_receipt == null)
-                InkWell(
-                  onTap: _pickReceipt,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: surfaceAlt,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: _pickReceipt,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: surfaceAlt,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.receipt_long_outlined, size: 18, color: AppColors.primary),
+                              SizedBox(width: 8),
+                              Flexible(
+                                child: Text('Attach',
+                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.receipt_long_outlined, size: 20, color: AppColors.primary),
-                        SizedBox(width: 12),
-                        Text('Attach a receipt photo', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        onTap: _scanReceipt,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.document_scanner_outlined, size: 18, color: AppColors.primary),
+                              SizedBox(width: 8),
+                              Flexible(
+                                child: Text('Scan & fill',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13.5,
+                                        color: AppColors.primary),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 )
               else
                 Stack(
