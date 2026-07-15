@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middleware/requireAuth';
 import { FeedbackModel, FEEDBACK_CATEGORIES } from '../models/FeedbackModel';
-import { transporter } from '../config/nodemailer';
+import { sendMail } from '../config/mailer';
 
 /** Escape user-controlled values before interpolating them into HTML email. */
 function escapeHtml(input: unknown): string {
@@ -54,13 +54,11 @@ export async function submitFeedback(req: AuthedRequest, res: Response) {
   // Fire-and-forget support email (never blocks the response).
   const supportInbox = process.env.SUPPORT_EMAIL || process.env.SMTP_USER;
   if (supportInbox) {
-    transporter
-      .sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: supportInbox,
-        replyTo: contactEmail ?? undefined,
-        subject: `[PulseSpend ${cat}] ${feedback.subject}`,
-        html: `
+    sendMail({
+      to: supportInbox,
+      replyTo: contactEmail ?? undefined,
+      subject: `[PulseSpend ${cat}] ${feedback.subject}`,
+      html: `
           <h2>New ${escapeHtml(cat)} report</h2>
           <p><strong>From user:</strong> ${escapeHtml(userId)} (${escapeHtml(contactEmail ?? 'no email')})</p>
           <p><strong>Subject:</strong> ${escapeHtml(feedback.subject)}</p>
@@ -68,8 +66,7 @@ export async function submitFeedback(req: AuthedRequest, res: Response) {
           <hr/>
           <p style="white-space:pre-wrap">${escapeHtml(feedback.message)}</p>
         `,
-      })
-      .catch((err) => console.error('[Feedback] Support email failed:', err?.message));
+    }).catch((err) => console.error('[Feedback] Support email failed:', err?.message));
   }
 
   return res.status(201).json({ message: 'Thanks for your feedback!', feedback });
