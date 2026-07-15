@@ -14,7 +14,7 @@ class NotificationPreferencesScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(DioClient.toApiException(e).message)),
+        SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
       );
     }
   }

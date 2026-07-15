@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { sql } from '../config/db';
 import { convert } from '../services/exchangeRateService';
+import { computeBalances } from '../utils/financeMath';
 
 export interface Group {
   id: number;
@@ -194,75 +195,40 @@ export class GroupModel {
       WHERE group_id = ${groupId}
     `;
 
-    const paidBy = new Map<string, number>();
-    let total = 0;
+    // Currency conversion stays in this async wrapper; the balance math itself
+    // is the pure, unit-tested computeBalances().
+    const toPreferred = async (amount: number, currency: string): Promise<number> => {
+      try {
+        return await convert(amount, currency || 'LKR', preferredCurrency);
+      } catch {
+        return amount;
+      }
+    };
+
+    const expenses = [];
     for (const r of shared) {
-      const uid = String((r as any).user_id);
-      const amt = Math.abs(Number((r as any).amount));
-      const cur = ((r as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
-      paidBy.set(uid, (paidBy.get(uid) ?? 0) + converted);
-      total += converted;
+      expenses.push({
+        user_id: String((r as any).user_id),
+        amount: await toPreferred(Math.abs(Number((r as any).amount)), (r as any).currency),
+      });
     }
 
-    const fairShare = total / members.length;
-    const net = new Map<string, number>();
-    for (const m of members) {
-      net.set(String(m.user_id), (paidBy.get(String(m.user_id)) ?? 0) - fairShare);
-    }
-
-    // Settlements: the payer's debt shrinks (net up), the receiver's credit
-    // shrinks (net down).
+    const converted = [];
     for (const s of settlements) {
-      const from = String((s as any).from_user);
-      const to = String((s as any).to_user);
-      const amt = Number((s as any).amount);
-      const cur = ((s as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
-      if (net.has(from)) net.set(from, net.get(from)! + converted);
-      if (net.has(to)) net.set(to, net.get(to)! - converted);
+      converted.push({
+        from: String((s as any).from_user),
+        to: String((s as any).to_user),
+        amount: await toPreferred(Number((s as any).amount), (s as any).currency),
+      });
     }
 
-    const nameOf = new Map(members.map((m) => [String(m.user_id), m.name || m.email.split('@')[0]]));
-    const result = members.map((m) => ({
+    const memberList = members.map((m) => ({
       user_id: String(m.user_id),
-      name: nameOf.get(String(m.user_id)),
-      paid: Math.round((paidBy.get(String(m.user_id)) ?? 0) * 100) / 100,
-      net: Math.round((net.get(String(m.user_id)) ?? 0) * 100) / 100,
+      name: m.name || m.email.split('@')[0],
     }));
 
-    // Greedy transfer suggestions: biggest debtor pays biggest creditor.
-    const debtors = result.filter((r) => r.net < -0.01).map((r) => ({ ...r, left: -r.net })).sort((a, b) => b.left - a.left);
-    const creditors = result.filter((r) => r.net > 0.01).map((r) => ({ ...r, left: r.net })).sort((a, b) => b.left - a.left);
-    const suggestions: Array<{ from: string; from_name: string; to: string; to_name: string; amount: number }> = [];
-    let di = 0;
-    let ci = 0;
-    while (di < debtors.length && ci < creditors.length) {
-      const pay = Math.min(debtors[di].left, creditors[ci].left);
-      suggestions.push({
-        from: debtors[di].user_id,
-        from_name: String(debtors[di].name ?? ''),
-        to: creditors[ci].user_id,
-        to_name: String(creditors[ci].name ?? ''),
-        amount: Math.round(pay * 100) / 100,
-      });
-      debtors[di].left -= pay;
-      creditors[ci].left -= pay;
-      if (debtors[di].left <= 0.01) di++;
-      if (creditors[ci].left <= 0.01) ci++;
-    }
-
-    return { members: result, suggestions, total: Math.round(total * 100) / 100, currency: preferredCurrency };
+    const balances = computeBalances(memberList, expenses, converted);
+    return { ...balances, currency: preferredCurrency };
   }
 
   static async createSettlement(

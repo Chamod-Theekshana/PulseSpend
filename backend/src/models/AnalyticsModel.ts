@@ -77,7 +77,7 @@ export class AnalyticsModel {
 
     const rows = await sql`
       SELECT amount, currency, category FROM transactions
-      WHERE user_id = ${userId} AND deleted_at IS NULL
+      WHERE user_id = ${userId} AND deleted_at IS NULL AND transfer_id IS NULL
         AND created_at >= ${from} AND created_at < ${to}
     `;
 
@@ -139,7 +139,7 @@ export class AnalyticsModel {
     const rows = await sql`
       SELECT amount, currency, created_at::date AS day
       FROM transactions
-      WHERE user_id = ${userId} AND deleted_at IS NULL
+      WHERE user_id = ${userId} AND deleted_at IS NULL AND transfer_id IS NULL
         AND created_at >= ${from} AND created_at < ${to}
     `;
 
@@ -308,7 +308,8 @@ export class AnalyticsModel {
 
     const transactions = await sql`
       SELECT amount, currency, created_at, category FROM transactions
-      WHERE user_id = ${userId} AND deleted_at IS NULL AND created_at >= ${previousStartDate}
+      WHERE user_id = ${userId} AND deleted_at IS NULL AND transfer_id IS NULL
+        AND created_at >= ${previousStartDate}
     `;
 
     let currentIncome = 0;

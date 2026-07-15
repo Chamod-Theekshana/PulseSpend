@@ -30,7 +30,8 @@ function flagForType(type: string): keyof typeof DEFAULTS | null {
   if (t.includes('bill') || t.includes('reminder')) return 'bill_reminders';
   if (t.includes('goal')) return 'goal_reminders';
   if (t.includes('budget')) return 'budget_alerts';
-  if (t.includes('recurring')) return 'recurring_alerts';
+  // Recurring charges + subscription price alerts share the recurring toggle.
+  if (t.includes('recurring') || t.includes('subscription')) return 'recurring_alerts';
   return null; // e.g. security / general → always allowed (only gated by push_enabled)
 }
 

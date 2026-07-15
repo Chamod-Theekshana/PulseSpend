@@ -65,11 +65,22 @@ class AuthController extends Notifier<AuthState> {
     await FirebaseMessagingService.instance.registerWithBackend();
   }
 
-  Future<void> signIn({required String email, required String password}) async {
-    final result = await ref.read(authRepositoryProvider).signIn(email: email, password: password);
+  /// Returns true when the backend wants a TOTP code (2FA challenge). The
+  /// caller should collect one and call signIn again with [totpCode]; state
+  /// only becomes authenticated once tokens are actually issued.
+  Future<bool> signIn({
+    required String email,
+    required String password,
+    String? totpCode,
+  }) async {
+    final result = await ref
+        .read(authRepositoryProvider)
+        .signIn(email: email, password: password, totpCode: totpCode);
+    if (result.twoFactorRequired) return true;
     state = AuthState(status: AuthStatus.authenticated, userId: result.userId, email: result.email);
     await SocketService.instance.connect();
     await _registerPushToken();
+    return false;
   }
 
   Future<void> sendPasskey(String email) {
@@ -169,4 +180,9 @@ final currentUserIdProvider = Provider<String>((ref) {
   final id = ref.watch(authControllerProvider).userId;
   if (id == null) throw const ApiException('Not authenticated');
   return id;
+});
+
+/// Whether TOTP 2FA is enabled for the signed-in account (security screen).
+final twoFactorStatusProvider = FutureProvider.autoDispose<bool>((ref) {
+  return ref.read(authRepositoryProvider).twoFactorStatus();
 });

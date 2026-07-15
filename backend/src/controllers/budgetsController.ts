@@ -34,6 +34,31 @@ export async function getBudgetStatus(req: AuthedRequest, res: Response) {
   return res.json({ budgets: statuses });
 }
 
+/** GET /api/budgets/total-status — overall month spend vs the total-budget cap. */
+export async function getTotalBudgetStatus(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const status = await BudgetModel.getTotalStatus(userId);
+  return res.json(status);
+}
+
+/** PUT /api/budgets/total — set/clear the overall monthly budget ({amount} null/0 = off). */
+export async function setTotalBudget(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const raw = req.body?.amount;
+  const num = Number(raw);
+  const enabled = Number.isFinite(num) && num > 0;
+  if (raw !== null && raw !== undefined && String(raw) !== '' && !Number.isFinite(num)) {
+    return res.status(400).json({ message: 'amount must be a number' });
+  }
+  if (enabled && num > 1_000_000_000) {
+    return res.status(400).json({ message: 'Amount is too large' });
+  }
+  await BudgetModel.setTotalBudget(userId, enabled ? Math.round(num * 100) / 100 : null);
+  const status = await BudgetModel.getTotalStatus(userId);
+  emitToUser(userId, 'budget:updated', { total: true });
+  return res.json(status);
+}
+
 export async function createBudget(req: AuthedRequest, res: Response) {
   try {
     const userId = String(req.user!.id);

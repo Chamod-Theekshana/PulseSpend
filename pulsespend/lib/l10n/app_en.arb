@@ -64,5 +64,12 @@
   "forgotPassword": "Forgot Password?",
   "signIn": "Sign In",
   "newHere": "New Here? ",
-  "createAccount": "Create Account"
+  "createAccount": "Create Account",
+  "errNetwork": "No connection. Check your internet and try again.",
+  "errTimeout": "Connection timed out. Please try again.",
+  "errUnauthorized": "Your session has expired. Please sign in again.",
+  "errValidation": "That request couldn't be processed. Check the details and try again.",
+  "errRateLimited": "Too many attempts. Please wait a moment and try again.",
+  "errServer": "The server had a problem. Please try again shortly.",
+  "errUnknown": "Something went wrong. Please try again."
 }

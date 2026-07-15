@@ -86,6 +86,28 @@ class TransactionModel {
     );
   }
 
+  /// Full round-trip serialization for the offline read cache — mirrors the
+  /// exact keys [fromJson] reads (unlike [toRequestJson], which is the API
+  /// request body and drops id/user_id).
+  Map<String, dynamic> toCacheJson() => {
+        'id': id,
+        'user_id': userId,
+        'title': title,
+        'amount': amount,
+        'currency': currency,
+        'category': category,
+        'created_at': createdAt.toIso8601String(),
+        'notes': notes,
+        'receipt_url': receiptUrl,
+        'wallet_id': walletId,
+        'group_id': groupId,
+        'tags': tags,
+        'splits': [
+          for (final s in splits)
+            {'id': s.id, 'category': s.category, 'amount': s.amount, 'percentage': s.percentage},
+        ],
+      };
+
   /// Body for POST /api/transaction and PUT /api/transaction/:id.
   Map<String, dynamic> toRequestJson() {
     return {

@@ -12,6 +12,7 @@ class CategoryIcon extends StatelessWidget {
 
   static IconData _iconFor(String category) {
     final c = category.toLowerCase();
+    if (c.contains('transfer')) return Icons.swap_horiz_rounded; // wallet transfer legs
     if (c.contains('food') || c.contains('grocer') || c.contains('restaurant')) return Icons.restaurant_rounded;
     if (c.contains('transport') || c.contains('fuel') || c.contains('car') || c.contains('taxi')) {
       return Icons.directions_car_filled_rounded;

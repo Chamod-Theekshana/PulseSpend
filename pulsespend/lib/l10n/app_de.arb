@@ -64,5 +64,12 @@
   "forgotPassword": "Passwort vergessen?",
   "signIn": "Anmelden",
   "newHere": "Neu hier? ",
-  "createAccount": "Konto erstellen"
+  "createAccount": "Konto erstellen",
+  "errNetwork": "Keine Verbindung. Prüfe dein Internet und versuche es erneut.",
+  "errTimeout": "Zeitüberschreitung der Verbindung. Bitte erneut versuchen.",
+  "errUnauthorized": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+  "errValidation": "Die Anfrage konnte nicht verarbeitet werden. Prüfe die Angaben und versuche es erneut.",
+  "errRateLimited": "Zu viele Versuche. Bitte warte kurz und versuche es erneut.",
+  "errServer": "Der Server hatte ein Problem. Bitte versuche es gleich noch einmal.",
+  "errUnknown": "Etwas ist schiefgelaufen. Bitte erneut versuchen."
 }

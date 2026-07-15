@@ -8,8 +8,16 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class OutboxOp {
   final String opId;
   final String userId;
-  final String type; // 'create' | 'delete'
-  final Map<String, dynamic> body; // create → request body; delete → {'id': int}
+
+  /// What kind of record this op targets. 'transaction' is the default so ops
+  /// persisted before this field existed keep replaying correctly.
+  final String entity; // 'transaction' | 'debt' | 'goal_contribution'
+
+  final String type; // 'create' | 'update' | 'delete'
+
+  /// create/update → request body (update also carries {'id': int});
+  /// delete → {'id': int}.
+  final Map<String, dynamic> body;
   final int createdAt;
 
   const OutboxOp({
@@ -18,11 +26,13 @@ class OutboxOp {
     required this.type,
     required this.body,
     required this.createdAt,
+    this.entity = 'transaction',
   });
 
   Map<String, dynamic> toJson() => {
         'opId': opId,
         'userId': userId,
+        'entity': entity,
         'type': type,
         'body': body,
         'createdAt': createdAt,
@@ -31,6 +41,7 @@ class OutboxOp {
   factory OutboxOp.fromJson(Map<String, dynamic> json) => OutboxOp(
         opId: json['opId'].toString(),
         userId: json['userId'].toString(),
+        entity: (json['entity'] as String?) ?? 'transaction',
         type: json['type'].toString(),
         body: (json['body'] as Map).cast<String, dynamic>(),
         createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,

@@ -164,23 +164,33 @@ class DioClient {
     );
   }
 
-  /// Converts any Dio failure into a clean [ApiException].
+  /// Converts any Dio failure into a clean [ApiException]. English fallback
+  /// text stays here for logs/toString; screens should render
+  /// [ApiException.localizedMessage] so the user sees their own language.
   static ApiException toApiException(Object error) {
     if (error is DioException) {
       final statusCode = error.response?.statusCode;
       final data = error.response?.data;
+      final isTimeout = error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout;
       String message;
+      var hasServerMessage = false;
       if (data is Map && data['message'] != null) {
         message = data['message'].toString();
-      } else if (error.type == DioExceptionType.connectionTimeout ||
-          error.type == DioExceptionType.receiveTimeout) {
+        hasServerMessage = true;
+      } else if (isTimeout) {
         message = 'Connection timed out. Check your network and try again.';
       } else if (error.type == DioExceptionType.connectionError) {
         message = 'Could not reach the server. Is the backend running?';
       } else {
         message = 'Something went wrong. Please try again.';
       }
-      return ApiException(message, statusCode: statusCode);
+      return ApiException(
+        message,
+        statusCode: statusCode,
+        hasServerMessage: hasServerMessage,
+        kind: isTimeout ? ApiErrorKind.timeout : ApiException.kindForStatus(statusCode),
+      );
     }
     if (error is ApiException) return error;
     return ApiException(error.toString());

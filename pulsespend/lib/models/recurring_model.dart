@@ -1,3 +1,46 @@
+/// A subscription-like series detected from real transaction history
+/// (backend subscriptionDetector.ts) — NOT a recurring rule the user created.
+class DetectedSubscription {
+  final String name;
+  final String seriesKey;
+  final int occurrences;
+  final int cadenceDays;
+  final String cadenceLabel; // 'weekly' | 'monthly' | 'yearly'
+  final double lastAmount;
+  final double previousAmount;
+  final double changePct;
+  final String currency;
+
+  const DetectedSubscription({
+    required this.name,
+    required this.seriesKey,
+    required this.occurrences,
+    required this.cadenceDays,
+    required this.cadenceLabel,
+    required this.lastAmount,
+    required this.previousAmount,
+    required this.changePct,
+    required this.currency,
+  });
+
+  bool get priceIncreased => changePct > 10;
+
+  factory DetectedSubscription.fromJson(Map<String, dynamic> json) {
+    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    return DetectedSubscription(
+      name: (json['name'] as String?) ?? '',
+      seriesKey: (json['seriesKey'] as String?) ?? '',
+      occurrences: (json['occurrences'] as num?)?.toInt() ?? 0,
+      cadenceDays: (json['cadenceDays'] as num?)?.toInt() ?? 30,
+      cadenceLabel: (json['cadenceLabel'] as String?) ?? 'monthly',
+      lastAmount: d(json['lastAmount']),
+      previousAmount: d(json['previousAmount']),
+      changePct: d(json['changePct']),
+      currency: (json['currency'] as String?) ?? 'LKR',
+    );
+  }
+}
+
 /// Mirrors `RecurringRow` in RecurringModel.ts.
 class RecurringModel {
   final int id;
@@ -8,6 +51,8 @@ class RecurringModel {
   final String frequency; // 'daily' | 'weekly' | 'monthly' | 'yearly'
   final DateTime nextRun;
   final bool isActive;
+  final String? currency;
+  final int? walletId; // null = default wallet bucket
   final DateTime? createdAt;
 
   const RecurringModel({
@@ -19,10 +64,21 @@ class RecurringModel {
     required this.frequency,
     required this.nextRun,
     this.isActive = true,
+    this.currency,
+    this.walletId,
     this.createdAt,
   });
 
   bool get isExpense => amount < 0;
+
+  /// The rule's amount normalized to a per-month figure (signed), so mixed
+  /// frequencies can be summed into one monthly recurring-commitment total.
+  double get monthlyEquivalent => switch (frequency) {
+        'daily' => amount * 30.44, // avg days/month
+        'weekly' => amount * 4.33, // 52 weeks / 12
+        'yearly' => amount / 12,
+        _ => amount, // monthly
+      };
 
   factory RecurringModel.fromJson(Map<String, dynamic> json) {
     return RecurringModel(
@@ -34,6 +90,8 @@ class RecurringModel {
       frequency: json['frequency'] as String,
       nextRun: DateTime.parse(json['next_run'].toString()),
       isActive: json['is_active'] == true,
+      currency: json['currency'] as String?,
+      walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
     );
   }
@@ -43,6 +101,8 @@ class RecurringModel {
         'amount': amount,
         'category': category,
         'frequency': frequency,
+        if (currency != null) 'currency': currency,
+        if (walletId != null) 'wallet_id': walletId,
         'startDate': '${nextRun.year.toString().padLeft(4, '0')}-'
             '${nextRun.month.toString().padLeft(2, '0')}-'
             '${nextRun.day.toString().padLeft(2, '0')}',
@@ -54,5 +114,7 @@ class RecurringModel {
         'category': category,
         'frequency': frequency,
         'is_active': isActive,
+        if (currency != null) 'currency': currency,
+        'wallet_id': walletId, // explicit null clears to default wallet
       };
 }

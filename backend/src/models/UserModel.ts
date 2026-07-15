@@ -18,6 +18,10 @@ export interface User {
   biometric_enabled?: boolean | null;
   created_at?: Date;
   token_version?: number | null;
+  totp_secret?: string | null;
+  totp_enabled?: boolean | null;
+  totp_recovery_codes?: string | null;
+  deletion_requested_at?: Date | string | null;
 }
 
 export class UserModel {
@@ -116,6 +120,75 @@ export class UserModel {
     await sql`UPDATE users SET password = ${hashedPassword} WHERE id = ${userId}`;
   }
 
+  // ── GDPR grace-period deletion ─────────────────────────────────────────────
+
+  /** Marks the account for deletion after the grace period. */
+  static async requestDeletion(userId: string): Promise<void> {
+    await sql`UPDATE users SET deletion_requested_at = NOW() WHERE id = ${userId}`;
+  }
+
+  /** Cancels a pending deletion (user signed back in during the grace window). */
+  static async cancelDeletion(userId: string): Promise<void> {
+    await sql`UPDATE users SET deletion_requested_at = NULL WHERE id = ${userId}`;
+  }
+
+  /** Accounts whose grace period has lapsed and are due for a hard purge. */
+  static async listDueForPurge(graceDays: number): Promise<Array<{ id: string; email: string }>> {
+    const rows = await sql`
+      SELECT id, email FROM users
+      WHERE deletion_requested_at IS NOT NULL
+        AND deletion_requested_at < NOW() - (${graceDays} || ' days')::interval
+    `;
+    return rows.map((r: any) => ({ id: String(r.id), email: String(r.email) }));
+  }
+
+  // ── TOTP 2FA ───────────────────────────────────────────────────────────────
+
+  /** Stores a pending secret + recovery-code hashes; 2FA stays OFF until verified. */
+  static async setTotpSecret(userId: string, secret: string, recoveryHashes: string[]): Promise<void> {
+    await sql`
+      UPDATE users
+      SET totp_secret = ${secret},
+          totp_recovery_codes = ${JSON.stringify(recoveryHashes)},
+          totp_enabled = false
+      WHERE id = ${userId}
+    `;
+  }
+
+  /** Flips 2FA on after the user proves a working authenticator code. */
+  static async enableTotp(userId: string): Promise<void> {
+    await sql`UPDATE users SET totp_enabled = true WHERE id = ${userId}`;
+  }
+
+  static async disableTotp(userId: string): Promise<void> {
+    await sql`
+      UPDATE users
+      SET totp_secret = NULL, totp_enabled = false, totp_recovery_codes = NULL
+      WHERE id = ${userId}
+    `;
+  }
+
+  /**
+   * One-shot recovery code: removes the given hash from the stored list.
+   * Returns true only if the hash was present (i.e. the code was valid and
+   * unused).
+   */
+  static async consumeRecoveryCode(userId: string, hash: string): Promise<boolean> {
+    const rows = await sql`SELECT totp_recovery_codes FROM users WHERE id = ${userId}`;
+    const raw = (rows[0] as any)?.totp_recovery_codes;
+    if (!raw) return false;
+    let hashes: string[];
+    try {
+      hashes = JSON.parse(String(raw));
+    } catch {
+      return false;
+    }
+    if (!Array.isArray(hashes) || !hashes.includes(hash)) return false;
+    const remaining = hashes.filter((h) => h !== hash);
+    await sql`UPDATE users SET totp_recovery_codes = ${JSON.stringify(remaining)} WHERE id = ${userId}`;
+    return true;
+  }
+
   static async getTokenVersion(userId: string): Promise<number | null> {
     const result = await sql`SELECT token_version FROM users WHERE id = ${userId}`;
     const row = result[0] as any;
@@ -152,6 +225,7 @@ export class UserModel {
     await sql`DELETE FROM recurring_transactions WHERE user_id = ${userId}`;
     await sql`DELETE FROM reminders WHERE user_id = ${userId}`;
     await sql`DELETE FROM goals WHERE user_id = ${userId}`;
+    await sql`DELETE FROM debts WHERE user_id = ${userId}`;
     await sql`DELETE FROM notifications WHERE user_id = ${userId}`;
     await sql`DELETE FROM notification_preferences WHERE user_id = ${userId}`;
     await sql`DELETE FROM feedback WHERE user_id = ${userId}`;

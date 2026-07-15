@@ -54,7 +54,7 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
       );
     } catch (e) {
       final apiEx = DioClient.toApiException(e);
-      setState(() => _errorText = apiEx.message);
+      setState(() => _errorText = apiEx.localizedMessage(context));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -71,7 +71,7 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isResending = false);
     }

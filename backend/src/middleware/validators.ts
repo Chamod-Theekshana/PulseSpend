@@ -378,8 +378,8 @@ export function validateBudgetBody(req: Request, res: Response, next: NextFuncti
   }
 
   const p = (period || 'monthly') as string;
-  if (!['monthly'].includes(p)) {
-    return res.status(400).json({ message: 'Period must be: monthly' });
+  if (!['weekly', 'monthly', 'yearly'].includes(p)) {
+    return res.status(400).json({ message: 'Period must be one of: weekly, monthly, yearly' });
   }
 
   const c = normalizeCurrency(currency, 'LKR');
@@ -479,8 +479,9 @@ export function validateGoalUpdateBody(req: Request, res: Response, next: NextFu
 export function validateGoalContributionBody(req: Request, res: Response, next: NextFunction) {
   const { amount, currency } = req.body ?? {};
   const numAmount = Number(amount);
-  if (!Number.isFinite(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ message: 'amount must be a positive number' });
+  // Negative = withdrawal (goal timeline supports both directions); zero is meaningless.
+  if (!Number.isFinite(numAmount) || numAmount === 0 || Math.abs(numAmount) > 1_000_000_000) {
+    return res.status(400).json({ message: 'amount must be a non-zero number' });
   }
   const cur = normalizeCurrency(currency, 'LKR');
   if (cur.length < 3 || cur.length > 10) {
@@ -530,6 +531,21 @@ export function validateRecurringBody(req: Request, res: Response, next: NextFun
     (req.body as any).startDate = s;
   } else {
     (req.body as any).startDate = undefined;
+  }
+
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
   }
 
   (req.body as any).title = title.trim();
@@ -585,12 +601,29 @@ export function validateRecurringUpdateBody(req: Request, res: Response, next: N
     (req.body as any).is_active = Boolean(is_active);
   }
 
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+
   if (
     title === undefined &&
     amount === undefined &&
     category === undefined &&
     frequency === undefined &&
-    is_active === undefined
+    is_active === undefined &&
+    currency === undefined &&
+    wallet_id === undefined
   ) {
     return res.status(400).json({ message: 'At least one field must be provided' });
   }

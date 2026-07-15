@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../models/goal_model.dart';
 import '../../../providers/goals_provider.dart';
+import '../../../providers/groups_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
@@ -19,6 +20,7 @@ class _AddGoalScreenState extends ConsumerState<AddGoalScreen> {
   final _nameController = TextEditingController();
   final _targetController = TextEditingController();
   DateTime? _deadline;
+  int? _groupId; // share with this group (all members can contribute)
   bool _isLoading = false;
 
   @override
@@ -51,6 +53,7 @@ class _AddGoalScreenState extends ConsumerState<AddGoalScreen> {
         currentAmount: 0,
         currency: currency,
         deadline: _deadline,
+        groupId: _groupId,
       );
       await ref.read(goalsControllerProvider.notifier).create(goal);
       if (!mounted) return;
@@ -58,7 +61,7 @@ class _AddGoalScreenState extends ConsumerState<AddGoalScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -118,6 +121,36 @@ class _AddGoalScreenState extends ConsumerState<AddGoalScreen> {
                   ),
                 ),
               ),
+              // ── Share with group (optional; shows only when groups exist) ──
+              Consumer(builder: (context, ref, _) {
+                final groups = ref.watch(groupsControllerProvider).items;
+                if (groups.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    Text('Share with group', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Just me'),
+                          selected: _groupId == null,
+                          onSelected: (_) => setState(() => _groupId = null),
+                        ),
+                        for (final g in groups)
+                          ChoiceChip(
+                            label: Text(g.name),
+                            selected: _groupId == g.id,
+                            onSelected: (_) => setState(() => _groupId = g.id),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 28),
               PrimaryButton(label: 'Create Goal', isLoading: _isLoading, onPressed: _submit),
             ],

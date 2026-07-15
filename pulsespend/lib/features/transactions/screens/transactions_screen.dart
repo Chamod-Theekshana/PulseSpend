@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../l10n/l10n_ext.dart';
 import '../../../models/transaction_model.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
+import '../../../providers/repository_providers.dart';
 import '../../../providers/transactions_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
@@ -89,7 +92,33 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  /// Server-rendered PDF report for the current month — summary, category
+  /// breakdown, budgets vs actual and net worth. Shared like the CSV export.
+  Future<void> _exportPdf() async {
+    setState(() => _isExporting = true);
+    try {
+      final userId = ref.read(currentUserIdProvider);
+      final now = DateTime.now();
+      final month = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+      final bytes = await ref
+          .read(transactionRepositoryProvider)
+          .reportPdf(userId: userId, month: month);
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/pulsespend_report_$month.pdf');
+      await file.writeAsBytes(bytes);
+      await Share.shareXFiles([XFile(file.path)], text: 'PulseSpend report $month');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -161,9 +190,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             ),
             icon: const Icon(Icons.file_download_outlined),
           ),
-          IconButton(
-            tooltip: 'Export CSV',
-            onPressed: _isExporting ? null : _exportCsv,
+          PopupMenuButton<String>(
+            tooltip: 'Export',
+            enabled: !_isExporting,
             icon: _isExporting
                 ? const SizedBox(
                     width: 18,
@@ -171,6 +200,25 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.ios_share_rounded),
+            onSelected: (v) => v == 'pdf' ? _exportPdf() : _exportCsv(),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'csv',
+                child: ListTile(
+                  leading: Icon(Icons.table_view_rounded),
+                  title: Text('Export CSV'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'pdf',
+                child: ListTile(
+                  leading: Icon(Icons.picture_as_pdf_rounded),
+                  title: Text('PDF report (this month)'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
           ),
         ],
       ),

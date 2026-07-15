@@ -21,6 +21,64 @@ export async function getWalletBalances(req: AuthedRequest, res: Response) {
   return res.json({ balances });
 }
 
+export async function getNetWorth(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const netWorth = await WalletModel.netWorth(userId, await preferredCurrency(userId));
+  return res.json(netWorth);
+}
+
+/**
+ * Moves money between two wallets. Creates a −/+ transaction pair sharing a
+ * transfer uuid; legs shift wallet balances but stay out of income/expense
+ * analytics. Wallet id 0 = the virtual default bucket.
+ */
+export async function transferBetweenWallets(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const { from_wallet_id, to_wallet_id, amount } = req.body ?? {};
+
+  const fromId = Number(from_wallet_id);
+  const toId = Number(to_wallet_id);
+  const amt = Number(amount);
+
+  if (!Number.isInteger(fromId) || !Number.isInteger(toId) || fromId < 0 || toId < 0) {
+    return res.status(400).json({ message: 'from_wallet_id and to_wallet_id are required' });
+  }
+  if (fromId === toId) {
+    return res.status(400).json({ message: 'Choose two different wallets' });
+  }
+  if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000_000) {
+    return res.status(400).json({ message: 'Enter a valid amount' });
+  }
+
+  // Both real wallets must exist and belong to the user (id 0 = default bucket).
+  const nameOf = async (id: number): Promise<string | null> => {
+    if (id === 0) return 'Default';
+    const w = await WalletModel.findById(userId, id);
+    return w ? w.name : null;
+  };
+  const [fromName, toName] = await Promise.all([nameOf(fromId), nameOf(toId)]);
+  if (!fromName || !toName) {
+    return res.status(404).json({ message: 'Wallet not found' });
+  }
+
+  const currency = await preferredCurrency(userId);
+  const { transferId } = await WalletModel.transfer(
+    userId, fromId, toId, Math.round(amt * 100) / 100, currency, fromName, toName,
+  );
+
+  emitToUser(userId, 'wallet:changed', { transfer_id: transferId });
+  emitToUser(userId, 'tx:new', {
+    title: 'Transfer complete',
+    body: `${amt.toFixed(2)} ${currency} moved ${fromName} → ${toName}`,
+  });
+  emitToUser(userId, 'tx:summary:invalidate', { user_id: userId });
+
+  return res.status(201).json({
+    message: 'Transfer complete',
+    transfer_id: transferId,
+  });
+}
+
 export async function createWallet(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);
   const { name, type, currency } = req.body ?? {};

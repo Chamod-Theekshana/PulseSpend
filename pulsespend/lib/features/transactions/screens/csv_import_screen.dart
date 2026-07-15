@@ -223,7 +223,7 @@ class _CsvImportScreenState extends ConsumerState<CsvImportScreen> {
         '${result.skipped > 0 ? ' · ${result.skipped} invalid rows' : ''}',
       );
     } catch (e) {
-      _snack(DioClient.toApiException(e).message, error: true);
+      _snack(DioClient.toApiException(e).localizedMessage(context), error: true);
     } finally {
       if (mounted) setState(() => _importing = false);
     }

@@ -64,3 +64,12 @@ class RecurringController extends Notifier<RecurringState> {
 
 final recurringControllerProvider =
     NotifierProvider<RecurringController, RecurringState>(RecurringController.new);
+
+/// Subscription-like series detected from real history (badges on the
+/// Recurring screen). Refreshes when transactions change.
+final detectedSubscriptionsProvider =
+    FutureProvider.autoDispose<List<DetectedSubscription>>((ref) async {
+  final sub = SocketService.instance.on('tx:new', (_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(recurringRepositoryProvider).detected();
+});

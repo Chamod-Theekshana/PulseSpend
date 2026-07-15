@@ -203,4 +203,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get createAccount => 'Create Account';
+
+  @override
+  String get errNetwork => 'No connection. Check your internet and try again.';
+
+  @override
+  String get errTimeout => 'Connection timed out. Please try again.';
+
+  @override
+  String get errUnauthorized =>
+      'Your session has expired. Please sign in again.';
+
+  @override
+  String get errValidation =>
+      'That request couldn\'t be processed. Check the details and try again.';
+
+  @override
+  String get errRateLimited =>
+      'Too many attempts. Please wait a moment and try again.';
+
+  @override
+  String get errServer => 'The server had a problem. Please try again shortly.';
+
+  @override
+  String get errUnknown => 'Something went wrong. Please try again.';
 }

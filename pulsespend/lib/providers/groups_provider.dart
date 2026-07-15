@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/goal_model.dart';
 import '../models/group_model.dart';
 import 'repository_providers.dart';
 
@@ -72,4 +73,10 @@ final groupMembersProvider =
 final groupBalancesProvider =
     FutureProvider.autoDispose.family<GroupBalances, int>((ref, groupId) async {
   return ref.read(groupRepositoryProvider).balances(groupId);
+});
+
+/// Savings goals shared with a group.
+final groupGoalsProvider =
+    FutureProvider.autoDispose.family<List<GoalModel>, int>((ref, groupId) async {
+  return ref.read(groupRepositoryProvider).goals(groupId);
 });

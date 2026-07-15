@@ -72,11 +72,18 @@ class ApiConfig {
   static const String resetVerify = '$apiPrefix/auth/reset/verify';
   static const String resetComplete = '$apiPrefix/auth/reset/complete';
 
+  // TOTP 2FA
+  static const String twoFaStatus = '$apiPrefix/auth/2fa/status';
+  static const String twoFaEnroll = '$apiPrefix/auth/2fa/enroll';
+  static const String twoFaVerify = '$apiPrefix/auth/2fa/verify';
+  static const String twoFaDisable = '$apiPrefix/auth/2fa/disable';
+
   // ── Transactions ─────────────────────────────────────────────────
   static const String transactions = '$apiPrefix/transaction';
   static String transactionsByUser(String userId) => '$apiPrefix/transaction/$userId';
   static String transactionSummary(String userId) => '$apiPrefix/transaction/summary/$userId';
   static String transactionExportCsv(String userId) => '$apiPrefix/transaction/export/$userId';
+  static String transactionReportPdf(String userId) => '$apiPrefix/transaction/report-pdf/$userId';
   static String transactionById(String id) => '$apiPrefix/transaction/id/$id';
   static String transactionDelete(String id) => '$apiPrefix/transaction/$id';
   static String transactionUpdate(String id) => '$apiPrefix/transaction/$id';
@@ -87,7 +94,9 @@ class ApiConfig {
   static String profile(String id) => '$apiPrefix/profile/$id';
   static String profilePassword(String id) => '$apiPrefix/profile/$id/password';
   static String profileDataExport(String id) => '$apiPrefix/profile/$id/data-export';
+  static String profileRoundup(String id) => '$apiPrefix/profile/$id/roundup';
   static String profileDataImport(String id) => '$apiPrefix/profile/$id/data-import';
+  static String profileCancelDeletion(String id) => '$apiPrefix/profile/$id/cancel-deletion';
 
   // ── Categories ───────────────────────────────────────────────────
   static const String categories = '$apiPrefix/categories';
@@ -97,11 +106,15 @@ class ApiConfig {
   // ── Budgets ──────────────────────────────────────────────────────
   static const String budgets = '$apiPrefix/budgets';
   static const String budgetStatus = '$apiPrefix/budgets/status';
+  static const String budgetTotalStatus = '$apiPrefix/budgets/total-status';
+  static const String budgetTotal = '$apiPrefix/budgets/total';
   static String budgetById(int id) => '$apiPrefix/budgets/$id';
   static const String budgetsBulkDelete = '$apiPrefix/budgets/bulk-delete';
 
   // ── Recurring ────────────────────────────────────────────────────
   static const String recurring = '$apiPrefix/recurring';
+  static const String recurringDetected = '$apiPrefix/recurring/detected';
+  static const String recurringDetectedDismiss = '$apiPrefix/recurring/detected/dismiss';
   static String recurringById(int id) => '$apiPrefix/recurring/$id';
   static const String recurringBulkDelete = '$apiPrefix/recurring/bulk-delete';
 
@@ -114,6 +127,8 @@ class ApiConfig {
   static const String goals = '$apiPrefix/goals';
   static String goalById(int id) => '$apiPrefix/goals/$id';
   static String goalContribute(int id) => '$apiPrefix/goals/$id/contribute';
+  static String goalContributions(int id) => '$apiPrefix/goals/$id/contributions';
+  static String goalAutoRule(int id) => '$apiPrefix/goals/$id/auto';
   static const String goalsBulkDelete = '$apiPrefix/goals/bulk-delete';
 
   // ── Notifications ────────────────────────────────────────────────
@@ -139,13 +154,21 @@ class ApiConfig {
   static String groupMembers(int id) => '$apiPrefix/groups/$id/members';
   static String groupTransactions(int id) => '$apiPrefix/groups/$id/transactions';
   static String groupBalances(int id) => '$apiPrefix/groups/$id/balances';
+  static String groupGoals(int id) => '$apiPrefix/groups/$id/goals';
   static String groupSettle(int id) => '$apiPrefix/groups/$id/settle';
   static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
 
   // ── Wallets / Accounts ───────────────────────────────────────────
   static const String wallets = '$apiPrefix/wallets';
   static const String walletBalances = '$apiPrefix/wallets/balances';
+  static const String walletNetWorth = '$apiPrefix/wallets/net-worth';
+  static const String walletTransfer = '$apiPrefix/wallets/transfer';
   static String walletById(int id) => '$apiPrefix/wallets/$id';
+
+  // ── Debts / IOUs ─────────────────────────────────────────────────
+  static const String debts = '$apiPrefix/debts';
+  static String debtSettle(int id) => '$apiPrefix/debts/$id/settle';
+  static String debtById(int id) => '$apiPrefix/debts/$id';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';

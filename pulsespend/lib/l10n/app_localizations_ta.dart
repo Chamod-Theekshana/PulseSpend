@@ -203,4 +203,30 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get createAccount => 'கணக்கை உருவாக்கு';
+
+  @override
+  String get errNetwork =>
+      'இணைப்பு இல்லை. உங்கள் இணையத்தைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get errTimeout => 'இணைப்பு நேரம் முடிந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get errUnauthorized =>
+      'உங்கள் அமர்வு காலாவதியானது. மீண்டும் உள்நுழையவும்.';
+
+  @override
+  String get errValidation =>
+      'கோரிக்கையைச் செயல்படுத்த முடியவில்லை. விவரங்களைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get errRateLimited =>
+      'அதிக முயற்சிகள். சிறிது நேரம் காத்திருந்து மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get errServer =>
+      'சேவையகத்தில் சிக்கல் ஏற்பட்டது. சிறிது நேரத்தில் மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get errUnknown => 'ஏதோ தவறு நடந்தது. மீண்டும் முயற்சிக்கவும்.';
 }

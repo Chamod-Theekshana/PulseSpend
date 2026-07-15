@@ -67,6 +67,12 @@ class GoalsController extends Notifier<GoalsState> {
     return result.warning;
   }
 
+  /// Set or clear (amount == null) the monthly auto-contribution rule.
+  Future<void> setAutoRule(int id, {double? amount, int? day}) async {
+    final goal = await ref.read(goalRepositoryProvider).setAutoRule(id, amount: amount, day: day);
+    state = state.copyWith(items: [for (final g in state.items) if (g.id == id) goal else g]);
+  }
+
   Future<void> delete(int id) async {
     await ref.read(goalRepositoryProvider).delete(id);
     state = state.copyWith(items: state.items.where((g) => g.id != id).toList());
@@ -74,3 +80,9 @@ class GoalsController extends Notifier<GoalsState> {
 }
 
 final goalsControllerProvider = NotifierProvider<GoalsController, GoalsState>(GoalsController.new);
+
+/// Deposit/withdrawal timeline for one goal (the detail sheet).
+final goalContributionsProvider =
+    FutureProvider.autoDispose.family<List<GoalContribution>, int>((ref, goalId) async {
+  return ref.read(goalRepositoryProvider).contributions(goalId);
+});

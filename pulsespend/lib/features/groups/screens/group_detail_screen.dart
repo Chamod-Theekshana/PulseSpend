@@ -6,12 +6,14 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../models/goal_model.dart';
 import '../../../models/group_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
 import '../../../providers/groups_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/widgets/category_icon.dart';
+import '../../goals/screens/contribute_goal_sheet.dart';
 
 /// A single shared group: merged summary, invite code, members and a combined
 /// (read-only) transaction feed from everyone in the group.
@@ -45,7 +47,7 @@ class GroupDetailScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(DioClient.toApiException(e).message)),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
         );
       }
     }
@@ -85,7 +87,7 @@ class GroupDetailScreen extends ConsumerWidget {
             feedAsync.when(
               data: (feed) => _SummaryCard(summary: feed.summary, money: money),
               loading: () => const SizedBox(height: 120, child: Center(child: CircularProgressIndicator())),
-              error: (e, _) => _ErrorCard(message: DioClient.toApiException(e).message),
+              error: (e, _) => _ErrorCard(message: DioClient.toApiException(e).localizedMessage(context)),
             ),
             const SizedBox(height: 20),
 
@@ -137,6 +139,10 @@ class GroupDetailScreen extends ConsumerWidget {
 
             // ── Balances (Splitwise-lite) ──
             _BalancesSection(group: group, money: money, isDark: isDark),
+            const SizedBox(height: 20),
+
+            // ── Shared goals ──
+            _GroupGoalsSection(group: group, money: money, isDark: isDark),
             const SizedBox(height: 20),
 
             // ── Combined activity ──
@@ -201,7 +207,7 @@ class _BalancesSection extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(DioClient.toApiException(e).message)),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
         );
       }
     }
@@ -294,6 +300,119 @@ class _BalancesSection extends ConsumerWidget {
         );
       },
     );
+  }
+}
+
+class _GroupGoalsSection extends ConsumerWidget {
+  final GroupModel group;
+  final MoneyFormatter money;
+  final bool isDark;
+
+  const _GroupGoalsSection({required this.group, required this.money, required this.isDark});
+
+  Future<void> _contribute(BuildContext context, WidgetRef ref, GoalModel goal) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ContributeGoalSheet(goal: goal),
+    );
+    ref.invalidate(groupGoalsProvider(group.id));
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final goalsAsync = ref.watch(groupGoalsProvider(group.id));
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return goalsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (goals) {
+        if (goals.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Shared goals',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
+            const SizedBox(height: 10),
+            for (final g in goals)
+              _goalCard(context, ref, g, textPrimary, textSecondary),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _goalCard(BuildContext context, WidgetRef ref, GoalModel g,
+      Color textPrimary, Color textSecondary) {
+    final progress =
+        g.targetAmount > 0 ? (g.currentAmount / g.targetAmount).clamp(0.0, 1.0) : 0.0;
+    return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurface : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+                ),
+                child: Row(
+                  children: [
+                    // Progress ring
+                    SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            value: progress,
+                            strokeWidth: 4,
+                            backgroundColor:
+                                (isDark ? AppColors.darkBorder : const Color(0xFFEDEDED)),
+                            valueColor: AlwaysStoppedAnimation(
+                              g.isCompleted ? AppColors.income : AppColors.primary,
+                            ),
+                          ),
+                          Text(
+                            '${(progress * 100).round()}%',
+                            style: TextStyle(
+                                fontSize: 10, fontWeight: FontWeight.w800, color: textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            g.name,
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w700, color: textPrimary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${money.formatCompact(g.currentAmount, g.currency)} of '
+                            '${money.formatCompact(g.targetAmount, g.currency)}',
+                            style: TextStyle(fontSize: 12, color: textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!g.isCompleted)
+                      TextButton(
+                        onPressed: () => _contribute(context, ref, g),
+                        child: const Text('Add',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                      )
+                    else
+                      const Icon(Icons.emoji_events_rounded, color: AppColors.income, size: 22),
+                  ],
+                ),
+              );
   }
 }
 

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { sql } from '../config/db';
 import { convert } from '../services/exchangeRateService';
 
@@ -18,7 +19,10 @@ export interface WalletBalance extends Wallet {
   display_currency: string;
 }
 
-const WALLET_TYPES = ['cash', 'bank', 'card'];
+// cash/bank/investment count as assets; credit/loan as liabilities ('card' is
+// treated as a liability alias of credit for net-worth purposes).
+const WALLET_TYPES = ['cash', 'bank', 'card', 'credit', 'investment', 'loan'];
+const LIABILITY_TYPES = new Set(['credit', 'loan', 'card']);
 
 export class WalletModel {
   static normalizeType(type: unknown): string {
@@ -140,5 +144,72 @@ export class WalletModel {
       });
     }
     return result;
+  }
+
+  /**
+   * Moves money between two wallets as a pair of transactions (−from / +to)
+   * sharing one transfer uuid. Wallet id 0 = the virtual default bucket
+   * (wallet_id NULL). Both legs use [currency] (the user's display currency)
+   * so they cancel exactly in converted totals. Neon's HTTP driver has no
+   * cross-statement transactions, so the − leg is inserted first: an orphaned
+   * − leg understates a balance rather than inventing money.
+   */
+  static async transfer(
+    userId: string,
+    fromWalletId: number,
+    toWalletId: number,
+    amount: number,
+    currency: string,
+    fromName: string,
+    toName: string,
+  ): Promise<{ transferId: string }> {
+    const transferId = crypto.randomUUID();
+    const fromId = fromWalletId === 0 ? null : fromWalletId;
+    const toId = toWalletId === 0 ? null : toWalletId;
+
+    await sql`
+      INSERT INTO transactions (user_id, title, amount, category, currency, wallet_id, transfer_id, created_at)
+      VALUES (${userId}, ${'Transfer to ' + toName}, ${-Math.abs(amount)}, 'Transfer', ${currency}, ${fromId}, ${transferId}, NOW())
+    `;
+    await sql`
+      INSERT INTO transactions (user_id, title, amount, category, currency, wallet_id, transfer_id, created_at)
+      VALUES (${userId}, ${'Transfer from ' + fromName}, ${Math.abs(amount)}, 'Transfer', ${currency}, ${toId}, ${transferId}, NOW())
+    `;
+    return { transferId };
+  }
+
+  /**
+   * Net worth = assets − liabilities, in the user's display currency.
+   * Asset wallets (cash/bank/investment + the default bucket) contribute their
+   * balance; liability wallets (credit/card/loan) contribute how much is OWED —
+   * the absolute value of a negative balance (spending on credit drives the
+   * wallet's balance down).
+   */
+  static async netWorth(userId: string, preferredCurrency: string) {
+    const balances = await this.balances(userId, preferredCurrency);
+
+    let assets = 0;
+    let liabilities = 0;
+    const byType = new Map<string, { type: string; total: number; isLiability: boolean }>();
+
+    for (const b of balances) {
+      const isLiability = LIABILITY_TYPES.has(b.type);
+      const value = isLiability ? Math.max(0, -b.balance) : b.balance;
+      if (isLiability) liabilities += value;
+      else assets += value;
+
+      const entry = byType.get(b.type) ?? { type: b.type, total: 0, isLiability };
+      entry.total += value;
+      byType.set(b.type, entry);
+    }
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      assets: round(assets),
+      liabilities: round(liabilities),
+      netWorth: round(assets - liabilities),
+      currency: preferredCurrency,
+      byType: [...byType.values()].map((t) => ({ ...t, total: round(t.total) })),
+    };
   }
 }

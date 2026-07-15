@@ -37,7 +37,7 @@ class RemindersScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     }
   }
 
@@ -97,7 +97,7 @@ class RemindersScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     }
   }
 

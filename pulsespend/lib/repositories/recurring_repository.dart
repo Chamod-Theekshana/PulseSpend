@@ -22,6 +22,27 @@ class RecurringRepository {
     }
   }
 
+  /// Subscription-like series detected from real transaction history.
+  Future<List<DetectedSubscription>> detected() async {
+    try {
+      final res = await _dio.get(ApiConfig.recurringDetected);
+      return (res.data['detected'] as List<dynamic>)
+          .map((e) => DetectedSubscription.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Hides a detected subscription series from future detection lists.
+  Future<void> dismissDetected(String name) async {
+    try {
+      await _dio.post(ApiConfig.recurringDetectedDismiss, data: {'name': name});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<RecurringModel> create(RecurringModel rule) async {
     try {
       final res = await _dio.post(ApiConfig.recurring, data: rule.toCreateRequestJson());

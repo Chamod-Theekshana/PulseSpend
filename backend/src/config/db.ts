@@ -213,6 +213,12 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Alert dedupe + pacing state. alert_period is the current window's start
+        // date (ISO); alert_level is the highest threshold (80/100) already
+        // pushed this period; pace_alerted marks the one pacing alert per period.
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_period VARCHAR(10)`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_level SMALLINT NOT NULL DEFAULT 0`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS pace_alerted BOOLEAN NOT NULL DEFAULT false`;
 
         await sql`CREATE TABLE IF NOT EXISTS recurring_transactions(
             id SERIAL PRIMARY KEY,
@@ -229,6 +235,22 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Recurring rules can target a specific wallet; the materialized
+        // transaction inherits it (NULL = the default wallet bucket).
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        // Day-before reminder dedupe: last date we pushed an "upcoming" reminder.
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS last_reminded_on DATE`;
+
+        // Subscriptions the user dismissed from the "Detected subscriptions"
+        // list, keyed by the detector's normalized series key so they stay
+        // hidden across re-detections.
+        await sql`CREATE TABLE IF NOT EXISTS dismissed_subscriptions(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            series_key VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_dismissed_sub ON dismissed_subscriptions(user_id, series_key)`;
 
         await sql`CREATE TABLE IF NOT EXISTS reminders(
             id SERIAL PRIMARY KEY,
@@ -268,8 +290,80 @@ async function _runMigrations() {
         await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS is_completed BOOLEAN NOT NULL DEFAULT false`;
         await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
 
+        // ── GOAL CONTRIBUTION HISTORY ─────────────────────────────────────────
+        // Every deposit/withdrawal to a goal, with its origin. Powers the goal
+        // timeline, withdraw/undo, milestones, auto-contribute and round-ups.
+        await sql`CREATE TABLE IF NOT EXISTS goal_contributions(
+            id SERIAL PRIMARY KEY,
+            goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            source VARCHAR(20) NOT NULL DEFAULT 'manual',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_goal_contributions_goal ON goal_contributions(goal_id)`;
+        // Highest 25/50/75 milestone already celebrated (so each fires once).
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS last_milestone INT NOT NULL DEFAULT 0`;
+        // Auto-contribution rule: add auto_amount every month on auto_day (1–28).
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS auto_amount DECIMAL(10,2)`;
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS auto_day INT`;
+        // Round-up savings: expenses round up to roundup_to; the spare change
+        // auto-contributes to roundup_goal_id.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_goal_id INT`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_to INT`;
+        // Shared group goals: a goal linked to a group is visible to (and can
+        // receive contributions from) every member.
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS group_id INT`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_goals_group ON goals(group_id)`;
+
+        // ── 1:1 IOUs / DEBTS ──────────────────────────────────────────────────
+        // Lightweight person-to-person debt tracking ("Alex owes me 2000")
+        // without the weight of a full shared group. client_op_id gives the
+        // offline outbox exactly-once creates, like transactions.
+        await sql`CREATE TABLE IF NOT EXISTS debts(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            counterparty_name VARCHAR(120) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            direction VARCHAR(20) NOT NULL DEFAULT 'owed_to_me',
+            note TEXT,
+            status VARCHAR(20) NOT NULL DEFAULT 'open',
+            client_op_id VARCHAR(64),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            settled_at TIMESTAMP,
+            deleted_at TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id)`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_debts_user_op ON debts(user_id, client_op_id) WHERE client_op_id IS NOT NULL`;
+
         // Transaction Receipts
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_url TEXT`;
+
+        // ── WALLET TRANSFERS ──────────────────────────────────────────────────
+        // A transfer is a pair of transactions (−from / +to) sharing one uuid.
+        // Legs shift wallet balances but are excluded from income/expense
+        // analytics, the digest and the heatmap (money only moved, not spent).
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transfer_id VARCHAR(36)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_transfer ON transactions(transfer_id) WHERE transfer_id IS NOT NULL`;
+
+        // ── GDPR GRACE-PERIOD DELETION ────────────────────────────────────────
+        // Account deletion is a 7-day soft-delete: the timestamp marks the
+        // request; a daily purge job hard-deletes once the grace period lapses.
+        // Signing in during the window lets the user cancel (restore).
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP`;
+
+        // Optional overall monthly spending cap (NULL = off), separate from the
+        // per-category budgets. Measured in the user's preferred currency.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_budget DECIMAL(12,2)`;
+
+        // ── TOTP 2FA ──────────────────────────────────────────────────────────
+        // totp_secret is stored on enroll but 2FA only enforces once the user
+        // has proven a working authenticator (totp_enabled = true). Recovery
+        // codes are stored as a JSON array of sha256 hashes; each is one-shot.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes TEXT`;
 
         // ── NOTIFICATION HISTORY TABLE ─────────────────────────────────────────
         // Stores every push/in-app notification per user so they can see a history

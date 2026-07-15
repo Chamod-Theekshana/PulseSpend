@@ -4,6 +4,8 @@ import { asyncHandler } from '../middleware/asyncHandler';
 import { parsePagination, validateIdListBody, validateRecurringBody, validateRecurringUpdateBody } from '../middleware/validators';
 import {
   listRecurring,
+  listDetectedSubscriptions,
+  dismissDetectedSubscription,
   createRecurring,
   updateRecurring,
   deleteRecurring,
@@ -15,6 +17,8 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/', parsePagination(), asyncHandler(listRecurring));
+router.get('/detected', asyncHandler(listDetectedSubscriptions));
+router.post('/detected/dismiss', asyncHandler(dismissDetectedSubscription));
 router.post('/bulk-delete', validateIdListBody('ids'), asyncHandler(bulkDeleteRecurring));
 router.post('/', validateRecurringBody, asyncHandler(createRecurring));
 router.put('/:id', validateRecurringUpdateBody, asyncHandler(updateRecurring));

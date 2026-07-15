@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../core/network/dio_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
@@ -11,12 +12,14 @@ import '../../models/budget_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/transaction_model.dart';
 import '../../providers/analytics_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/budgets_provider.dart';
 import '../../providers/currency_provider.dart';
 import '../../providers/goals_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../models/wallet_model.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/repository_providers.dart';
 import '../../providers/transactions_provider.dart';
 import '../../providers/wallets_provider.dart';
 import '../../l10n/l10n_ext.dart';
@@ -31,6 +34,7 @@ import '../wallets/screens/wallets_screen.dart';
 import '../notifications/screens/notifications_screen.dart';
 import '../transactions/screens/transaction_detail_screen.dart';
 import '../transactions/screens/transactions_screen.dart';
+import 'widgets/month_calendar_sheet.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -106,6 +110,9 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+
+              // ── 1.5 Deletion grace-window banner (rare) ──
+              const SliverToBoxAdapter(child: _RestoreAccountBanner()),
 
               // ── 2. Total Balance & Vector Area Chart (No Card Wrapper!) ──
               SliverToBoxAdapter(
@@ -554,18 +561,22 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
                   ),
                 ],
               ),
-              // Calendar accent chip
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.10),
+              // Calendar chip → month spending calendar sheet
+              Material(
+                color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.10),
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.calendar_month_outlined,
-                  color: AppColors.primary,
-                  size: 22,
+                  onTap: () => MonthCalendarSheet.show(context),
+                  child: const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Icon(
+                      Icons.calendar_month_outlined,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1110,6 +1121,64 @@ class _EarningsRowSkeleton extends StatelessWidget {
   }
 }
 
+/// Shown only while the account is inside its 7-day deletion grace window
+/// (the user deleted the account, then signed back in). One tap restores it.
+class _RestoreAccountBanner extends ConsumerWidget {
+  const _RestoreAccountBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(profileControllerProvider).user;
+    final requestedAt = user?.deletionRequestedAt;
+    if (requestedAt == null) return const SizedBox.shrink();
+
+    final deleteOn = requestedAt.add(const Duration(days: 7));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.expense.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.expense.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: AppColors.expense, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Account scheduled for deletion on '
+                '${deleteOn.day}/${deleteOn.month}/${deleteOn.year}.',
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.35),
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final userId = ref.read(currentUserIdProvider);
+                  await ref.read(profileRepositoryProvider).cancelDeletion(userId);
+                  await ref.read(profileControllerProvider.notifier).refresh();
+                  messenger.showSnackBar(const SnackBar(
+                    content: Text('Account restored ✓'),
+                    backgroundColor: AppColors.income,
+                  ));
+                } catch (e) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
+                  );
+                }
+              },
+              child: const Text('Restore', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Horizontal per-wallet balance cards. Renders nothing until the user has
 /// created wallets (or has unassigned activity), so the dashboard is unchanged
 /// for users who don't use the feature.
@@ -1167,6 +1236,46 @@ class _WalletBalancesSection extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
+          // ── Net worth strip (assets − liabilities) ──
+          Consumer(builder: (context, ref, _) {
+            final nw = ref.watch(netWorthProvider).asData?.value;
+            if (nw == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurface : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Net worth', style: TextStyle(fontSize: 11, color: textSecondary)),
+                          const SizedBox(height: 2),
+                          Text(
+                            CurrencyFormatter.formatCompact(nw.netWorth, nw.currency),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: nw.netWorth < 0 ? AppColors.expense : textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _NetWorthStat(label: 'Assets', value: CurrencyFormatter.formatCompact(nw.assets, nw.currency), color: AppColors.income),
+                    const SizedBox(width: 16),
+                    _NetWorthStat(label: 'Liabilities', value: CurrencyFormatter.formatCompact(nw.liabilities, nw.currency), color: AppColors.expense),
+                  ],
+                ),
+              ),
+            );
+          }),
           SizedBox(
             height: 96,
             child: ListView.separated(
@@ -1219,6 +1328,33 @@ class _WalletBalancesSection extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NetWorthStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _NetWorthStat({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10.5,
+            color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: color)),
+      ],
     );
   }
 }

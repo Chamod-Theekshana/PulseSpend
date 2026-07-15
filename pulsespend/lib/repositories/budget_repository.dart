@@ -42,6 +42,26 @@ class BudgetRepository {
     }
   }
 
+  /// Overall monthly spend vs the total-budget cap.
+  Future<TotalBudgetStatus> totalStatus() async {
+    try {
+      final res = await _dio.get(ApiConfig.budgetTotalStatus);
+      return TotalBudgetStatus.fromJson(res.data as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Sets the overall monthly budget; null/0 turns it off. Returns fresh status.
+  Future<TotalBudgetStatus> setTotalBudget(double? amount) async {
+    try {
+      final res = await _dio.put(ApiConfig.budgetTotal, data: {'amount': amount});
+      return TotalBudgetStatus.fromJson(res.data as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   Future<BudgetModel> create(BudgetModel budget) async {
     try {
       final res = await _dio.post(ApiConfig.budgets, data: budget.toCreateRequestJson());

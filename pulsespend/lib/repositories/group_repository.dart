@@ -1,5 +1,6 @@
 import '../core/config/api_config.dart';
 import '../core/network/dio_client.dart';
+import '../models/goal_model.dart';
 import '../models/group_model.dart';
 
 class GroupRepository {
@@ -61,6 +62,18 @@ class GroupRepository {
   Future<void> leave(int groupId) async {
     try {
       await _dio.delete(ApiConfig.groupLeave(groupId));
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Savings goals shared with this group.
+  Future<List<GoalModel>> goals(int groupId) async {
+    try {
+      final res = await _dio.get(ApiConfig.groupGoals(groupId));
+      return (res.data['goals'] as List<dynamic>)
+          .map((e) => GoalModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       throw DioClient.toApiException(e);
     }

@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../widgets/totp_prompt_sheet.dart';
 import 'splash_gate.dart';
 
 /// Sign into an additional account. On success the new account becomes active
@@ -35,10 +36,25 @@ class _AddAccountScreenState extends ConsumerState<AddAccountScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(authControllerProvider.notifier).signIn(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-          );
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      var needsTotp = await ref
+          .read(authControllerProvider.notifier)
+          .signIn(email: email, password: password);
+      String? error;
+      while (needsTotp) {
+        if (!mounted) return;
+        final code = await TotpPromptSheet.show(context, errorText: error);
+        if (code == null) return; // dismissed → stay on this screen
+        try {
+          needsTotp = await ref
+              .read(authControllerProvider.notifier)
+              .signIn(email: email, password: password, totpCode: code);
+          error = null;
+        } catch (e) {
+          error = DioClient.toApiException(e).localizedMessage(context);
+        }
+      }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const SplashGate()),
@@ -47,7 +63,7 @@ class _AddAccountScreenState extends ConsumerState<AddAccountScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(DioClient.toApiException(e).message)),
+        SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);

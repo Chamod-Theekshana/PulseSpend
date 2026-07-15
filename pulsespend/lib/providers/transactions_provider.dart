@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/errors/api_exception.dart';
 import '../core/network/socket_service.dart';
+import '../core/storage/local_cache.dart';
 import '../core/storage/outbox_service.dart';
+import '../core/widget/home_widget_service.dart';
 import '../models/transaction_model.dart';
 import 'auth_provider.dart';
 import 'connectivity_provider.dart';
+import 'debts_provider.dart';
 import 'repository_providers.dart';
 
 /// Server-side filter set for the transactions list + CSV export. `type` is
@@ -132,11 +136,29 @@ class TransactionsController extends Notifier<TransactionsState> {
       }
     });
     Future.microtask(() async {
+      await _hydrateFromCache();
       await refresh();
       await _loadPendingCount();
       await flushOutbox();
     });
     return const TransactionsState();
+  }
+
+  String get _cacheKey => 'transactions_${_userIdOrNull ?? 'anon'}';
+
+  /// Shows the last successfully fetched page instantly (and offline) while
+  /// the network refresh runs. Skipped if a fetch already landed.
+  Future<void> _hydrateFromCache() async {
+    final cached = await LocalCache.instance.readList(_cacheKey);
+    if (cached == null || state.items.isNotEmpty) return;
+    try {
+      final items = cached.map(TransactionModel.fromJson).toList();
+      if (state.items.isEmpty) {
+        state = state.copyWith(items: items, isLoading: false);
+      }
+    } catch (_) {
+      // Corrupt cache — ignore; the network refresh will overwrite it.
+    }
   }
 
   void _attachSocketListeners() {
@@ -192,8 +214,21 @@ class TransactionsController extends Notifier<TransactionsState> {
         isLoading: false,
         hasMore: result.page.hasMore,
       );
+      // Only the unfiltered first page is representative enough to cache for
+      // offline hydration.
+      if (!state.filters.isActive) {
+        await LocalCache.instance.write(
+          _cacheKey,
+          result.items.map((t) => t.toCacheJson()).toList(),
+        );
+      }
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      // Offline with cached data already showing → keep it, no error banner.
+      final offline = e is ApiException && e.isNetworkError;
+      state = state.copyWith(
+        isLoading: false,
+        error: offline && state.items.isNotEmpty ? null : e.toString(),
+      );
     }
   }
 
@@ -255,9 +290,61 @@ class TransactionsController extends Notifier<TransactionsState> {
   }
 
   Future<void> update(int id, TransactionModel transaction) async {
-    final updated = await ref.read(transactionRepositoryProvider).update(id, transaction);
+    final userId = _userIdOrNull ?? '';
+    try {
+      final updated = await ref.read(transactionRepositoryProvider).update(id, transaction);
+      state = state.copyWith(
+        items: [for (final t in state.items) if (t.id == id) updated else t],
+      );
+    } on ApiException catch (e) {
+      if (!e.isNetworkError) rethrow;
+      // Editing an optimistic (not-yet-synced) create: patch its queued create
+      // op in place instead of queueing an update for a server id that doesn't
+      // exist yet.
+      if (id < 0) {
+        await _patchQueuedCreate(id, transaction, userId);
+        return;
+      }
+      await OutboxService.instance.add(OutboxOp(
+        opId: _newOpId(userId),
+        userId: userId,
+        entity: 'transaction',
+        type: 'update',
+        body: {...transaction.toRequestJson(), 'id': id},
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      // Optimistic local edit so the list reflects the change immediately.
+      final optimistic = _cloneWithId(transaction, id, userId);
+      state = state.copyWith(
+        items: [for (final t in state.items) if (t.id == id) optimistic else t],
+        pendingSyncCount: state.pendingSyncCount + 1,
+      );
+    }
+  }
+
+  /// Offline edit of an offline-created row: rewrite the pending create op's
+  /// body (keeping its idempotency key) rather than queueing an update.
+  Future<void> _patchQueuedCreate(int localId, TransactionModel transaction, String userId) async {
+    final ops = await OutboxService.instance.opsForUser(userId);
+    // The optimistic local id isn't stored in the op, so match the newest
+    // pending create — creates are FIFO and local edits target the latest.
+    final create = ops.lastWhere(
+      (o) => o.entity == 'transaction' && o.type == 'create',
+      orElse: () => const OutboxOp(opId: '', userId: '', type: '', body: {}, createdAt: 0),
+    );
+    if (create.opId.isEmpty) return;
+    await OutboxService.instance.remove(create.opId);
+    await OutboxService.instance.add(OutboxOp(
+      opId: create.opId, // keep the same idempotency key
+      userId: userId,
+      entity: 'transaction',
+      type: 'create',
+      body: {...transaction.toRequestJson(), 'client_op_id': create.body['client_op_id']},
+      createdAt: create.createdAt,
+    ));
+    final optimistic = _cloneWithId(transaction, localId, userId);
     state = state.copyWith(
-      items: [for (final t in state.items) if (t.id == id) updated else t],
+      items: [for (final t in state.items) if (t.id == localId) optimistic else t],
     );
   }
 
@@ -301,15 +388,10 @@ class TransactionsController extends Notifier<TransactionsState> {
       return;
     }
 
-    final repo = ref.read(transactionRepositoryProvider);
     var flushedAny = false;
     for (final op in ops) {
       try {
-        if (op.type == 'create') {
-          await repo.createRaw(op.body);
-        } else if (op.type == 'delete') {
-          await repo.delete((op.body['id'] as num).toInt());
-        }
+        await _replayOp(op);
         await OutboxService.instance.remove(op.opId);
         flushedAny = true;
       } on ApiException catch (e) {
@@ -322,12 +404,48 @@ class TransactionsController extends Notifier<TransactionsState> {
     }
 
     await _loadPendingCount();
-    if (flushedAny) await refresh();
+    if (flushedAny) {
+      await refresh();
+      // Other offline-capable entities re-pull their lists after a flush too.
+      ref.invalidate(debtsControllerProvider);
+    }
   }
 
   Future<void> bulkDelete(List<int> ids) async {
     await ref.read(transactionRepositoryProvider).bulkDelete(ids);
     state = state.copyWith(items: state.items.where((t) => !ids.contains(t.id)).toList());
+  }
+
+  /// Replays one queued op against the right repository. New offline-capable
+  /// entities (debts, goal contributions) register their branch here.
+  Future<void> _replayOp(OutboxOp op) async {
+    switch (op.entity) {
+      case 'transaction':
+        final repo = ref.read(transactionRepositoryProvider);
+        switch (op.type) {
+          case 'create':
+            await repo.createRaw(op.body);
+          case 'update':
+            final body = Map<String, dynamic>.of(op.body)..remove('id');
+            await repo.updateRaw((op.body['id'] as num).toInt(), body);
+          case 'delete':
+            await repo.delete((op.body['id'] as num).toInt());
+        }
+      case 'debt':
+        final repo = ref.read(debtRepositoryProvider);
+        switch (op.type) {
+          case 'create':
+            await repo.createRaw(op.body);
+          case 'update': // settle (idempotent)
+            await repo.settle((op.body['id'] as num).toInt());
+          case 'delete':
+            await repo.delete((op.body['id'] as num).toInt());
+        }
+      default:
+        // Unknown entity (op written by a newer app version?) — drop it rather
+        // than wedge the queue.
+        return;
+    }
   }
 
   /// Returns the CSV text for the transactions matching the active filters.
@@ -347,7 +465,10 @@ final transactionsControllerProvider =
 final transactionSummaryProvider = FutureProvider.autoDispose<TransactionSummary>((ref) async {
   ref.watch(transactionsControllerProvider); // re-run when list refreshes
   final userId = ref.read(currentUserIdProvider);
-  return ref.read(transactionRepositoryProvider).summary(userId);
+  final summary = await ref.read(transactionRepositoryProvider).summary(userId);
+  // Keep the Android home-screen widget in sync (best-effort, fire & forget).
+  unawaited(HomeWidgetService.update(summary));
+  return summary;
 });
 
 /// UNFILTERED recent transactions for the dashboard (chart, top categories,
@@ -370,9 +491,25 @@ final dashboardTransactionsProvider =
 
   final userId = ref.watch(authControllerProvider).userId;
   if (userId == null) return const [];
-  // 200 most-recent rows comfortably covers the 6-month balance chart.
-  final result = await ref
-      .read(transactionRepositoryProvider)
-      .list(userId: userId, limit: 200, offset: 0);
-  return result.items;
+  final cacheKey = 'dashboard_tx_$userId';
+  try {
+    // 200 most-recent rows comfortably covers the 6-month balance chart.
+    final result = await ref
+        .read(transactionRepositoryProvider)
+        .list(userId: userId, limit: 200, offset: 0);
+    await LocalCache.instance.write(
+      cacheKey,
+      result.items.map((t) => t.toCacheJson()).toList(),
+    );
+    return result.items;
+  } on ApiException catch (e) {
+    // Offline → serve the last-known dashboard data instead of an error.
+    if (e.isNetworkError) {
+      final cached = await LocalCache.instance.readList(cacheKey);
+      if (cached != null) {
+        return cached.map(TransactionModel.fromJson).toList();
+      }
+    }
+    rethrow;
+  }
 });

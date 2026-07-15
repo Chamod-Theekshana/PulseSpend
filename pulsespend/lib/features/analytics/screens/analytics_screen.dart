@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/analytics_model.dart';
 import '../../../providers/analytics_provider.dart';
@@ -93,7 +94,7 @@ class AnalyticsScreen extends ConsumerWidget {
                   padding: EdgeInsets.all(40.0),
                   child: CircularProgressIndicator(color: AppColors.primary),
                 )),
-                error: (e, _) => Center(child: Text('Error: $e')),
+                error: (e, _) => Center(child: Text(DioClient.toApiException(e).localizedMessage(context))),
               ),
             ),
           ),
@@ -301,7 +302,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
       await file.writeAsString(csv);
       await Share.shareXFiles([XFile(file.path)], text: 'My ${widget.period} transactions');
     } catch (e) {
-      _showError('Export failed: $e');
+      _showError(DioClient.toApiException(e).localizedMessage(context));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -327,7 +328,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
       await file.writeAsBytes(bytes.buffer.asUint8List());
       await Share.shareXFiles([XFile(file.path)], text: 'My income vs expenses');
     } catch (e) {
-      _showError('Share failed: $e');
+      _showError(DioClient.toApiException(e).localizedMessage(context));
     } finally {
       if (mounted) {
         setState(() {
@@ -733,7 +734,7 @@ mixin _ShareableCard<T extends StatefulWidget> on State<T> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e'), backgroundColor: AppColors.expense),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {

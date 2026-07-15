@@ -7,6 +7,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/auth_logo.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../widgets/totp_prompt_sheet.dart';
 import 'reset_password_screen.dart';
 import 'signup_email_screen.dart';
 
@@ -36,14 +37,31 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(authControllerProvider.notifier).signIn(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-          );
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      var needsTotp = await ref
+          .read(authControllerProvider.notifier)
+          .signIn(email: email, password: password);
+      // 2FA challenge loop: keep prompting until a code works or the user
+      // dismisses the sheet.
+      String? error;
+      while (needsTotp) {
+        if (!mounted) return;
+        final code = await TotpPromptSheet.show(context, errorText: error);
+        if (code == null) break; // user dismissed
+        try {
+          needsTotp = await ref
+              .read(authControllerProvider.notifier)
+              .signIn(email: email, password: password, totpCode: code);
+          error = null;
+        } catch (e) {
+          error = DioClient.toApiException(e).localizedMessage(context);
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
