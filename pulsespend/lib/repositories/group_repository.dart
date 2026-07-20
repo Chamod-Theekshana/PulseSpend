@@ -88,14 +88,62 @@ class GroupRepository {
     }
   }
 
-  /// Records "I paid [toUser] [amount]" in the group's ledger.
-  Future<void> settle(int groupId, {required String toUser, required double amount, required String currency}) async {
+  /// Records "I paid [toUser] [amount]" — settles immediately and moves real
+  /// cash (the payer's [walletId], or the default bucket if null; the payee's
+  /// side lands in their default bucket).
+  Future<void> settle(int groupId,
+      {required String toUser, required double amount, required String currency, int? walletId}) async {
     try {
       await _dio.post(ApiConfig.groupSettle(groupId), data: {
         'to_user': toUser,
         'amount': amount,
         'currency': currency,
+        if (walletId != null) 'wallet_id': walletId,
       });
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<List<GroupSettlement>> settlements(int groupId) async {
+    try {
+      final res = await _dio.get(ApiConfig.groupSettlements(groupId));
+      return (res.data['settlements'] as List<dynamic>)
+          .map((e) => GroupSettlement.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Either party undoes a settle-up: removes it and reverses both cash legs.
+  Future<void> undoSettlement(int groupId, int settlementId) async {
+    try {
+      await _dio.delete(ApiConfig.groupSettlementById(groupId, settlementId));
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<void> rename(int groupId, String name) async {
+    try {
+      await _dio.put(ApiConfig.groupById(groupId), data: {'name': name});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<void> transferOwnership(int groupId, String newOwnerId) async {
+    try {
+      await _dio.put(ApiConfig.groupOwner(groupId), data: {'user_id': newOwnerId});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<void> removeMember(int groupId, String userId) async {
+    try {
+      await _dio.delete(ApiConfig.groupMember(groupId, userId));
     } catch (e) {
       throw DioClient.toApiException(e);
     }

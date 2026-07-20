@@ -594,6 +594,43 @@ export class WalletModel {
     `;
   }
 
+  /**
+   * The cash side of a group settle-up: one transfer-excluded leg — the payer's
+   * wallet out (−) or the payee's in (+) — tagged with the SHARED [transferId]
+   * (both legs of one settlement share it) so an undo can delete the pair.
+   *
+   * Transfer-tagged for the same reason as an IOU: settling a shared debt is a
+   * receivable/payable changing form, not earning or spending. Net worth stays
+   * flat because the group position (counted in netWorth) moves the other way.
+   * Wallet id 0/NULL = the default cash bucket — where the payee's side always
+   * lands, since we don't know their wallets.
+   */
+  static async recordGroupSettleMovement(
+    userId: string,
+    walletId: number | null,
+    signedAmount: number,
+    currency: string,
+    title: string,
+    transferId: string,
+  ): Promise<void> {
+    const wallet = walletId && walletId > 0 ? walletId : null;
+    await sql`
+      INSERT INTO transactions (user_id, title, amount, category, currency, wallet_id, transfer_id, created_at)
+      VALUES (${userId}, ${title}, ${signedAmount}, 'Group Settle', ${currency}, ${wallet}, ${transferId}, NOW())
+    `;
+  }
+
+  /**
+   * Removes transfer legs by their shared transfer_id, scoped to [userIds] (both
+   * sides of a group settle-up). Undoing a settlement reverses its cash movement.
+   */
+  static async deleteByTransferId(userIds: string[], transferId: string): Promise<void> {
+    await sql`
+      DELETE FROM transactions
+      WHERE transfer_id = ${transferId} AND user_id::text = ANY(${userIds}::text[])
+    `;
+  }
+
   /** A single wallet's balance in the preferred currency (0 = default bucket). */
   static async balanceOf(userId: string, walletId: number, preferredCurrency: string): Promise<number> {
     const balances = await this.balances(userId, preferredCurrency);
@@ -737,6 +774,24 @@ export class WalletModel {
     if (payable > 0) {
       liabilities += payable;
       byType.set('iou_payable|debt', { type: 'iou_payable', total: payable, isLiability: true });
+    }
+
+    // Group (Splitwise-lite) positions are real money too. A net-creditor member
+    // is owed by the group — a receivable (asset); a net-debtor owes it — a
+    // payable (liability). Counting them keeps a settle-up net-worth-neutral: the
+    // wallet moves one way (recordGroupSettleMovement) while this open position
+    // moves the other, exactly like the IOUs above. Without this a group payer's
+    // net worth dropped by the FULL expense instead of just their share, and a
+    // debtor's didn't drop at all.
+    const { GroupModel } = await import('./GroupModel');
+    const groupNet = await GroupModel.userGroupNet(userId, preferredCurrency);
+    if (groupNet.receivable > 0) {
+      assets += groupNet.receivable;
+      byType.set('group_receivable|asset', { type: 'group_receivable', total: groupNet.receivable, isLiability: false });
+    }
+    if (groupNet.payable > 0) {
+      liabilities += groupNet.payable;
+      byType.set('group_payable|debt', { type: 'group_payable', total: groupNet.payable, isLiability: true });
     }
 
     const round = (n: number) => Math.round(n * 100) / 100;

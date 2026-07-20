@@ -198,6 +198,8 @@ class TransactionsController extends Notifier<TransactionsState> {
         createdAt: t.createdAt,
         notes: t.notes,
         receiptUrl: t.receiptUrl,
+        walletId: t.walletId,
+        groupId: t.groupId,
         tags: t.tags,
         splits: t.splits,
       );

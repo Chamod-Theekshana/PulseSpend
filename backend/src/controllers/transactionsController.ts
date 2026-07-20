@@ -412,22 +412,45 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
   // importer doesn't run through this endpoint, so imports never round up).
   void applyRoundUp(user_id, Number(transaction.amount), String(transaction.currency || 'LKR'));
 
-  // Explicitly shared with a group → mark it + notify THAT group (any amount).
-  // Otherwise keep the legacy heuristic: big expenses ping all the user's groups.
+  // Explicitly shared with a group → stamp it + freeze the per-member split +
+  // notify THAT group. Expenses AND income can be shared (income splits in
+  // reverse: the receiver owes the others their share); only a zero amount /
+  // transfer can't. Otherwise keep the legacy heuristic: big expenses ping all
+  // the user's groups.
   const sharedGroupId = Number(group_id);
-  if (Number.isInteger(sharedGroupId) && sharedGroupId > 0 && (await GroupModel.isMember(sharedGroupId, user_id))) {
-    await sql`UPDATE transactions SET group_id = ${sharedGroupId} WHERE id = ${transaction.id} AND user_id = ${user_id}`;
+  if (
+    Number.isInteger(sharedGroupId) && sharedGroupId > 0 &&
+    Number(transaction.amount) !== 0 &&
+    (await GroupModel.isMember(sharedGroupId, user_id))
+  ) {
+    const split = req.body?.group_split;
+    const applied = await GroupModel.applyExpenseSplit(
+      user_id,
+      Number(transaction.id),
+      sharedGroupId,
+      Math.abs(Number(transaction.amount)),
+      String(transaction.currency || 'LKR'),
+      split?.mode,
+      split?.participants,
+    );
+    if (!applied.ok) {
+      // The transaction is created but not shared — surface the split error so
+      // the client can fix it, leaving a plain personal expense behind.
+      return res.status(400).json({ message: applied.error, transaction });
+    }
     (transaction as any).group_id = sharedGroupId;
+    emitToUser(user_id, 'group:changed', { groupId: sharedGroupId });
     void (async () => {
       try {
         const actor = await UserModel.displayName(user_id);
         const group = await GroupModel.findById(sharedGroupId);
         const amountLabel = `${Math.abs(Number(transaction.amount)).toFixed(0)} ${transaction.currency || 'LKR'}`;
+        const kind = Number(transaction.amount) < 0 ? 'expense' : 'income';
         for (const memberId of await GroupModel.memberIds(sharedGroupId)) {
           if (memberId === user_id) continue;
           await sendPushToUser(
             memberId,
-            `Shared expense in ${group?.name ?? 'your group'}`,
+            `Shared ${kind} in ${group?.name ?? 'your group'}`,
             `${actor} added ${amountLabel} · ${transaction.title}`,
             { type: 'group_activity', groupId: String(sharedGroupId) },
           );
@@ -594,11 +617,15 @@ export async function getTransactionById(req: AuthedRequest, res: Response) {
 export async function updateTransaction(req: AuthedRequest, res: Response) {
   const id = String(req.params.id);
   const authed = String(req.user!.id);
-  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, wallet_id } = req.body;
+  const { title, amount, category, created_at, currency, receipt_url, splits, notes, tags, wallet_id, group_id } = req.body;
 
   if (await isTransferRow(authed, id)) {
     return res.status(409).json({ message: TRANSFER_ROW_LOCKED });
   }
+
+  // The pre-edit group_id, so un-sharing can notify the old group.
+  const priorGroupRows = await sql`SELECT group_id FROM transactions WHERE id = ${id} AND user_id = ${authed}`;
+  const priorGroupId = (priorGroupRows[0] as any)?.group_id ?? null;
 
   const walletId =
     wallet_id !== undefined ? (Number.isFinite(Number(wallet_id)) ? Number(wallet_id) : null) : undefined;
@@ -660,6 +687,30 @@ export async function updateTransaction(req: AuthedRequest, res: Response) {
   );
 
   if (!tx) return res.status(404).json({ message: 'Transaction not found' });
+
+  // Group sharing on edit: re-freeze the split from the (possibly new) amount,
+  // move it between groups, or un-share it. Skipped when group_id isn't in the
+  // body (a partial edit leaves existing sharing untouched).
+  if (group_id !== undefined) {
+    const gid = Number(group_id);
+    const totalAbs = Math.abs(Number(tx.amount));
+    if (Number.isInteger(gid) && gid > 0 && Number(tx.amount) !== 0 && (await GroupModel.isMember(gid, authed))) {
+      const split = req.body?.group_split;
+      const applied = await GroupModel.applyExpenseSplit(
+        authed, Number(tx.id), gid, totalAbs, String(tx.currency || 'LKR'), split?.mode, split?.participants,
+      );
+      if (!applied.ok) return res.status(400).json({ message: applied.error, transaction: tx });
+      (tx as any).group_id = gid;
+      emitToUser(authed, 'group:changed', { groupId: gid });
+    } else {
+      // Cleared (null/0) or a zero amount → un-share it.
+      await GroupModel.clearExpenseSplit(authed, Number(tx.id));
+      (tx as any).group_id = null;
+      if (Number.isInteger(Number(priorGroupId))) {
+        emitToUser(authed, 'group:changed', { groupId: Number(priorGroupId) });
+      }
+    }
+  }
 
   emitToUser(authed, 'tx:updated', {
     title: 'Transaction updated',

@@ -89,6 +89,12 @@ class GroupTransaction {
   final String currency;
   final String category;
   final DateTime createdAt;
+  final String? notes;
+  final String? receiptUrl;
+
+  /// What the viewer owes on this shared expense (their frozen split), in the
+  /// expense's currency. Null if they aren't a participant.
+  final double? viewerOwed;
 
   const GroupTransaction({
     required this.id,
@@ -98,11 +104,15 @@ class GroupTransaction {
     required this.currency,
     required this.category,
     required this.createdAt,
+    this.notes,
+    this.receiptUrl,
+    this.viewerOwed,
   });
 
   bool get isExpense => amount < 0;
 
   factory GroupTransaction.fromJson(Map<String, dynamic> json) {
+    final owed = json['viewer_owed'];
     return GroupTransaction(
       id: int.parse(json['id'].toString()),
       memberName: (json['member_name'] as String?) ?? 'Member',
@@ -111,6 +121,9 @@ class GroupTransaction {
       currency: (json['currency'] as String?) ?? 'LKR',
       category: (json['category'] as String?) ?? '',
       createdAt: DateTime.parse(json['created_at'].toString()),
+      notes: json['notes'] as String?,
+      receiptUrl: json['receipt_url'] as String?,
+      viewerOwed: owed == null ? null : double.tryParse(owed.toString()),
     );
   }
 }
@@ -127,9 +140,16 @@ class MemberBalance {
   final String userId;
   final String name;
   final double paid;
+  final double owed;
   final double net;
 
-  const MemberBalance({required this.userId, required this.name, required this.paid, required this.net});
+  const MemberBalance({
+    required this.userId,
+    required this.name,
+    required this.paid,
+    this.owed = 0,
+    required this.net,
+  });
 
   factory MemberBalance.fromJson(Map<String, dynamic> json) {
     double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
@@ -137,7 +157,48 @@ class MemberBalance {
       userId: json['user_id'].toString(),
       name: (json['name'] as String?) ?? 'Member',
       paid: d(json['paid']),
+      owed: d(json['owed']),
       net: d(json['net']),
+    );
+  }
+}
+
+/// A recorded settle-up entry. `status` is pending until the payee confirms;
+/// only a confirmed one moves the balances.
+class GroupSettlement {
+  final int id;
+  final String fromName;
+  final String toName;
+  final String fromUserId;
+  final String toUserId;
+  final double amount;
+  final String currency;
+  final String status; // confirmed (settle-ups are immediate; either party can undo)
+  final DateTime createdAt;
+
+  const GroupSettlement({
+    required this.id,
+    required this.fromName,
+    required this.toName,
+    required this.fromUserId,
+    required this.toUserId,
+    required this.amount,
+    required this.currency,
+    required this.status,
+    required this.createdAt,
+  });
+
+  factory GroupSettlement.fromJson(Map<String, dynamic> json) {
+    return GroupSettlement(
+      id: int.parse(json['id'].toString()),
+      fromName: (json['from_name'] as String?) ?? 'Member',
+      toName: (json['to_name'] as String?) ?? 'Member',
+      fromUserId: json['from_user'].toString(),
+      toUserId: json['to_user'].toString(),
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      currency: (json['currency'] as String?) ?? 'LKR',
+      status: (json['status'] as String?) ?? 'confirmed',
+      createdAt: DateTime.parse(json['created_at'].toString()),
     );
   }
 }

@@ -156,6 +156,11 @@ class ApiConfig {
   static String groupBalances(int id) => '$apiPrefix/groups/$id/balances';
   static String groupGoals(int id) => '$apiPrefix/groups/$id/goals';
   static String groupSettle(int id) => '$apiPrefix/groups/$id/settle';
+  static String groupSettlements(int id) => '$apiPrefix/groups/$id/settlements';
+  static String groupSettlementById(int id, int sid) => '$apiPrefix/groups/$id/settlements/$sid';
+  static String groupById(int id) => '$apiPrefix/groups/$id';
+  static String groupOwner(int id) => '$apiPrefix/groups/$id/owner';
+  static String groupMember(int id, String userId) => '$apiPrefix/groups/$id/members/$userId';
   static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
 
   // ── Wallets / Accounts ───────────────────────────────────────────

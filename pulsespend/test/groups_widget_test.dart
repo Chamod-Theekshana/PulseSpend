@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pulsespend/models/group_model.dart';
 import 'package:pulsespend/providers/groups_provider.dart';
+import 'package:pulsespend/providers/auth_provider.dart';
 import 'package:pulsespend/providers/currency_provider.dart';
 import 'package:pulsespend/providers/repository_providers.dart';
 import 'package:pulsespend/repositories/group_repository.dart';
@@ -23,6 +24,15 @@ final testFeed = GroupFeed(
   summary: const GroupSummary(income: 1000, expense: 400, balance: 600, currency: 'USD', transactionCount: 3),
   transactions: [
     GroupTransaction(id: 1, memberName: 'Alice', title: 'Lunch', amount: -20, currency: 'USD', category: 'Food', createdAt: DateTime(2026, 7, 10)),
+  ],
+);
+
+/// A feed with a shared INCOME row (positive amount) — the receiver owes the
+/// others, so the row should read "received by / you're owed".
+final incomeFeed = GroupFeed(
+  summary: const GroupSummary(income: 900, expense: 0, balance: 900, currency: 'USD', transactionCount: 1),
+  transactions: [
+    GroupTransaction(id: 2, memberName: 'Alice', title: 'Refund', amount: 900, currency: 'USD', category: 'Income', createdAt: DateTime(2026, 7, 11), viewerOwed: 300),
   ],
 );
 
@@ -52,14 +62,77 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         moneyFormatterProvider.overrideWithValue(const MoneyFormatter('USD', {'USD': 1.0})),
+        currentUserIdProvider.overrideWithValue('1'),
         groupFeedProvider(1).overrideWith((ref) async => testFeed),
         groupMembersProvider(1).overrideWith((ref) async => testMembers),
+        groupBalancesProvider(1).overrideWith((ref) async =>
+            const GroupBalances(members: [], suggestions: [], total: 0, currency: 'USD')),
+        groupSettlementsProvider(1).overrideWith((ref) async => const []),
+        groupGoalsProvider(1).overrideWith((ref) async => const []),
       ],
       child: const MaterialApp(home: GroupDetailScreen(group: testGroup)),
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('GroupDetailScreen — shared income row reads "received by / you\'re owed"', (tester) async {
+    // Tall surface so the lazy ListView lays out the feed row (it sits below the
+    // summary/balances/settlements sections, past the default viewport).
+    await tester.binding.setSurfaceSize(const Size(1200, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        moneyFormatterProvider.overrideWithValue(const MoneyFormatter('USD', {'USD': 1.0})),
+        currentUserIdProvider.overrideWithValue('1'),
+        groupFeedProvider(1).overrideWith((ref) async => incomeFeed),
+        groupMembersProvider(1).overrideWith((ref) async => testMembers),
+        groupBalancesProvider(1).overrideWith((ref) async =>
+            const GroupBalances(members: [], suggestions: [], total: 0, currency: 'USD')),
+        groupSettlementsProvider(1).overrideWith((ref) async => const []),
+        groupGoalsProvider(1).overrideWith((ref) async => const []),
+      ],
+      child: const MaterialApp(home: GroupDetailScreen(group: testGroup)),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(tester.takeException(), isNull);
+    // Income wording (not "paid by / you owe").
+    expect(find.textContaining('received by'), findsOneWidget);
+    expect(find.textContaining("you're owed"), findsOneWidget);
+  });
+
+  testWidgets('GroupDetailScreen — settle-up history offers Undo to a party', (tester) async {
+    final settlement = GroupSettlement(
+      id: 9,
+      fromName: 'You',
+      toName: 'Bob',
+      fromUserId: '1', // I'm the payer → I can undo
+      toUserId: '2',
+      amount: 500,
+      currency: 'USD',
+      status: 'confirmed',
+      createdAt: DateTime(2026, 7, 12),
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        moneyFormatterProvider.overrideWithValue(const MoneyFormatter('USD', {'USD': 1.0})),
+        currentUserIdProvider.overrideWithValue('1'),
+        groupFeedProvider(1).overrideWith((ref) async => testFeed),
+        groupMembersProvider(1).overrideWith((ref) async => testMembers),
+        groupBalancesProvider(1).overrideWith((ref) async =>
+            const GroupBalances(members: [], suggestions: [], total: 0, currency: 'USD')),
+        groupSettlementsProvider(1).overrideWith((ref) async => [settlement]),
+        groupGoalsProvider(1).overrideWith((ref) async => const []),
+      ],
+      child: const MaterialApp(home: GroupDetailScreen(group: testGroup)),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Settle-up history'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
   });
 
   testWidgets('GroupsScreen — populated list builds without error', (tester) async {

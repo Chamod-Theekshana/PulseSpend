@@ -10,6 +10,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../models/transaction_model.dart';
 import '../../../models/wallet_model.dart';
 import '../../../shared/utils/image_utils.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/categories_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/groups_provider.dart';
@@ -19,6 +20,7 @@ import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/wallet_dropdown.dart';
+import '../widgets/group_split_editor.dart';
 import '../widgets/split_editor.dart';
 
 /// What the user is recording. Transfer isn't a transaction the way the other
@@ -77,6 +79,10 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   /// When set, this expense is shared with that group (Splitwise-lite: split
   /// equally between members in the group's balance view).
   int? _groupId;
+
+  /// The frozen-at-submit split for the selected group; null when unset or the
+  /// current split doesn't add up (which blocks submit).
+  GroupSplitInput? _groupSplit;
 
   bool get _isEditing => widget.existing != null;
 
@@ -265,6 +271,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a category')));
       return;
     }
+    // A group is selected but its split doesn't add up (editor returned null).
+    if (!_isTransfer && _groupId != null && _groupSplit == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Finish the group split — pick who\'s in and make the amounts add up')),
+      );
+      return;
+    }
 
     final amountAbs = double.parse(_amountController.text.trim());
     final signedAmount = _isExpense ? -amountAbs : amountAbs;
@@ -299,7 +312,8 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
         receiptUrl: _receipt,
         walletId: _walletId,
-        groupId: _isExpense ? _groupId : null,
+        groupId: !_isTransfer ? _groupId : null,
+        groupSplit: !_isTransfer && _groupId != null ? _groupSplit?.toJson() : null,
         tags: _tags,
         splits: _isSplitMode ? _splits : const [],
       );
@@ -583,10 +597,14 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     categories: relevantCategories.map((c) => c.name).toList(),
                     onChanged: (splits) => setState(() => _splits = splits),
                   ),
-                // ── Share to group (Splitwise-lite; expenses only) ──
+              ],
+              // ── Share to group (Splitwise-lite; expenses AND income) ──
+              // Income splits in reverse — the receiver owes the others their
+              // share — but it's still the same editor on the absolute amount.
+              if (!_isTransfer)
                 Consumer(builder: (context, ref, _) {
                   final groups = ref.watch(groupsControllerProvider).items;
-                  if (groups.isEmpty || !_isExpense) return const SizedBox.shrink();
+                  if (groups.isEmpty) return const SizedBox.shrink();
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -594,7 +612,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                       Text('Share to group', style: Theme.of(context).textTheme.labelLarge),
                       const SizedBox(height: 4),
                       Text(
-                        'Split equally between members in the group balance view',
+                        'Pick who\'s in and how it splits — settled in the group\'s balances',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
@@ -608,20 +626,35 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                           _CategoryChip(
                             label: 'Not shared',
                             selected: _groupId == null,
-                            onTap: () => setState(() => _groupId = null),
+                            onTap: () => setState(() {
+                              _groupId = null;
+                              _groupSplit = null;
+                            }),
                           ),
                           for (final g in groups)
                             _CategoryChip(
                               label: g.name,
                               selected: _groupId == g.id,
-                              onTap: () => setState(() => _groupId = g.id),
+                              onTap: () => setState(() {
+                                _groupId = g.id;
+                                _groupSplit = null; // re-seeded by the editor
+                              }),
                             ),
                         ],
                       ),
+                      // The split editor: participants + mode + per-member values.
+                      // Keyed by group so it fully rebuilds when the group changes.
+                      if (_groupId != null)
+                        GroupSplitEditor(
+                          key: ValueKey(_groupId),
+                          groupId: _groupId!,
+                          totalAmount: double.tryParse(_amountController.text.trim()) ?? 0,
+                          payerId: ref.read(currentUserIdProvider),
+                          onChanged: (split) => _groupSplit = split,
+                        ),
                     ],
                   );
                 }),
-              ],
               // Notes / receipt / tags describe a spend or an earning. A transfer
               // is just money changing pockets, and the endpoint takes none of
               // them, so the whole run drops out in transfer mode.

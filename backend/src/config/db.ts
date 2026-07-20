@@ -517,4 +517,89 @@ async function _runMigrations() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_settlements_group ON group_settlements(group_id)`;
+
+        // Per-expense split shares: how a shared expense is divided, FROZEN at
+        // creation so adding/removing a member never re-splits past expenses.
+        // owed_amount is positive, in the expense's own currency (also frozen).
+        await sql`CREATE TABLE IF NOT EXISTS group_expense_splits(
+            id SERIAL PRIMARY KEY,
+            transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+            group_id INTEGER NOT NULL,
+            user_id VARCHAR(255) NOT NULL,
+            owed_amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(transaction_id, user_id)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_group ON group_expense_splits(group_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_transaction ON group_expense_splits(transaction_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_user ON group_expense_splits(user_id)`;
+
+        // Settlement confirmation (Phase 3): a payer records a settlement, the
+        // payee confirms/disputes. Existing rows are treated as confirmed.
+        await sql`ALTER TABLE group_settlements ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'confirmed'`;
+        // A settle-up now moves real cash — the payer's wallet out, the payee's
+        // default bucket in — as a transfer-tagged pair. transfer_id links the
+        // settlement to those two legs so an undo can reverse both. Nullable:
+        // legacy settlements predate the cash legs and have nothing to reverse.
+        await sql`ALTER TABLE group_settlements ADD COLUMN IF NOT EXISTS transfer_id VARCHAR(64)`;
+
+        // Referential-integrity sweep: transactions.group_id / goals.group_id
+        // have no FK, so a group deleted before the disband-cleanup existed can
+        // leave rows pointing at a dead id. Revert those to private + drop the
+        // stranded splits. Idempotent (a clean DB matches nothing).
+        await sql`
+          DELETE FROM group_expense_splits
+          WHERE group_id NOT IN (SELECT id FROM groups)
+        `;
+        await sql`
+          UPDATE transactions SET group_id = NULL
+          WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM groups)
+        `;
+        await sql`
+          UPDATE goals SET group_id = NULL
+          WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM groups)
+        `;
+
+        await backfillGroupSplits();
+}
+
+/**
+ * Gives every pre-existing shared expense the split rows it never had, so the
+ * new balance math (which reads frozen splits) sees them. Equal-split among the
+ * group's CURRENT members via the same rounding authority the write path uses —
+ * so the rows sum exactly and, once written, are frozen and never re-split.
+ * Idempotent: the NOT EXISTS guard skips anything already backfilled.
+ */
+async function backfillGroupSplits(): Promise<void> {
+  const pending = await sql`
+    SELECT t.id, t.user_id, t.amount, t.currency, t.group_id
+    FROM transactions t
+    WHERE t.group_id IS NOT NULL AND t.deleted_at IS NULL AND t.amount < 0
+      AND NOT EXISTS (SELECT 1 FROM group_expense_splits s WHERE s.transaction_id = t.id)
+  `;
+  if (pending.length === 0) return;
+
+  const { deriveGroupSplit } = await import('../utils/financeMath');
+  let filled = 0;
+  for (const t of pending as any[]) {
+    const members = await sql`SELECT user_id FROM group_members WHERE group_id = ${t.group_id}`;
+    if (members.length === 0) continue; // disbanded group — memberBalances returns nothing anyway
+    const participants = members.map((m: any) => ({ user_id: String(m.user_id) }));
+    let rows: Array<{ user_id: string; owed: number }>;
+    try {
+      rows = deriveGroupSplit('equal', participants, Math.abs(Number(t.amount)), String(t.user_id));
+    } catch {
+      continue;
+    }
+    const cur = String(t.currency || 'LKR');
+    await sql`
+      INSERT INTO group_expense_splits (transaction_id, group_id, user_id, owed_amount, currency)
+      SELECT ${Number(t.id)}::int, ${Number(t.group_id)}::int, u.user_id, u.owed::numeric, ${cur}
+      FROM UNNEST(${rows.map((r) => r.user_id)}::text[], ${rows.map((r) => r.owed)}::numeric[]) AS u(user_id, owed)
+      ON CONFLICT (transaction_id, user_id) DO NOTHING
+    `;
+    filled++;
+  }
+  if (filled > 0) console.log(`[DB] Backfilled group splits for ${filled} shared expense(s).`);
 }

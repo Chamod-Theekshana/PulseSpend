@@ -47,6 +47,10 @@ class TransactionModel {
   /// aggregating amounts client-side must skip them via [isTransfer].
   final String? transferId;
   final int? groupId; // shared with this group (Splitwise-lite) when set
+
+  /// How the shared expense is divided ({mode, participants}), sent to the
+  /// server which freezes the owed amounts. Request-only — not read back.
+  final Map<String, dynamic>? groupSplit;
   final List<String> tags;
   final List<TransactionSplit> splits;
 
@@ -63,6 +67,7 @@ class TransactionModel {
     this.walletId,
     this.transferId,
     this.groupId,
+    this.groupSplit,
     this.tags = const [],
     this.splits = const [],
   });
@@ -134,6 +139,7 @@ class TransactionModel {
       // 0 = explicitly back to the default wallet; absent = untouched-on-create.
       if (walletId != null) 'wallet_id': walletId,
       if (groupId != null) 'group_id': groupId,
+      if (groupSplit != null) 'group_split': groupSplit,
       if (tags.isNotEmpty) 'tags': tags,
       if (splits.isNotEmpty) 'splits': splits.map((s) => s.toRequestJson()).toList(),
     };

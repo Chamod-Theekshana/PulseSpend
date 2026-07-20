@@ -220,6 +220,21 @@ export async function contributeToGoal(req: AuthedRequest, res: any) {
   }
 
   emitToUser(userId, 'goal:updated', { goal });
+  // A shared-goal contribution changes every member's group view (and each
+  // contributor's net worth via the shared-goal asset), so wake their screens —
+  // the group paths otherwise had no realtime for goal activity.
+  if (goal.group_id) {
+    void (async () => {
+      try {
+        const { GroupModel } = await import('../models/GroupModel');
+        for (const memberId of await GroupModel.memberIds(Number(goal.group_id))) {
+          emitToUser(memberId, 'group:changed', { groupId: Number(goal.group_id) });
+        }
+      } catch (err) {
+        console.error('[Goals] group:changed emit failed:', err);
+      }
+    })();
+  }
   if (goal.is_completed) {
     emitToUser(userId, 'goal:completed', { goal });
     if (!existing.is_completed) {
