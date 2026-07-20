@@ -386,12 +386,11 @@ export class AnalyticsModel {
     const incomeTrend = previousIncome === 0 ? (currentIncome > 0 ? 100 : 0) : ((currentIncome - previousIncome) / previousIncome) * 100;
     const expenseTrend = previousExpense === 0 ? (currentExpense > 0 ? 100 : 0) : ((currentExpense - previousExpense) / previousExpense) * 100;
 
-    let savingsRate = 0;
-    if (currentIncome > 0) {
-      savingsRate = Math.max(0, ((currentIncome - currentExpense) / currentIncome) * 100);
-    } else if (currentExpense > 0) {
-      savingsRate = -100; // or 0? 0 is better when no income
-    }
+    // Zero income → 0%, matching getDigest: "saved nothing of nothing" reads
+    // better than the "-100%" this briefly returned, which the card rendered as
+    // a nonsense figure while the ring clamped to empty anyway.
+    const savingsRate =
+      currentIncome > 0 ? Math.max(0, ((currentIncome - currentExpense) / currentIncome) * 100) : 0;
 
     const topCategories: CategorySpending[] = Object.entries(categoryTotals)
       .map(([name, amount]) => ({

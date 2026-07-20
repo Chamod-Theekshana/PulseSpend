@@ -1,3 +1,4 @@
+import { MAX_AMOUNT } from '../utils/financeMath';
 import type { Response } from 'express';
 import { BudgetModel } from '../models/BudgetModel';
 import { emitToUser } from '../socket';
@@ -50,7 +51,7 @@ export async function setTotalBudget(req: AuthedRequest, res: Response) {
   if (raw !== null && raw !== undefined && String(raw) !== '' && !Number.isFinite(num)) {
     return res.status(400).json({ message: 'amount must be a number' });
   }
-  if (enabled && num > 1_000_000_000) {
+  if (enabled && num > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
   await BudgetModel.setTotalBudget(userId, enabled ? Math.round(num * 100) / 100 : null);

@@ -100,12 +100,14 @@ class ProfileRepository {
     }
   }
 
-  /// Configure round-up savings; null goalId turns it off.
-  Future<void> updateRoundup(String userId, {int? goalId, int? roundTo}) async {
+  /// Configure round-up savings; null goalId turns it off. [walletId] is what
+  /// each round-up debits (0 = default bucket) — required when enabling, or the
+  /// backend pauses the rule.
+  Future<void> updateRoundup(String userId, {int? goalId, int? roundTo, int? walletId}) async {
     try {
       await _dio.put(
         ApiConfig.profileRoundup(userId),
-        data: {'goal_id': goalId, 'round_to': roundTo},
+        data: {'goal_id': goalId, 'round_to': roundTo, 'wallet_id': walletId},
       );
     } catch (e) {
       throw DioClient.toApiException(e);

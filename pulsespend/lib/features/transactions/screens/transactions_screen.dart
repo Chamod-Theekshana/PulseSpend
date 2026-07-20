@@ -13,6 +13,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
@@ -572,14 +573,21 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-class _TransactionTile extends StatelessWidget {
+class _TransactionTile extends ConsumerWidget {
   final TransactionModel transaction;
   final MoneyFormatter money;
 
   const _TransactionTile({required this.transaction, required this.money});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Which wallet this came out of. Only worth showing once the user actually
+    // has wallets — before that every row would read "Default".
+    final wallets = ref.watch(walletsControllerProvider).items;
+    final walletName = wallets.isEmpty
+        ? null
+        : (wallets.where((w) => w.id == transaction.walletId).firstOrNull?.name ?? 'Default');
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -623,10 +631,29 @@ class _TransactionTile extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        transaction.category,
-                        style: TextStyle(fontSize: 12, color: textSecondary),
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              transaction.category,
+                              style: TextStyle(fontSize: 12, color: textSecondary),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (walletName != null) ...[
+                            Text(' · ', style: TextStyle(fontSize: 12, color: textSecondary)),
+                            Icon(Icons.account_balance_wallet_outlined,
+                                size: 11, color: textSecondary),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                walletName,
+                                style: TextStyle(fontSize: 12, color: textSecondary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),

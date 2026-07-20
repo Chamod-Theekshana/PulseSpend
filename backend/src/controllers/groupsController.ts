@@ -1,3 +1,4 @@
+import { MAX_AMOUNT } from '../utils/financeMath';
 import { GroupModel } from '../models/GroupModel';
 import { UserModel } from '../models/UserModel';
 import { sendPushToUser } from '../services/pushService';
@@ -130,7 +131,7 @@ export async function settleUp(req: AuthedRequest, res: Response) {
     return res.status(400).json({ message: 'to_user must be another member of this group' });
   }
   const amt = Number(amount);
-  if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000_000) {
+  if (!Number.isFinite(amt) || amt <= 0 || amt > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount must be a positive number' });
   }
   const cur = typeof currency === 'string' && currency.trim() ? currency.trim().toUpperCase().slice(0, 10) : 'LKR';

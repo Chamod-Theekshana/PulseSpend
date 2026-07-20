@@ -8,15 +8,25 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/ocr/receipt_parser.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/transaction_model.dart';
+import '../../../models/wallet_model.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../providers/categories_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/groups_provider.dart';
+import '../../../providers/repository_providers.dart';
 import '../../../providers/transactions_provider.dart';
 import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../../shared/widgets/wallet_dropdown.dart';
 import '../widgets/split_editor.dart';
+
+/// What the user is recording. Transfer isn't a transaction the way the other
+/// two are — it hits a different endpoint and produces a −/+ pair — but it
+/// belongs in the same screen: "what happened to my money" is one question, and
+/// hiding transfers elsewhere pushes people to mis-record loan repayments and
+/// card payments as income.
+enum _TxKind { expense, income, transfer }
 
 /// Add or edit a transaction. Mirrors validateTransactionBody exactly:
 /// - amount must be non-zero, sign determines income/expense
@@ -38,7 +48,15 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   final _notesController = TextEditingController();
   final _tagController = TextEditingController();
 
-  bool _isExpense = true;
+  _TxKind _kind = _TxKind.expense;
+
+  bool get _isExpense => _kind == _TxKind.expense;
+  bool get _isTransfer => _kind == _TxKind.transfer;
+
+  /// Transfer ends. Wallet id 0 = the virtual Default bucket.
+  int? _fromWalletId;
+  int? _toWalletId;
+
   String? _selectedCategory;
   DateTime _date = DateTime.now();
   List<String> _tags = [];
@@ -70,7 +88,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       _titleController.text = tx.title;
       _amountController.text = tx.amount.abs().toStringAsFixed(2);
       _notesController.text = tx.notes ?? '';
-      _isExpense = tx.isExpense;
+      _kind = tx.isExpense ? _TxKind.expense : _TxKind.income;
       _selectedCategory = tx.category;
       _date = tx.createdAt;
       _tags = List.of(tx.tags);
@@ -200,8 +218,49 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     if (picked != null) setState(() => _date = picked);
   }
 
+  /// Moves money between two wallets. Hits the transfer endpoint rather than
+  /// creating a transaction: the backend writes a −/+ pair sharing one transfer
+  /// id, so balances shift while income/expense analytics stay untouched — the
+  /// whole reason a loan repayment must not be recorded as income.
+  Future<void> _submitTransfer() async {
+    final from = _fromWalletId;
+    final to = _toWalletId;
+    if (from == null || to == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pick which wallet the money leaves and where it lands')),
+      );
+      return;
+    }
+    final amount = double.parse(_amountController.text.trim());
+    // Captured before the pop — this context is defunct afterwards.
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _isLoading = true);
+    try {
+      await ref.read(walletRepositoryProvider).transfer(
+            fromWalletId: from,
+            toWalletId: to,
+            amount: amount,
+          );
+      ref.invalidate(walletBalancesProvider);
+      ref.invalidate(netWorthProvider);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Transfer complete ✓'), backgroundColor: AppColors.income),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final apiEx = DioClient.toApiException(e);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_isTransfer) return _submitTransfer();
     if (_selectedCategory == null && !_isSplitMode) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a category')));
       return;
@@ -278,88 +337,146 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
             children: [
-              // Income / Expense toggle
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: surfaceAlt,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _TypeToggleButton(
-                        label: 'Expense',
-                        selected: _isExpense,
-                        color: AppColors.expense,
-                        onTap: () => setState(() {
-                          _isExpense = true;
-                          _selectedCategory = null;
-                        }),
+              // Expense / Income / Transfer toggle. Transfer is create-only —
+              // an existing transaction can't turn into a −/+ pair — and needs
+              // somewhere to move money to, so it appears once wallets exist.
+              Consumer(builder: (context, ref, _) {
+                final hasWallets = ref.watch(walletsControllerProvider).items.isNotEmpty;
+                final showTransfer = hasWallets && !_isEditing;
+                return Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: surfaceAlt,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _TypeToggleButton(
+                          label: 'Expense',
+                          selected: _kind == _TxKind.expense,
+                          color: AppColors.expense,
+                          onTap: () => setState(() {
+                            _kind = _TxKind.expense;
+                            _selectedCategory = null;
+                          }),
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      child: _TypeToggleButton(
-                        label: 'Income',
-                        selected: !_isExpense,
-                        color: AppColors.income,
-                        onTap: () => setState(() {
-                          _isExpense = false;
-                          _selectedCategory = null;
-                          _isSplitMode = false;
-                          _splits = [];
-                        }),
+                      Expanded(
+                        child: _TypeToggleButton(
+                          label: 'Income',
+                          selected: _kind == _TxKind.income,
+                          color: AppColors.income,
+                          onTap: () => setState(() {
+                            _kind = _TxKind.income;
+                            _selectedCategory = null;
+                            _isSplitMode = false;
+                            _splits = [];
+                          }),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
+                      if (showTransfer)
+                        Expanded(
+                          child: _TypeToggleButton(
+                            label: 'Transfer',
+                            selected: _kind == _TxKind.transfer,
+                            color: AppColors.primary,
+                            onTap: () => setState(() {
+                              _kind = _TxKind.transfer;
+                              _selectedCategory = null;
+                              _isSplitMode = false;
+                              _splits = [];
+                              _groupId = null;
+                            }),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
               const SizedBox(height: 20),
-              AppTextField(
-                controller: _titleController,
-                label: 'Title',
-                textCapitalization: TextCapitalization.sentences,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Title is required';
-                  if (v.trim().length > 200) return 'Max 200 characters';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
+              // A transfer's title and date come from the server ("Transfer to
+              // X" / now), so neither field applies.
+              if (!_isTransfer) ...[
+                AppTextField(
+                  controller: _titleController,
+                  label: 'Title',
+                  textCapitalization: TextCapitalization.sentences,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Title is required';
+                    if (v.trim().length > 200) return 'Max 200 characters';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
               AppTextField(
                 controller: _amountController,
                 label: 'Amount ($currency)',
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 prefixIcon: const Icon(Icons.attach_money_rounded),
+                // The overdraft warning under the wallet chips compares this
+                // against the selected wallet's balance live.
+                onChanged: (_) => setState(() {}),
                 validator: (v) {
                   final n = double.tryParse(v?.trim() ?? '');
                   if (n == null || n <= 0) return 'Enter a valid amount';
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _pickDate,
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: surfaceAlt,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today_outlined, size: 20),
-                      const SizedBox(width: 12),
-                      Text('${_date.day}/${_date.month}/${_date.year}'),
-                    ],
+              if (!_isTransfer) ...[
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: _pickDate,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: surfaceAlt,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_outlined, size: 20),
+                        const SizedBox(width: 12),
+                        Text('${_date.day}/${_date.month}/${_date.year}'),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
+              // ── Transfer ends (replaces the wallet picker in transfer mode) ──
+              if (_isTransfer) ...[
+                const SizedBox(height: 16),
+                WalletDropdown(
+                  label: 'From wallet',
+                  value: _fromWalletId,
+                  excludeId: _toWalletId,
+                  onChanged: (v) => setState(() => _fromWalletId = v),
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: Icon(Icons.arrow_downward_rounded,
+                      size: 18, color: AppColors.primary.withValues(alpha: 0.7)),
+                ),
+                const SizedBox(height: 10),
+                WalletDropdown(
+                  label: 'To wallet',
+                  value: _toWalletId,
+                  excludeId: _fromWalletId,
+                  onChanged: (v) => setState(() => _toWalletId = v),
+                ),
+                const SizedBox(height: 10),
+                _TransferHint(
+                  fromId: _fromWalletId,
+                  toId: _toWalletId,
+                  amountText: _amountController.text,
+                ),
+              ],
               // ── Wallet (only shown once the user has created wallets) ──
               Consumer(builder: (context, ref, _) {
                 final wallets = ref.watch(walletsControllerProvider).items;
-                if (wallets.isEmpty) return const SizedBox.shrink();
+                if (wallets.isEmpty || _isTransfer) return const SizedBox.shrink();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -384,11 +501,54 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                           ),
                       ],
                     ),
+                    // What the selected wallet holds, and a soft overdraft
+                    // warning: the user can't judge "can I afford this from
+                    // here" without seeing the balance. Warn-only — overdraft
+                    // facilities are real, so the save still goes through.
+                    _WalletBalanceLine(
+                      walletId: _walletId,
+                      isExpense: _isExpense,
+                      amountText: _amountController.text,
+                    ),
+                    // Income into a credit/loan wallet is almost always borrowed
+                    // money or a repayment — neither is earnings. Recording it as
+                    // income inflates the balance and hides the debt, so nudge
+                    // toward a transfer instead. A hint, not a block: refunds are
+                    // a legitimate exception.
+                    if (!_isExpense &&
+                        wallets.any((w) => w.id == _walletId && w.isLiability)) ...[
+                      const SizedBox(height: 10),
+                      _LiabilityIncomeHint(
+                        walletName: wallets.firstWhere((w) => w.id == _walletId).name,
+                        // Hand over the right tool with the destination already
+                        // filled in — the user only has to say where it came from.
+                        onUseTransfer: () => setState(() {
+                          _kind = _TxKind.transfer;
+                          _toWalletId = _walletId;
+                          _fromWalletId = null;
+                          _selectedCategory = null;
+                          _isSplitMode = false;
+                          _splits = [];
+                          _groupId = null;
+                        }),
+                      ),
+                    ],
+                    // An expense on a LOAN grows the principal — but a loan only
+                    // grows by interest; buying things is what cards and cash
+                    // are for. Warn-only: interest and fees are the legitimate
+                    // reason to be here.
+                    if (_isExpense &&
+                        wallets.any((w) => w.id == _walletId && w.type == 'loan')) ...[
+                      const SizedBox(height: 10),
+                      _LoanExpenseHint(
+                        walletName: wallets.firstWhere((w) => w.id == _walletId).name,
+                      ),
+                    ],
                   ],
                 );
               }),
               const SizedBox(height: 16),
-              if (!_isSplitMode) ...[
+              if (!_isSplitMode && !_isTransfer) ...[
                 Text('Category', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 8),
                 Wrap(
@@ -462,159 +622,166 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   );
                 }),
               ],
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: _notesController,
-                label: 'Notes (optional)',
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              Text('Receipt (optional)', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              if (_receipt == null)
+              // Notes / receipt / tags describe a spend or an earning. A transfer
+              // is just money changing pockets, and the endpoint takes none of
+              // them, so the whole run drops out in transfer mode.
+              if (!_isTransfer) ...[
+                const SizedBox(height: 16),
+                AppTextField(
+                  controller: _notesController,
+                  label: 'Notes (optional)',
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                Text('Receipt (optional)', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 8),
+                if (_receipt == null)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: _pickReceipt,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: surfaceAlt,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.receipt_long_outlined, size: 18, color: AppColors.primary),
+                                SizedBox(width: 8),
+                                Flexible(
+                                  child: Text('Attach',
+                                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          onTap: _scanReceipt,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.document_scanner_outlined, size: 18, color: AppColors.primary),
+                                SizedBox(width: 8),
+                                Flexible(
+                                  child: Text('Scan & fill',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13.5,
+                                          color: AppColors.primary),
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image(
+                          image: getProfileImageProvider(_receipt!),
+                          height: 140,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: InkWell(
+                          onTap: () => setState(() => _receipt = null),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 8,
+                        right: 8,
+                        child: InkWell(
+                          onTap: _pickReceipt,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.edit_rounded, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 16),
+                Text('Tags', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
-                      child: InkWell(
-                        onTap: _pickReceipt,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                          decoration: BoxDecoration(
-                            color: surfaceAlt,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.receipt_long_outlined, size: 18, color: AppColors.primary),
-                              SizedBox(width: 8),
-                              Flexible(
-                                child: Text('Attach',
-                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            ],
-                          ),
-                        ),
+                      child: AppTextField(
+                        controller: _tagController,
+                        label: 'Add a tag',
+                        hint: 'e.g. work, vacation',
+                        onChanged: (_) {},
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _scanReceipt,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.document_scanner_outlined, size: 18, color: AppColors.primary),
-                              SizedBox(width: 8),
-                              Flexible(
-                                child: Text('Scan & fill',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13.5,
-                                        color: AppColors.primary),
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image(
-                        image: getProfileImageProvider(_receipt!),
-                        height: 140,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: InkWell(
-                        onTap: () => setState(() => _receipt = null),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      right: 8,
-                      child: InkWell(
-                        onTap: _pickReceipt,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.edit_rounded, color: Colors.white, size: 18),
-                        ),
-                      ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      onPressed: _addTag,
+                      icon: const Icon(Icons.add_rounded),
+                      style: IconButton.styleFrom(backgroundColor: AppColors.primary),
                     ),
                   ],
                 ),
-              const SizedBox(height: 16),
-              Text('Tags', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: AppTextField(
-                      controller: _tagController,
-                      label: 'Add a tag',
-                      hint: 'e.g. work, vacation',
-                      onChanged: (_) {},
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: _addTag,
-                    icon: const Icon(Icons.add_rounded),
-                    style: IconButton.styleFrom(backgroundColor: AppColors.primary),
+                if (_tags.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _tags
+                        .map((tag) => Chip(
+                              label: Text('#$tag'),
+                              onDeleted: () => setState(() => _tags.remove(tag)),
+                            ))
+                        .toList(),
                   ),
                 ],
-              ),
-              if (_tags.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _tags
-                      .map((tag) => Chip(
-                            label: Text('#$tag'),
-                            onDeleted: () => setState(() => _tags.remove(tag)),
-                          ))
-                      .toList(),
-                ),
               ],
               const SizedBox(height: 28),
               PrimaryButton(
-                label: _isEditing ? 'Save Changes' : 'Add Transaction',
+                label: _isTransfer
+                    ? 'Transfer'
+                    : (_isEditing ? 'Save Changes' : 'Add Transaction'),
                 isLoading: _isLoading,
                 onPressed: _submit,
               ),
@@ -704,6 +871,267 @@ class _CategoryChip extends StatelessWidget {
             fontSize: 13,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Explains, in plain terms, what the chosen transfer actually does. Debt
+/// wallets are where transfers earn their keep and where the mental model is
+/// hardest, so those two directions get named outright: money out of a loan is
+/// borrowing, money into it is a repayment. Neither is earning or spending,
+/// which is exactly why this isn't an income/expense entry.
+class _TransferHint extends ConsumerWidget {
+  final int? fromId;
+  final int? toId;
+  final String amountText;
+
+  const _TransferHint({required this.fromId, required this.toId, this.amountText = ''});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (fromId == null || toId == null) return const SizedBox.shrink();
+
+    final balances = ref.watch(walletBalancesProvider).asData?.value ?? const <WalletBalance>[];
+    WalletBalance? at(int id) => balances.where((b) => b.wallet.id == id).firstOrNull;
+    final from = at(fromId!);
+    final to = at(toId!);
+    if (from == null || to == null) return const SizedBox.shrink();
+
+    // Warn-only overdraft check on the source: moving more than an asset wallet
+    // holds is allowed (overdraft facilities exist) but shouldn't be a surprise.
+    // A liability source is borrowing — its balance is negative by design.
+    final amount = double.tryParse(amountText.trim()) ?? 0;
+    final overdraws =
+        !from.wallet.isLiability && amount > 0 && amount > from.balance + 0.01;
+
+    final String message;
+    if (to.wallet.isLiability && !from.wallet.isLiability) {
+      message = 'Repayment: ${from.wallet.name} drops and you owe '
+          '${to.wallet.name} less. Your net worth doesn\'t change — you swapped '
+          'money for less debt. Interest is separate: record that as an expense.';
+    } else if (from.wallet.isLiability && !to.wallet.isLiability) {
+      message = 'Borrowing: ${to.wallet.name} goes up and you now owe '
+          '${from.wallet.name} that much. Your net worth doesn\'t change — the '
+          'cash is real, but so is the debt.';
+    } else {
+      message = 'Moves money without counting as income or spending, so your '
+          'earnings and net worth stay the same.';
+    }
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: isDark ? 0.14 : 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (overdraws) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, size: 13, color: AppColors.warning),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  '${from.wallet.name} only has ${from.balance.toStringAsFixed(0)} '
+                  '${from.displayCurrency} — this transfer will overdraw it.',
+                  style: const TextStyle(
+                      fontSize: 11.5, color: AppColors.warning, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The selected wallet's balance, with a soft overdraft warning when the typed
+/// expense exceeds it. Warn-only: bank overdraft facilities are real, so this
+/// never blocks — it just makes sure an overdraw is a choice, not a surprise.
+/// Liability wallets don't warn here (their balance is supposed to be negative;
+/// the credit limit is the server-enforced ceiling for those).
+class _WalletBalanceLine extends ConsumerWidget {
+  final int? walletId;
+  final bool isExpense;
+  final String amountText;
+
+  const _WalletBalanceLine({
+    required this.walletId,
+    required this.isExpense,
+    required this.amountText,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final balances = ref.watch(walletBalancesProvider).asData?.value ?? const <WalletBalance>[];
+    final b = balances.where((x) => x.wallet.id == (walletId ?? 0)).firstOrNull;
+    if (b == null) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
+    final amount = double.tryParse(amountText.trim()) ?? 0;
+    final overdraws = isExpense && !b.wallet.isLiability && amount > 0 && amount > b.balance + 0.01;
+
+    final label = b.wallet.isLiability
+        ? (b.availableCredit != null
+            ? 'Available credit: ${b.availableCredit!.toStringAsFixed(0)} ${b.displayCurrency}'
+            : 'Owed: ${b.amountOwed.toStringAsFixed(0)} ${b.displayCurrency}')
+        : 'Balance: ${b.balance.toStringAsFixed(0)} ${b.displayCurrency}';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Icon(
+            overdraws ? Icons.warning_amber_rounded : Icons.account_balance_wallet_outlined,
+            size: 13,
+            color: overdraws ? AppColors.warning : textTertiary,
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              overdraws
+                  ? '$label — this spend will overdraw it'
+                  : label,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: overdraws ? AppColors.warning : textTertiary,
+                fontWeight: overdraws ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Warn-only nudge for an expense recorded directly on a LOAN wallet: a loan's
+/// principal only grows through interest — purchases belong on cash or a card,
+/// and repayments are transfers. Interest/fees are the legitimate reason to
+/// proceed anyway.
+class _LoanExpenseHint extends StatelessWidget {
+  final String walletName;
+  const _LoanExpenseHint({required this.walletName});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.warning.withValues(alpha: 0.12) : AppColors.warningBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This grows what you owe on $walletName. A loan normally only grows '
+              'by interest — if you\'re buying something, spend from the wallet '
+              'the money is in. Interest or fees? Carry on.',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nudge shown when income is being recorded into a credit/loan wallet — the
+/// mistake that makes borrowed money look like earnings and hides the debt.
+/// Recording income here reduces the debt without the money leaving anywhere,
+/// so net worth quietly rises out of nothing. Rather than block it (a refund is
+/// a legitimate reason to be here), this hands over the right tool in one tap.
+class _LiabilityIncomeHint extends StatelessWidget {
+  final String walletName;
+  final VoidCallback onUseTransfer;
+
+  const _LiabilityIncomeHint({required this.walletName, required this.onUseTransfer});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.warning.withValues(alpha: 0.12)
+            : AppColors.warningBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$walletName is a debt account. Paying it off isn\'t income — '
+                  'the money has to come out of another wallet, or your net worth '
+                  'grows out of nowhere. Only use income here for refunds.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onUseTransfer,
+              icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+              label: Text('Record a repayment to $walletName instead'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

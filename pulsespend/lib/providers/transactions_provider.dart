@@ -437,7 +437,10 @@ class TransactionsController extends Notifier<TransactionsState> {
           case 'create':
             await repo.createRaw(op.body);
           case 'update': // settle (idempotent)
-            await repo.settle((op.body['id'] as num).toInt());
+            await repo.settle(
+              (op.body['id'] as num).toInt(),
+              walletId: (op.body['wallet_id'] as num?)?.toInt(),
+            );
           case 'delete':
             await repo.delete((op.body['id'] as num).toInt());
         }
@@ -462,12 +465,39 @@ final transactionsControllerProvider =
 
 /// Income/expense/balance summary card on the dashboard. Re-fetches whenever
 /// the transactions list changes via socket events too.
+///
+/// `balance` is money on hand, which moves on flows that create NO tx event —
+/// IOU settlements, goal funding, opening-balance seeds, auto-contributions.
+/// The backend announces those with 'tx:summary:invalidate' (and every wallet
+/// mutation with 'wallet:changed'); without these listeners the headline sat
+/// stale next to wallet cards that had already updated — two figures on one
+/// screen disagreeing.
 final transactionSummaryProvider = FutureProvider.autoDispose<TransactionSummary>((ref) async {
   ref.watch(transactionsControllerProvider); // re-run when list refreshes
+  final subs = [
+    SocketService.instance.on('tx:summary:invalidate', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('wallet:changed', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
   final userId = ref.read(currentUserIdProvider);
   final summary = await ref.read(transactionRepositoryProvider).summary(userId);
   // Keep the Android home-screen widget in sync (best-effort, fire & forget).
-  unawaited(HomeWidgetService.update(summary));
+  // The widget's second row is labelled "this month", so it gets the month
+  // analytics figures — not the lifetime totals the dashboard card shows.
+  unawaited(() async {
+    double? monthIncome;
+    double? monthExpense;
+    try {
+      final month = await ref.read(analyticsRepositoryProvider).getSummary('month');
+      monthIncome = month.trend.totalIncome;
+      monthExpense = month.trend.totalExpense;
+    } catch (_) {/* widget update proceeds without the month row */}
+    await HomeWidgetService.update(summary, monthIncome: monthIncome, monthExpense: monthExpense);
+  }());
   return summary;
 });
 

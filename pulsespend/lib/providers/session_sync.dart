@@ -48,6 +48,8 @@ class SessionSyncController extends Notifier<void> {
     ref.invalidate(weeklyDigestProvider);
     ref.invalidate(dashboardTransactionsProvider);
     ref.invalidate(walletBalancesProvider);
+    ref.invalidate(netWorthProvider);
+    ref.invalidate(balanceHistoryProvider);
     ref.invalidate(notificationPrefsControllerProvider);
     ref.invalidate(exchangeRatesProvider);
   }
@@ -69,6 +71,8 @@ class SessionSyncController extends Notifier<void> {
     ref.invalidate(weeklyDigestProvider);
     ref.invalidate(dashboardTransactionsProvider);
     ref.invalidate(walletBalancesProvider);
+    ref.invalidate(netWorthProvider);
+    ref.invalidate(balanceHistoryProvider);
     ref.invalidate(walletsControllerProvider);
     ref.invalidate(groupsControllerProvider);
     ref.invalidate(debtsControllerProvider);

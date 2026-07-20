@@ -1,3 +1,4 @@
+import { MAX_AMOUNT } from '../utils/financeMath';
 import { Request, Response, NextFunction } from 'express';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -105,7 +106,7 @@ export function validateTransactionBody(req: Request, res: Response, next: NextF
   if (numAmount === 0) {
     return res.status(400).json({ message: 'Amount cannot be zero' });
   }
-  if (Math.abs(numAmount) > 1_000_000_000) {
+  if (Math.abs(numAmount) > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
@@ -373,7 +374,7 @@ export function validateBudgetBody(req: Request, res: Response, next: NextFuncti
   if (!Number.isFinite(numAmount) || numAmount <= 0) {
     return res.status(400).json({ message: 'Amount must be a positive number' });
   }
-  if (numAmount > 1_000_000_000) {
+  if (numAmount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
@@ -400,7 +401,7 @@ export function validateBudgetUpdateBody(req: Request, res: Response, next: Next
   if (!Number.isFinite(numAmount) || numAmount <= 0) {
     return res.status(400).json({ message: 'Amount must be a positive number' });
   }
-  if (numAmount > 1_000_000_000) {
+  if (numAmount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
   (req.body as any).amount = numAmount;
@@ -440,7 +441,7 @@ export function validateGoalBody(req: Request, res: Response, next: NextFunction
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'target_amount must be a positive number' });
   }
-  if (amount > 1_000_000_000) {
+  if (amount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'target_amount is too large' });
   }
 
@@ -480,12 +481,25 @@ export function validateGoalContributionBody(req: Request, res: Response, next: 
   const { amount, currency } = req.body ?? {};
   const numAmount = Number(amount);
   // Negative = withdrawal (goal timeline supports both directions); zero is meaningless.
-  if (!Number.isFinite(numAmount) || numAmount === 0 || Math.abs(numAmount) > 1_000_000_000) {
+  if (!Number.isFinite(numAmount) || numAmount === 0 || Math.abs(numAmount) > MAX_AMOUNT) {
     return res.status(400).json({ message: 'amount must be a non-zero number' });
   }
   const cur = normalizeCurrency(currency, 'LKR');
   if (cur.length < 3 || cur.length > 10) {
     return res.status(400).json({ message: 'currency must be between 3 and 10 characters' });
+  }
+  const { wallet_id, spend, category } = req.body ?? {};
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+  if (spend !== undefined && typeof spend !== 'boolean') {
+    return res.status(400).json({ message: 'spend must be a boolean' });
+  }
+  if (category !== undefined && category !== null && typeof category !== 'string') {
+    return res.status(400).json({ message: 'category must be a string' });
   }
   (req.body as any).amount = numAmount;
   (req.body as any).currency = cur;
@@ -514,7 +528,7 @@ export function validateRecurringBody(req: Request, res: Response, next: NextFun
   if (!Number.isFinite(numAmount) || numAmount === 0) {
     return res.status(400).json({ message: 'Amount must be a non-zero number' });
   }
-  if (Math.abs(numAmount) > 1_000_000_000) {
+  if (Math.abs(numAmount) > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
@@ -584,7 +598,7 @@ export function validateRecurringUpdateBody(req: Request, res: Response, next: N
     if (!Number.isFinite(numAmount) || numAmount === 0) {
       return res.status(400).json({ message: 'Amount must be a non-zero number' });
     }
-    if (Math.abs(numAmount) > 1_000_000_000) {
+    if (Math.abs(numAmount) > MAX_AMOUNT) {
       return res.status(400).json({ message: 'Amount is too large' });
     }
     (req.body as any).amount = numAmount;

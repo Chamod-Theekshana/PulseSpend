@@ -28,9 +28,14 @@ class DebtRepository {
   }
 
   /// Settling is idempotent server-side, so an offline replay is safe.
-  Future<DebtModel> settle(int id) async {
+  /// [walletId] is where the repayment landed (owed-to-me) or left from
+  /// (i-owe); the backend records it as a transfer-excluded movement, so
+  /// Earnings/Spendings never move. Null = the cash isn't tracked.
+  Future<DebtModel> settle(int id, {int? walletId}) async {
     try {
-      final res = await _dio.put(ApiConfig.debtSettle(id));
+      final res = await _dio.put(ApiConfig.debtSettle(id), data: {
+        if (walletId != null) 'wallet_id': walletId,
+      });
       return DebtModel.fromJson(res.data['debt'] as Map<String, dynamic>);
     } catch (e) {
       throw DioClient.toApiException(e);

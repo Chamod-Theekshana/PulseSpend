@@ -7,6 +7,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/goal_model.dart';
 import '../../../providers/goals_provider.dart';
+import '../../../providers/wallets_provider.dart';
 
 /// Contribution timeline for a goal (deposits, auto-contributions, round-ups,
 /// withdrawals) + a Withdraw action. Opened by tapping a goal card.
@@ -32,45 +33,129 @@ class GoalDetailSheet extends ConsumerWidget {
     };
   }
 
-  Future<void> _withdraw(BuildContext context, WidgetRef ref) async {
+  Future<void> _withdraw(BuildContext context, WidgetRef ref, GoalModel goal) async {
     final controller = TextEditingController();
-    final amount = await showDialog<double>(
+    final categoryController = TextEditingController(text: 'Goal Savings');
+    final wallets = ref.read(walletsControllerProvider).items;
+    // Destination wallet the money returns to; null = just track (no money).
+    int? walletId = wallets.isNotEmpty ? wallets.first.id : null;
+    // 'wallet' = return to a wallet; 'spend' = record as a real expense.
+    var mode = 'wallet';
+    // You can only take back what the goal currently holds.
+    final available = goal.currentAmount;
+    String? error;
+
+    final result = await showDialog<({double amount, int? walletId, bool spend, String category})>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Withdraw from goal'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: 'Amount (${goal.currency})',
-            border: const OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Withdraw from goal'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Amount (${goal.currency})',
+                    helperText: 'Available: ${CurrencyFormatter.format(available, goal.currency)}',
+                    errorText: error,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) {
+                    if (error != null) setLocal(() => error = null);
+                  },
+                ),
+                const SizedBox(height: 16),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'wallet', label: Text('To wallet'), icon: Icon(Icons.account_balance_wallet_outlined, size: 18)),
+                    ButtonSegment(value: 'spend', label: Text('Spent it'), icon: Icon(Icons.shopping_bag_outlined, size: 18)),
+                  ],
+                  selected: {mode},
+                  onSelectionChanged: (s) => setLocal(() => mode = s.first),
+                  showSelectedIcon: false,
+                ),
+                const SizedBox(height: 12),
+                if (mode == 'wallet')
+                  InputDecorator(
+                    decoration: const InputDecoration(labelText: 'Return to', border: OutlineInputBorder()),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int?>(
+                        value: walletId,
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('Just track (no wallet)')),
+                          for (final w in wallets)
+                            DropdownMenuItem<int?>(value: w.id, child: Text(w.name, overflow: TextOverflow.ellipsis)),
+                        ],
+                        onChanged: (v) => setLocal(() => walletId = v),
+                      ),
+                    ),
+                  )
+                else
+                  TextField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Expense category',
+                      helperText: 'Recorded as spending & lowers net worth',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final amt = double.tryParse(controller.text.trim());
+                if (amt == null || amt <= 0) {
+                  setLocal(() => error = 'Enter a valid amount');
+                  return;
+                }
+                // Can't withdraw more than the goal holds.
+                if (amt > available + 0.0001) {
+                  setLocal(() => error =
+                      "Only ${CurrencyFormatter.format(available, goal.currency)} available");
+                  return;
+                }
+                final cat = categoryController.text.trim().isEmpty ? 'Goal Savings' : categoryController.text.trim();
+                Navigator.pop(ctx, (amount: amt, walletId: walletId, spend: mode == 'spend', category: cat));
+              },
+              child: const Text('Withdraw'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, double.tryParse(controller.text.trim())),
-            child: const Text('Withdraw'),
-          ),
-        ],
       ),
     );
     // Sheet-owned dialogs: dispose after the dismiss animation settles.
-    Future.delayed(const Duration(seconds: 1), controller.dispose);
-    if (amount == null || amount <= 0) return;
+    Future.delayed(const Duration(seconds: 1), () {
+      controller.dispose();
+      categoryController.dispose();
+    });
+    if (result == null || result.amount <= 0) return;
+    final amount = result.amount;
 
     try {
       await ref.read(goalsControllerProvider.notifier).contribute(
             id: goal.id,
             amount: -amount,
             currency: goal.currency,
+            walletId: result.spend ? null : result.walletId,
+            spend: result.spend,
+            category: result.category,
           );
       ref.invalidate(goalContributionsProvider(goal.id));
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Withdrew ${CurrencyFormatter.format(amount, goal.currency)}'),
+            content: Text(result.spend
+                ? 'Spent ${CurrencyFormatter.format(amount, goal.currency)} from "${goal.name}"'
+                : 'Withdrew ${CurrencyFormatter.format(amount, goal.currency)}'),
           ),
         );
       }
@@ -87,8 +172,16 @@ class GoalDetailSheet extends ConsumerWidget {
     final amountController =
         TextEditingController(text: goal.autoAmount?.toStringAsFixed(0) ?? '');
     var day = goal.autoDay ?? 1;
+    // Spendable wallets only: an auto-save has to debit somewhere real, or the
+    // goal grows out of nothing. 0 = the default bucket.
+    var walletId = goal.autoWalletId ?? 0;
+    final wallets = ref
+        .read(walletsControllerProvider)
+        .items
+        .where((w) => !w.isLiability)
+        .toList();
 
-    final result = await showDialog<({double? amount, int day})>(
+    final result = await showDialog<({double? amount, int day, int walletId})>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
@@ -117,6 +210,26 @@ class GoalDetailSheet extends ConsumerWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('From wallet'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButton<int>(
+                      value: walletId == 0 || wallets.any((w) => w.id == walletId) ? walletId : 0,
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem(value: 0, child: Text('Default')),
+                        for (final w in wallets)
+                          DropdownMenuItem(
+                              value: w.id, child: Text(w.name, overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => setState(() => walletId = v ?? 0),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           actions: [
@@ -124,7 +237,11 @@ class GoalDetailSheet extends ConsumerWidget {
             FilledButton(
               onPressed: () => Navigator.pop(
                 ctx,
-                (amount: double.tryParse(amountController.text.trim()), day: day),
+                (
+                  amount: double.tryParse(amountController.text.trim()),
+                  day: day,
+                  walletId: walletId,
+                ),
               ),
               child: const Text('Save'),
             ),
@@ -140,6 +257,7 @@ class GoalDetailSheet extends ConsumerWidget {
             goal.id,
             amount: result.amount != null && result.amount! > 0 ? result.amount : null,
             day: result.day,
+            walletId: result.walletId,
           );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,6 +280,10 @@ class GoalDetailSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Use the live goal from the controller (not the stale tap-time snapshot),
+    // so balances stay correct after a contribute/withdraw in this session.
+    final goal = ref.watch(goalsControllerProvider).items
+        .firstWhere((g) => g.id == this.goal.id, orElse: () => this.goal);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -271,14 +393,16 @@ class GoalDetailSheet extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('History', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: textPrimary)),
-                if (!goal.isCompleted && goal.currentAmount > 0)
+                // Withdraw stays available on a COMPLETED goal too — the whole
+                // point of saving is to eventually take the money out / spend it.
+                if (goal.currentAmount > 0)
                   TextButton(
                     style: TextButton.styleFrom(
                       padding: EdgeInsets.zero,
                       minimumSize: const Size(0, 30),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    onPressed: () => _withdraw(context, ref),
+                    onPressed: () => _withdraw(context, ref, goal),
                     child: const Text('Withdraw', style: TextStyle(fontSize: 12.5, color: AppColors.expense)),
                   ),
               ],

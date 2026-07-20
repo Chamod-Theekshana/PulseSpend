@@ -64,10 +64,12 @@ export async function collectMonthlyReportData(
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 12);
 
-  // Budget vs actual for the same month (budget amounts converted too).
+  // Budget vs actual for the same month. Monthly-period budgets only: putting a
+  // weekly 1,000 cap beside a month's 30,000 spend reads as 30× overspend.
   const budgetRows = await sql`
     SELECT category, amount, currency FROM budgets
     WHERE user_id = ${userId} AND deleted_at IS NULL
+      AND COALESCE(period, 'monthly') = 'monthly'
   `;
   const budgets: MonthlyReportData['budgets'] = [];
   for (const b of budgetRows) {
@@ -167,7 +169,9 @@ export function renderMonthlyReportPdf(data: MonthlyReportData): PDFKit.PDFDocum
 
   // ── Net worth snapshot ──
   doc.moveDown(0.8);
-  doc.fontSize(12).fillColor('#333333').text('Net worth snapshot', left);
+  // Labelled "as of today": netWorth() is a live figure, so a report generated
+  // for a past month would otherwise imply this was that month's position.
+  doc.fontSize(12).fillColor('#333333').text('Net worth snapshot (as of today)', left);
   doc.moveDown(0.4);
   doc.fontSize(10).fillColor('#333333')
     .text(`Assets: ${money(data.netWorth.assets)}`, left)

@@ -9,10 +9,7 @@ import '../../../providers/profile_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/selection_sheet.dart';
 import '../../auth/screens/splash_gate.dart';
-import '../../debts/screens/debts_screen.dart';
-import '../../groups/screens/groups_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
-import '../../wallets/screens/wallets_screen.dart';
 import '../widgets/settings_widgets.dart';
 import 'about_screen.dart';
 import 'accounts_screen.dart';
@@ -228,27 +225,8 @@ class SettingsScreen extends ConsumerWidget {
                   MaterialPageRoute(builder: (_) => const SecurityScreen()),
                 ),
               ),
-              SettingsTile(
-                icon: Icons.account_balance_wallet_outlined,
-                title: 'Wallets',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const WalletsScreen()),
-                ),
-              ),
-              SettingsTile(
-                icon: Icons.handshake_outlined,
-                title: 'IOUs',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DebtsScreen()),
-                ),
-              ),
-              SettingsTile(
-                icon: Icons.groups_outlined,
-                title: 'Shared groups',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const GroupsScreen()),
-                ),
-              ),
+              // Wallets / IOUs / Shared groups moved to the dashboard drawer —
+              // they're features, not settings. Settings keeps account + prefs.
             ],
           ),
           const SizedBox(height: 24),

@@ -6,10 +6,10 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/debt_model.dart';
-import '../../../models/transaction_model.dart';
 import '../../../providers/debts_provider.dart';
+import '../../../providers/currency_provider.dart';
 import '../../../providers/profile_provider.dart';
-import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/primary_button.dart';
@@ -20,50 +20,21 @@ class DebtsScreen extends ConsumerWidget {
   const DebtsScreen({super.key});
 
   Future<void> _settle(BuildContext context, WidgetRef ref, DebtModel debt) async {
-    // Offer to log the settlement as a transaction so analytics reflect it:
-    // money coming back to me = income; me paying my debt = expense.
-    final choice = await showDialog<String>(
+    // The settlement is recorded server-side as a transfer-excluded wallet
+    // movement — a repayment is a receivable/payable changing form, not
+    // earnings or spending. (The old "Settle + log" flow here posted it as
+    // plain income/expense, inflating lifetime Earnings with every repaid loan.)
+    final result = await showModalBottomSheet<_SettleChoice>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Mark as settled?'),
-        content: Text(
-          debt.owedToMe
-              ? '${debt.counterpartyName} paid you back ${CurrencyFormatter.format(debt.amount, debt.currency)}.'
-              : 'You paid ${debt.counterpartyName} ${CurrencyFormatter.format(debt.amount, debt.currency)}.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, 'settle'),
-            child: const Text('Just settle'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, 'settle_log'),
-            child: const Text('Settle + log'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      builder: (_) => _SettleSheet(debt: debt),
     );
-    if (choice == null) return;
+    if (result == null) return;
 
     try {
-      await ref.read(debtsControllerProvider.notifier).settle(debt.id);
-      if (choice == 'settle_log') {
-        await ref.read(transactionsControllerProvider.notifier).create(
-              TransactionModel(
-                id: 0,
-                userId: '',
-                title: debt.owedToMe
-                    ? 'Repayment from ${debt.counterpartyName}'
-                    : 'Repaid ${debt.counterpartyName}',
-                amount: debt.owedToMe ? debt.amount : -debt.amount,
-                currency: debt.currency,
-                category: 'Other',
-                createdAt: DateTime.now(),
-                notes: debt.note,
-              ),
-            );
-      }
+      await ref
+          .read(debtsControllerProvider.notifier)
+          .settle(debt.id, walletId: result.walletId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Settled ✓'), backgroundColor: AppColors.income),
@@ -110,6 +81,12 @@ class DebtsScreen extends ConsumerWidget {
     final state = ref.watch(debtsControllerProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currency = ref.watch(profileControllerProvider).currency;
+    // Net position with each IOU converted into the display currency — summing
+    // raw amounts across currencies (300 USD + 5,000 LKR) produces nonsense.
+    final money = ref.watch(moneyFormatterProvider);
+    final net = state.owedToMe.fold<double>(
+            0, (a, d) => a + money.convert(d.amount, d.currency)) -
+        state.iOwe.fold<double>(0, (a, d) => a + money.convert(d.amount, d.currency));
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     return Scaffold(
@@ -156,7 +133,7 @@ class DebtsScreen extends ConsumerWidget {
                               style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontWeight: FontWeight.w600),
                             ),
                             Text(
-                              '${state.net >= 0 ? '+' : ''}${CurrencyFormatter.format(state.net, currency)}',
+                              '${net >= 0 ? '+' : ''}${CurrencyFormatter.format(net, currency)}',
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
                             ),
                           ],
@@ -412,6 +389,134 @@ class _AddDebtSheetState extends ConsumerState<_AddDebtSheet> {
             PrimaryButton(label: 'Add IOU', isLoading: _saving, onPressed: _save),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+/// The settle sheet's answer: which wallet the money moved through, or null
+/// for "not tracked in the app".
+class _SettleChoice {
+  final int? walletId;
+  const _SettleChoice(this.walletId);
+}
+
+/// Asks where the settlement money physically went (owed-to-me) or came from
+/// (i-owe). The chosen wallet's balance moves via a transfer-excluded leg;
+/// "Not tracked" settles the IOU without touching any wallet.
+class _SettleSheet extends ConsumerStatefulWidget {
+  final DebtModel debt;
+  const _SettleSheet({required this.debt});
+
+  @override
+  ConsumerState<_SettleSheet> createState() => _SettleSheetState();
+}
+
+class _SettleSheetState extends ConsumerState<_SettleSheet> {
+  /// -1 = "not tracked"; 0 = Default bucket; >0 = wallet id.
+  int _selection = -1;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final debt = widget.debt;
+    // The cash has to sit somewhere spendable, so debt accounts are excluded.
+    final wallets = ref
+        .watch(walletsControllerProvider)
+        .items
+        .where((w) => !w.isLiability)
+        .toList();
+
+    Widget chip(String label, int value) {
+      final selected = _selection == value;
+      return GestureDetector(
+        onTap: () => setState(() => _selection = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+              color: selected ? Colors.white : textSecondary,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Mark as settled?',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          Text(
+            debt.owedToMe
+                ? '${debt.counterpartyName} paid you back '
+                    '${CurrencyFormatter.format(debt.amount, debt.currency)}.'
+                : 'You paid ${debt.counterpartyName} '
+                    '${CurrencyFormatter.format(debt.amount, debt.currency)}.',
+            style: TextStyle(fontSize: 13, color: textSecondary),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            debt.owedToMe ? 'Which wallet did it go into?' : 'Which wallet did it come from?',
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              chip('Not tracked', -1),
+              chip('Default', 0),
+              for (final w in wallets) chip(w.name, w.id),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _selection == -1
+                ? 'Settles the IOU without touching any wallet.'
+                : 'The wallet moves by the amount — without counting as '
+                    '${debt.owedToMe ? 'income' : 'spending'}, because a repayment is neither.',
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.35,
+              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(
+                  context, _SettleChoice(_selection == -1 ? null : _selection)),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text('Settle'),
+            ),
+          ),
+        ],
       ),
     );
   }

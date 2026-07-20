@@ -53,6 +53,9 @@ class RecurringModel {
   final bool isActive;
   final String? currency;
   final int? walletId; // null = default wallet bucket
+  /// Set = this rule is a TRANSFER of |amount| from walletId into this wallet
+  /// (0 = default bucket) each run. Null = plain income/expense rule.
+  final int? toWalletId;
   final DateTime? createdAt;
 
   const RecurringModel({
@@ -66,6 +69,7 @@ class RecurringModel {
     this.isActive = true,
     this.currency,
     this.walletId,
+    this.toWalletId,
     this.createdAt,
   });
 
@@ -92,6 +96,7 @@ class RecurringModel {
       isActive: json['is_active'] == true,
       currency: json['currency'] as String?,
       walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
+      toWalletId: json['to_wallet_id'] != null ? int.tryParse(json['to_wallet_id'].toString()) : null,
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
     );
   }
@@ -103,6 +108,7 @@ class RecurringModel {
         'frequency': frequency,
         if (currency != null) 'currency': currency,
         if (walletId != null) 'wallet_id': walletId,
+        if (toWalletId != null) 'to_wallet_id': toWalletId,
         'startDate': '${nextRun.year.toString().padLeft(4, '0')}-'
             '${nextRun.month.toString().padLeft(2, '0')}-'
             '${nextRun.day.toString().padLeft(2, '0')}',

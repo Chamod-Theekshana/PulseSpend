@@ -127,6 +127,19 @@ class SocketService {
     _socket?.off(event);
   }
 
+  /// Test hook: fires [event] to every registered listener as if the server
+  /// had emitted it. Tests can't drive a real socket, but the refresh wiring
+  /// (which provider reacts to which event) is exactly what regressed once —
+  /// 'tx:summary:invalidate' was emitted by 9 backend sites and heard by none.
+  @visibleForTesting
+  void simulateEvent(String event, [dynamic data]) {
+    final list = _listeners[event];
+    if (list == null) return;
+    for (final cb in List.of(list)) {
+      cb(data);
+    }
+  }
+
   void disconnect() {
     _socket?.dispose();
     _socket = null;

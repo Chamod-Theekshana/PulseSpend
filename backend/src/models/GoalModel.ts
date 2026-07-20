@@ -117,27 +117,41 @@ export class GoalModel {
     id: number,
     amount: number,
     source: string = 'manual',
-  ): Promise<Goal | null> {
+  ): Promise<(Goal & { applied_delta: number }) | null> {
+    // The self-join captures the pre-update amount so the APPLIED delta (after
+    // the [0, target] clamp) is known: that's what the timeline logs and what
+    // callers debit a wallet by. Logging the raw request overstated history and
+    // debiting by it would take money the goal never received.
     const rows = await sql`
-      UPDATE goals
+      UPDATE goals g
       SET
-        current_amount = GREATEST(0, LEAST(current_amount + ${amount}, target_amount)),
-        is_completed = (GREATEST(0, LEAST(current_amount + ${amount}, target_amount)) >= target_amount)
-      WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
-      RETURNING *,
+        current_amount = GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)),
+        is_completed = (GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)) >= g.target_amount)
+      FROM (
+        SELECT id, current_amount AS old_amount FROM goals
+        WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
+      ) o
+      WHERE g.id = o.id
+      RETURNING g.*, o.old_amount,
         CASE WHEN target_amount > 0
           THEN ROUND((current_amount / target_amount) * 100, 1)
           ELSE 0
         END AS progress_percentage
     `;
-    const goal = (rows[0] as Goal) || null;
-    if (goal) {
+    const row = rows[0] as (Goal & { old_amount?: number }) | undefined;
+    if (!row) return null;
+    const applied =
+      Math.round((Number(row.current_amount) - Number(row.old_amount ?? row.current_amount)) * 100) / 100;
+    delete row.old_amount;
+    // A fully-clamped contribution (goal already at target / already empty)
+    // applied nothing — a zero row in the timeline is noise.
+    if (applied !== 0) {
       await sql`
         INSERT INTO goal_contributions (goal_id, user_id, amount, source)
-        VALUES (${id}, ${userId}, ${amount}, ${source})
+        VALUES (${id}, ${userId}, ${applied}, ${source})
       `;
     }
-    return goal;
+    return Object.assign(row, { applied_delta: applied });
   }
 
   /**
@@ -176,27 +190,40 @@ export class GoalModel {
     contributorId: string,
     amount: number,
     source: string = 'manual',
-  ): Promise<Goal | null> {
+    walletId: number | null = null,
+  ): Promise<(Goal & { applied_delta: number }) | null> {
+    // Same clamp-aware shape as addContribution: the timeline row records the
+    // APPLIED delta, matching both the goal's actual change and the wallet
+    // movement the controller makes.
     const rows = await sql`
-      UPDATE goals
+      UPDATE goals g
       SET
-        current_amount = GREATEST(0, LEAST(current_amount + ${amount}, target_amount)),
-        is_completed = (GREATEST(0, LEAST(current_amount + ${amount}, target_amount)) >= target_amount)
-      WHERE id = ${goalId} AND deleted_at IS NULL
-      RETURNING *,
-        CASE WHEN target_amount > 0
-          THEN ROUND((current_amount / target_amount) * 100, 1)
+        current_amount = GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)),
+        is_completed = (GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)) >= g.target_amount)
+      FROM (
+        SELECT id, current_amount AS old_amount FROM goals
+        WHERE id = ${goalId} AND deleted_at IS NULL
+      ) o
+      WHERE g.id = o.id
+      RETURNING g.*, o.old_amount,
+        CASE WHEN g.target_amount > 0
+          THEN ROUND((g.current_amount / g.target_amount) * 100, 1)
           ELSE 0
         END AS progress_percentage
     `;
-    const goal = (rows[0] as Goal) || null;
-    if (goal) {
+    const row = rows[0] as (Goal & { old_amount?: number }) | undefined;
+    if (!row) return null;
+    const applied =
+      Math.round((Number(row.current_amount) - Number(row.old_amount ?? row.current_amount)) * 100) / 100;
+    delete row.old_amount;
+    if (applied !== 0) {
+      const wallet = walletId && walletId > 0 ? walletId : null;
       await sql`
-        INSERT INTO goal_contributions (goal_id, user_id, amount, source)
-        VALUES (${goalId}, ${contributorId}, ${amount}, ${source})
+        INSERT INTO goal_contributions (goal_id, user_id, amount, source, wallet_id)
+        VALUES (${goalId}, ${contributorId}, ${applied}, ${source}, ${wallet})
       `;
     }
-    return goal;
+    return Object.assign(row, { applied_delta: applied });
   }
 
   /** Goals shared with a group, for the group detail screen. */
@@ -216,16 +243,19 @@ export class GoalModel {
     return rows as Goal[];
   }
 
-  /** Sets or clears (nulls) the monthly auto-contribution rule. */
+  /** Sets or clears (nulls) the monthly auto-contribution rule. The wallet is
+   *  what each contribution debits (0 = default bucket) — without one the rule
+   *  stays paused, because a contribution has to come from somewhere. */
   static async setAutoRule(
     userId: string,
     id: number,
     autoAmount: number | null,
     autoDay: number | null,
+    autoWalletId: number | null,
   ): Promise<Goal | null> {
     const rows = await sql`
       UPDATE goals
-      SET auto_amount = ${autoAmount}, auto_day = ${autoDay}
+      SET auto_amount = ${autoAmount}, auto_day = ${autoDay}, auto_wallet_id = ${autoWalletId}
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
       RETURNING *,
         CASE WHEN target_amount > 0
@@ -239,7 +269,7 @@ export class GoalModel {
   /** Active auto-rules due on [day] that haven't auto-contributed today yet. */
   static async listDueAutoRules(day: number) {
     return sql`
-      SELECT g.id, g.user_id, g.name, g.auto_amount, g.currency
+      SELECT g.id, g.user_id, g.name, g.auto_amount, g.auto_wallet_id, g.currency
       FROM goals g
       WHERE g.deleted_at IS NULL
         AND g.is_completed = false

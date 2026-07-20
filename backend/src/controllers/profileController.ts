@@ -179,11 +179,14 @@ export async function updatePassword(req: AuthedRequest, res: Response) {
 
 /**
  * PUT /api/profile/:user_id/roundup — configure round-up savings.
- * Body: { goal_id, round_to } — nulls (or goal_id 0) turn the feature off.
+ * Body: { goal_id, round_to, wallet_id } — nulls (or goal_id 0) turn it off.
+ * wallet_id is what the spare change is debited from (0 = default bucket);
+ * without it the round-up would grow the goal out of nothing, so it's required
+ * when enabling.
  */
 export async function updateRoundup(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);
-  const { goal_id, round_to } = req.body ?? {};
+  const { goal_id, round_to, wallet_id } = req.body ?? {};
 
   const goalId = Number(goal_id);
   const roundTo = Number(round_to);
@@ -193,16 +196,35 @@ export async function updateRoundup(req: AuthedRequest, res: Response) {
     return res.status(400).json({ message: 'round_to is too large' });
   }
 
+  let walletId: number | null = null;
+  if (enabled) {
+    walletId = Number(wallet_id);
+    if (!Number.isInteger(walletId) || walletId < 0) {
+      return res.status(400).json({ message: 'Choose which wallet the spare change comes from' });
+    }
+    if (walletId > 0) {
+      const { WalletModel } = await import('../models/WalletModel');
+      const wallet = await WalletModel.findById(userId, walletId);
+      if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+      if (WalletModel.isLiabilityType(wallet.type)) {
+        return res.status(400).json({ message: 'Savings can\'t come out of a debt account' });
+      }
+    }
+  }
+
   const { sql } = await import('../config/db');
   await sql`
     UPDATE users
-    SET roundup_goal_id = ${enabled ? goalId : null}, roundup_to = ${enabled ? roundTo : null}
+    SET roundup_goal_id = ${enabled ? goalId : null},
+        roundup_to = ${enabled ? roundTo : null},
+        roundup_wallet_id = ${enabled ? walletId : null}
     WHERE id = ${userId}
   `;
   return res.json({
     message: enabled ? 'Round-up savings enabled' : 'Round-up savings disabled',
     roundup_goal_id: enabled ? goalId : null,
     roundup_to: enabled ? roundTo : null,
+    roundup_wallet_id: enabled ? walletId : null,
   });
 }
 

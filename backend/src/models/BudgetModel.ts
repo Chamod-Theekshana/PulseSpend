@@ -102,6 +102,10 @@ export class BudgetModel {
    * unsplit transactions and split-category amounts. Returns category → list of
    * { amount, currency }. Extracted so the same aggregation can run over
    * different windows (per-budget periods).
+   *
+   * Transfer-tagged rows are excluded: those are opening balances, wallet
+   * transfers and goal funding — money moving pockets, not spending. Without
+   * the filter a budget named 'Goal Savings' counts saving as overspending.
    */
   private static async aggregateSpending(
     userId: string,
@@ -115,6 +119,7 @@ export class BudgetModel {
         WHERE t.user_id = ${userId}
           AND t.amount < 0
           AND t.deleted_at IS NULL
+          AND t.transfer_id IS NULL
           AND t.created_at >= ${startDate}::date
           AND t.created_at <= ${endDate}::date
           AND NOT EXISTS (
@@ -130,6 +135,7 @@ export class BudgetModel {
           AND t.user_id = ${userId}
           AND s.amount < 0
           AND t.deleted_at IS NULL
+          AND t.transfer_id IS NULL
           AND t.created_at >= ${startDate}::date
           AND t.created_at <= ${endDate}::date
         GROUP BY s.category, t.currency
@@ -392,6 +398,7 @@ export class BudgetModel {
           AND t.category = ${category}
           AND t.amount < 0
           AND t.deleted_at IS NULL
+          AND t.transfer_id IS NULL
           AND t.created_at >= ${start}::date
           AND t.created_at <= ${end}::date
           AND NOT EXISTS (
@@ -409,6 +416,8 @@ export class BudgetModel {
           AND t.user_id = ${userId}
           AND s.category = ${category}
           AND s.amount < 0
+          AND t.deleted_at IS NULL
+          AND t.transfer_id IS NULL
           AND t.created_at >= ${start}::date
           AND t.created_at <= ${end}::date
         GROUP BY t.currency
@@ -430,7 +439,12 @@ export class BudgetModel {
       try {
         spent += await convert(absAmount, txCurrency, currency);
       } catch {
-        spent += absAmount;
+        // This figure drives the 80%/100% alerts. Summing a foreign amount raw
+        // can be off by the whole FX rate (300 USD read as 300 LKR — or a
+        // false "over budget" the other way), so an unconvertible slice is
+        // dropped: a missed alert beats a fabricated one. Same stance as
+        // getStatusByUser, which surfaces conversion_error instead of guessing.
+        console.warn(`[Budget] Skipping unconvertible spend ${txCurrency}→${currency} for ${category}`);
       }
     }
     return Math.round(spent * 100) / 100;

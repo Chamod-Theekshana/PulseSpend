@@ -163,7 +163,10 @@ class ApiConfig {
   static const String walletBalances = '$apiPrefix/wallets/balances';
   static const String walletNetWorth = '$apiPrefix/wallets/net-worth';
   static const String walletTransfer = '$apiPrefix/wallets/transfer';
+  static const String walletBalanceHistory = '$apiPrefix/wallets/balance-history';
   static String walletById(int id) => '$apiPrefix/wallets/$id';
+  /// Rewrites the wallet's opening seed, so it's separate from the plain update.
+  static String walletOpeningBalance(int id) => '$apiPrefix/wallets/$id/opening-balance';
 
   // ── Debts / IOUs ─────────────────────────────────────────────────
   static const String debts = '$apiPrefix/debts';
