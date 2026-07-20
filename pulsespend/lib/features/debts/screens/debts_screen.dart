@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
@@ -101,7 +102,7 @@ class DebtsScreen extends ConsumerWidget {
         label: const Text('New IOU'),
       ),
       body: state.isLoading && state.items.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: AppLoader(size: 40))
           : state.open.isEmpty && state.items.where((d) => !d.isOpen).isEmpty
               ? const EmptyState(
                   icon: Icons.handshake_outlined,

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import '../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/network/dio_client.dart';
@@ -962,7 +963,7 @@ class _BalanceSectionSkeleton extends StatelessWidget {
       height: 300,
       child: error != null
           ? Center(child: Text(error!, textAlign: TextAlign.center))
-          : const Center(child: CircularProgressIndicator()),
+          : const Center(child: AppLoader(size: 40)),
     );
   }
 }
@@ -1821,7 +1822,7 @@ class _BudgetOverviewSection extends StatelessWidget {
         if (state.isLoading && state.items.isEmpty)
           const SizedBox(
             height: 180,
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AppLoader(size: 40)),
           )
         else if (state.items.isEmpty)
           Padding(
@@ -2028,7 +2029,7 @@ class _SavingsGoalsSection extends StatelessWidget {
         if (state.isLoading && state.items.isEmpty)
           const SizedBox(
             height: 180,
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AppLoader(size: 40)),
           )
         else if (activeGoals.isEmpty)
           Padding(

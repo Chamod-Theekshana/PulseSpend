@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -92,7 +93,7 @@ class AnalyticsScreen extends ConsumerWidget {
                 ),
                 loading: () => const Center(child: Padding(
                   padding: EdgeInsets.all(40.0),
-                  child: CircularProgressIndicator(color: AppColors.primary),
+                  child: AppLoader(size: 40),
                 )),
                 error: (e, _) => Center(child: Text(DioClient.toApiException(e).localizedMessage(context))),
               ),
@@ -484,7 +485,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                        child: AppLoader(size: 18),
                       )
                     : InkWell(
                         borderRadius: BorderRadius.circular(8),
@@ -770,7 +771,7 @@ class _CardMenuButton extends StatelessWidget {
       return const SizedBox(
         width: 18,
         height: 18,
-        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+        child: AppLoader(size: 18),
       );
     }
     return InkWell(
@@ -1385,7 +1386,7 @@ class _InsightsSheet extends ConsumerWidget {
                     ),
               loading: () => const Padding(
                 padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: AppLoader(size: 40)),
               ),
               error: (e, _) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1530,7 +1531,7 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
               data: (days) => _buildGrid(days, secondaryTextColor),
               loading: () => const SizedBox(
                 height: 160,
-                child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                child: Center(child: AppLoader(size: 40)),
               ),
               error: (e, s) => SizedBox(
                 height: 80,

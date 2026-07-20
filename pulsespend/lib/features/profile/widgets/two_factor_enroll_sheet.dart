@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
@@ -143,7 +144,7 @@ class _TwoFactorEnrollSheetState extends ConsumerState<TwoFactorEnrollSheet> {
             OutlinedButton(onPressed: _enroll, child: const Text('Retry')),
           ])
         else
-          const Center(child: CircularProgressIndicator()),
+          const Center(child: AppLoader(size: 40)),
         const SizedBox(height: 40),
       ];
 

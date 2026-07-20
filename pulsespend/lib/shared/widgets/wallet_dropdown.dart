@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -43,7 +44,7 @@ class WalletDropdown extends ConsumerWidget {
             const SizedBox(
               width: 14,
               height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: AppLoader(size: 14),
             ),
             const SizedBox(width: 10),
             Text(

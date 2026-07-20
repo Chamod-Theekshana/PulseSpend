@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
@@ -81,7 +82,7 @@ class WalletsScreen extends ConsumerWidget {
         label: const Text('New wallet'),
       ),
       body: state.isLoading && state.items.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: AppLoader(size: 40))
           : state.items.isEmpty
               ? const EmptyState(
                   icon: Icons.account_balance_wallet_outlined,

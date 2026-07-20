@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_loader.dart';
 
 import '../../core/theme/app_colors.dart';
 
@@ -63,7 +64,7 @@ class PrimaryButton extends StatelessWidget {
                     ? const SizedBox(
                         height: 22,
                         width: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                        child: AppLoader(size: 22, color: Colors.white),
                       )
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,

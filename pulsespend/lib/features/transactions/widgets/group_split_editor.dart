@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -128,7 +129,7 @@ class _GroupSplitEditorState extends ConsumerState<GroupSplitEditor> {
     return membersAsync.when(
       loading: () => const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
-        child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+        child: Center(child: SizedBox(width: 18, height: 18, child: AppLoader(size: 18))),
       ),
       error: (_, _) => Text('Couldn\'t load members', style: TextStyle(fontSize: 12, color: AppColors.expense)),
       data: (members) {

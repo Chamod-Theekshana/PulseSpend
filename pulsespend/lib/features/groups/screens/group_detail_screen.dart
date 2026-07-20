@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -166,7 +167,7 @@ class GroupDetailScreen extends ConsumerWidget {
             // ── Merged summary ──
             feedAsync.when(
               data: (feed) => _SummaryCard(summary: feed.summary, money: money),
-              loading: () => const SizedBox(height: 120, child: Center(child: CircularProgressIndicator())),
+              loading: () => const SizedBox(height: 120, child: Center(child: AppLoader(size: 40))),
               error: (e, _) => _ErrorCard(message: DioClient.toApiException(e).localizedMessage(context)),
             ),
             const SizedBox(height: 20),

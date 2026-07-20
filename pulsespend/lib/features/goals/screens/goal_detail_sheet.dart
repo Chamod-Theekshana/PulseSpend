@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
@@ -460,7 +461,7 @@ class GoalDetailSheet extends ConsumerWidget {
                     ),
               loading: () => const Padding(
                 padding: EdgeInsets.all(20),
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: AppLoader(size: 40)),
               ),
               error: (e, s) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),

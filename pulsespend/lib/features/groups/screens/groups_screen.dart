@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
@@ -98,7 +99,7 @@ class GroupsScreen extends ConsumerWidget {
         color: AppColors.primary,
         onRefresh: () => ref.read(groupsControllerProvider.notifier).refresh(),
         child: state.isLoading && state.items.isEmpty
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(child: AppLoader(size: 40))
             : state.items.isEmpty
                 ? ListView(
                     children: const [

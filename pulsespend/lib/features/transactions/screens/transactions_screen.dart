@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -198,7 +199,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: AppLoader(size: 18),
                   )
                 : const Icon(Icons.ios_share_rounded),
             onSelected: (v) => v == 'pdf' ? _exportPdf() : _exportCsv(),
@@ -342,7 +343,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                                   const SliverToBoxAdapter(
                                     child: Padding(
                                       padding: EdgeInsets.all(20),
-                                      child: Center(child: CircularProgressIndicator()),
+                                      child: Center(child: AppLoader(size: 40)),
                                     ),
                                   ),
                                 const SliverToBoxAdapter(child: SizedBox(height: 100)),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -95,7 +96,7 @@ class WalletDetailScreen extends ConsumerWidget {
           txs.when(
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: AppLoader(size: 40)),
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),

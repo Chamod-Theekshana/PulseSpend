@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -305,7 +306,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                       ],
                     )
-                  : const CircularProgressIndicator(color: AppColors.primary))
+                  : const AppLoader(size: 36))
           : ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
               children: [
@@ -705,7 +706,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ? const SizedBox(
                     height: 22,
                     width: 22,
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
+                    child: AppLoader(size: 22, color: Colors.white),
                   )
                 : const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -750,7 +751,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ? const SizedBox(
                     height: 18,
                     width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    child: AppLoader(size: 18),
                   )
                 : Row(
                     mainAxisSize: MainAxisSize.min,
@@ -857,7 +858,7 @@ class _DeleteAccountButton extends StatelessWidget {
                 ? const SizedBox(
                     height: 18,
                     width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.expense),
+                    child: AppLoader(size: 18, color: AppColors.expense),
                   )
                 : const Row(
                     mainAxisSize: MainAxisSize.min,
