@@ -1002,11 +1002,12 @@ class _TransferHint extends ConsumerWidget {
   }
 }
 
-/// The selected wallet's balance, with a soft overdraft warning when the typed
-/// expense exceeds it. Warn-only: bank overdraft facilities are real, so this
-/// never blocks — it just makes sure an overdraw is a choice, not a surprise.
-/// Liability wallets don't warn here (their balance is supposed to be negative;
-/// the credit limit is the server-enforced ceiling for those).
+/// The selected wallet's balance, with a soft warning when the typed expense
+/// exceeds what's available — an asset wallet's balance (overdraft) or a
+/// credit/card wallet's available credit (over-limit). Warn-only: overdraft
+/// facilities are real and the credit limit is a soft ceiling (the server
+/// records the charge either way), so this never blocks — it just makes going
+/// over a choice, not a surprise.
 class _WalletBalanceLine extends ConsumerWidget {
   final int? walletId;
   final bool isExpense;
@@ -1028,6 +1029,14 @@ class _WalletBalanceLine extends ConsumerWidget {
     final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
     final amount = double.tryParse(amountText.trim()) ?? 0;
     final overdraws = isExpense && !b.wallet.isLiability && amount > 0 && amount > b.balance + 0.01;
+    // Soft credit-limit warning: spending past available credit is allowed (the
+    // server records it and echoes a note), we just flag it — like the overdraft.
+    final overCredit = isExpense &&
+        b.wallet.isLiability &&
+        b.availableCredit != null &&
+        amount > 0 &&
+        amount > b.availableCredit! + 0.01;
+    final warn = overdraws || overCredit;
 
     final label = b.wallet.isLiability
         ? (b.availableCredit != null
@@ -1040,20 +1049,20 @@ class _WalletBalanceLine extends ConsumerWidget {
       child: Row(
         children: [
           Icon(
-            overdraws ? Icons.warning_amber_rounded : Icons.account_balance_wallet_outlined,
+            warn ? Icons.warning_amber_rounded : Icons.account_balance_wallet_outlined,
             size: 13,
-            color: overdraws ? AppColors.warning : textTertiary,
+            color: warn ? AppColors.warning : textTertiary,
           ),
           const SizedBox(width: 5),
           Expanded(
             child: Text(
-              overdraws
-                  ? '$label — this spend will overdraw it'
+              warn
+                  ? '$label — ${overCredit ? 'over your available credit' : 'this spend will overdraw it'}'
                   : label,
               style: TextStyle(
                 fontSize: 11.5,
-                color: overdraws ? AppColors.warning : textTertiary,
-                fontWeight: overdraws ? FontWeight.w700 : FontWeight.w400,
+                color: warn ? AppColors.warning : textTertiary,
+                fontWeight: warn ? FontWeight.w700 : FontWeight.w400,
               ),
             ),
           ),

@@ -296,14 +296,15 @@ async function isTransferRow(userId: string, transactionId: string): Promise<boo
 }
 
 /**
- * Refuses a charge that would push a credit/card wallet past its limit.
- * [addOwed] is how much the operation INCREASES the amount owed, already in the
- * user's preferred currency — for a create that's the converted expense, for an
- * edit it's the owed-delta versus the old row (so an already-over-limit wallet
- * can still have its history edited, as long as the edit doesn't dig deeper).
- * Returns the refusal message, or null when the charge fits.
+ * A SOFT credit-limit check: warns (but never blocks) a charge that would push a
+ * credit/card/loan wallet past its limit — a limit is a ceiling to be aware of,
+ * not a wall, matching the app's warn+allow overdraft and warn-only loan
+ * behaviour. [addOwed] is how much the operation INCREASES the amount owed,
+ * already in the user's preferred currency — for a create that's the converted
+ * expense, for an edit it's the owed-delta versus the old row. Returns a warning
+ * message to surface, or null when the charge fits within the limit.
  */
-async function creditLimitViolation(
+async function creditLimitWarning(
   userId: string,
   walletId: number | null,
   addOwed: number,
@@ -316,8 +317,8 @@ async function creditLimitViolation(
   const owed = Math.max(0, -b.balance);
   if (owed + addOwed > b.credit_limit + 0.01) {
     const available = Math.max(0, b.credit_limit - owed);
-    return `That would put ${b.name} over its ${b.credit_limit.toFixed(0)} ${preferred} limit — ` +
-      `only ${available.toFixed(0)} ${preferred} of credit is left.`;
+    return `Heads up — this puts ${b.name} over its available credit ` +
+      `(only ${available.toFixed(0)} ${preferred} left of the ${b.credit_limit.toFixed(0)} limit). Recorded anyway.`;
   }
   return null;
 }
@@ -360,12 +361,14 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
     return res.status(400).json({ message: 'Wallet not found' });
   }
 
-  // A charge on a credit/card wallet with a limit must fit inside it.
+  // A charge on a credit/card wallet over its limit is warned about, not blocked
+  // — the limit is a soft ceiling (see creditLimitWarning). The note rides back
+  // on the success response.
+  let creditWarning: string | null = null;
   if (walletId && Number(amount) < 0) {
     const preferred = await preferredCurrencyOf(user_id);
     const addOwed = await owedContribution(Number(amount), String(currency || 'LKR'), preferred);
-    const violation = await creditLimitViolation(user_id, walletId, addOwed, preferred);
-    if (violation) return res.status(400).json({ message: violation });
+    creditWarning = await creditLimitWarning(user_id, walletId, addOwed, preferred);
   }
 
   let resolvedReceipt: string | null;
@@ -463,7 +466,11 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
     void notifyGroupsOfExpense(user_id, Number(transaction.amount), String(transaction.title || title), String(transaction.currency || currency || 'LKR'));
   }
 
-  return res.status(201).json({ message: 'Transaction created successfully', transaction });
+  return res.status(201).json({
+    message: 'Transaction created successfully',
+    transaction,
+    ...(creditWarning ? { credit_warning: creditWarning } : {}),
+  });
 }
 
 const BULK_IMPORT_MAX_ROWS = 500;
@@ -634,9 +641,9 @@ export async function updateTransaction(req: AuthedRequest, res: Response) {
   }
 
   // Credit-limit check on the OWED DELTA: the old row is already inside the
-  // wallet's owed figure, so only the increase this edit causes is tested.
-  // An over-limit wallet's history stays editable as long as the edit doesn't
-  // deepen the debt.
+  // wallet's owed figure, so only the increase this edit causes is tested. A
+  // soft warning (never a block) — the note rides back on the response.
+  let creditWarning: string | null = null;
   {
     const oldRows = await sql`
       SELECT amount, currency, wallet_id FROM transactions
@@ -655,10 +662,9 @@ export async function updateTransaction(req: AuthedRequest, res: Response) {
           (old.wallet_id === null ? null : Number(old.wallet_id)) === effectiveWallet
             ? await owedContribution(Number(old.amount), String(old.currency || 'LKR'), preferred)
             : 0;
-        const violation = await creditLimitViolation(
+        creditWarning = await creditLimitWarning(
           authed, effectiveWallet, newContribution - oldContribution, preferred,
         );
-        if (violation) return res.status(400).json({ message: violation });
       }
     }
   }
@@ -729,7 +735,11 @@ export async function updateTransaction(req: AuthedRequest, res: Response) {
     await checkBudgetAlert(authed, affectedCategory);
   }
 
-  return res.json({ message: 'Transaction updated successfully', transaction: tx });
+  return res.json({
+    message: 'Transaction updated successfully',
+    transaction: tx,
+    ...(creditWarning ? { credit_warning: creditWarning } : {}),
+  });
 }
 
 export async function bulkDeleteTransactions(req: AuthedRequest, res: Response) {
