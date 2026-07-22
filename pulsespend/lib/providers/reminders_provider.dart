@@ -37,7 +37,12 @@ class RemindersController extends Notifier<RemindersState> {
     return const RemindersState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<ReminderModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(reminderRepositoryProvider).list();

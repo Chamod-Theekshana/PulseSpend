@@ -29,6 +29,7 @@ import feedbackRoutes from './routes/feedbackRoutes';
 import groupsRoutes from './routes/groupsRoutes';
 import walletsRoutes from './routes/walletsRoutes';
 import debtsRoutes from './routes/debtsRoutes';
+import syncRoutes from './routes/syncRoutes';
 import { initSocket } from './socket';
 import { startRecurringScheduler } from './services/recurringScheduler';
 import { GoalReminderService } from './services/GoalReminderService';
@@ -113,6 +114,7 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/wallets', walletsRoutes);
 app.use('/api/debts', debtsRoutes);
+app.use('/api/sync', syncRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));

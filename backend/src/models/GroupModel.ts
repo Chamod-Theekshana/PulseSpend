@@ -153,6 +153,48 @@ export class GroupModel {
   }
 
   /**
+   * Fetches full details for a single shared group transaction, including tags,
+   * per-participant splits, and the wallet the payer used (if it was an expense).
+   */
+  static async getTransactionDetail(
+    groupId: string | number,
+    transactionId: string | number,
+    viewerId: string,
+  ): Promise<any | null> {
+    const rows = await sql`
+      SELECT t.id, t.user_id, t.title, t.amount, t.currency, t.category, t.created_at,
+             t.notes, t.receipt_url,
+             COALESCE(u.name, split_part(u.email, '@', 1)) AS member_name,
+             u.email AS member_email,
+             (SELECT s.owed_amount FROM group_expense_splits s
+              WHERE s.transaction_id = t.id AND s.user_id = ${viewerId}) AS viewer_owed,
+             w.name AS wallet_name
+      FROM transactions t
+      LEFT JOIN users u ON u.id::text = t.user_id
+      LEFT JOIN wallets w ON w.id = t.wallet_id
+      WHERE t.id = ${transactionId} AND t.group_id = ${groupId} AND t.deleted_at IS NULL AND t.transfer_id IS NULL
+    `;
+    
+    if (rows.length === 0) return null;
+    const detail = rows[0] as any;
+
+    const [tags, splits] = await Promise.all([
+      sql`SELECT tag FROM transaction_tags WHERE transaction_id = ${transactionId}`,
+      sql`
+        SELECT s.user_id, s.owed_amount, COALESCE(u.name, split_part(u.email, '@', 1)) AS name
+        FROM group_expense_splits s
+        LEFT JOIN users u ON u.id::text = s.user_id
+        WHERE s.transaction_id = ${transactionId}
+      `,
+    ]);
+
+    detail.tags = tags.map((t: any) => t.tag);
+    detail.splits = splits;
+
+    return detail;
+  }
+
+  /**
    * Income/expense/balance over the group's SHARED expenses, in
    * [preferredCurrency]. Same `group_id` scope as the feed — anything a member
    * didn't explicitly share stays private (see aggregatedTransactions).
@@ -187,6 +229,50 @@ export class GroupModel {
       currency: preferredCurrency,
       transactionCount: rows.length,
     };
+  }
+
+  /**
+   * Calculates member-wise spending breakdown for group analytics.
+   */
+  static async memberSpendingBreakdown(
+    groupId: string | number,
+    preferredCurrency: string
+  ): Promise<any[]> {
+    const rows = await sql`
+      SELECT t.user_id, COALESCE(u.name, split_part(u.email, '@', 1)) AS member_name,
+             t.category, t.amount, t.currency
+      FROM transactions t
+      LEFT JOIN users u ON u.id::text = t.user_id
+      WHERE t.group_id = ${groupId} AND t.amount < 0 AND t.deleted_at IS NULL AND t.transfer_id IS NULL
+    `;
+    
+    const members: Record<string, any> = {};
+
+    for (const r of rows) {
+      const uid = (r as any).user_id;
+      if (!members[uid]) {
+        members[uid] = {
+          userId: uid,
+          memberName: (r as any).member_name,
+          total: 0,
+          categories: {}
+        };
+      }
+      const cat = (r as any).category || 'Other';
+      const amt = Math.abs(Number((r as any).amount));
+      const cur = ((r as any).currency as string) || 'LKR';
+      let converted = amt;
+      try {
+        converted = await convert(amt, cur, preferredCurrency);
+      } catch {
+        converted = amt;
+      }
+      
+      members[uid].total += converted;
+      members[uid].categories[cat] = (members[uid].categories[cat] || 0) + converted;
+    }
+
+    return Object.values(members).sort((a, b) => b.total - a.total);
   }
 
   /** Removes a user's memberships and any groups they own (cascades members). */

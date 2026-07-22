@@ -31,7 +31,12 @@ class RecurringController extends Notifier<RecurringState> {
     return const RecurringState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<RecurringModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(recurringRepositoryProvider).list();

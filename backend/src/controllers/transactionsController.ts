@@ -6,7 +6,7 @@ import { UserModel } from '../models/UserModel';
 import { sql } from '../config/db';
 import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
-import { convert } from '../services/exchangeRateService';
+import { convert, prefetchRates, convertSync } from '../services/exchangeRateService';
 import { parseTransactionFilters } from '../middleware/validators';
 import { csvCell, sanitizeImportRows } from '../utils/financeMath';
 import { collectMonthlyReportData, renderMonthlyReportPdf } from '../services/pdfReportService';
@@ -581,26 +581,28 @@ export async function getTransactionSummaryByUserId(req: AuthedRequest, res: Res
   const userRows = await sql`SELECT currency FROM users WHERE id = ${userId}`;
   const preferredCurrency = (userRows[0] as any)?.currency as string || 'LKR';
 
-  const transactions = await sql`
-    SELECT amount, currency FROM transactions
+  const summaryRows = await sql`
+    SELECT 
+      currency,
+      COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS income,
+      COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS expense
+    FROM transactions
     WHERE user_id = ${userId} AND deleted_at IS NULL AND transfer_id IS NULL
+    GROUP BY currency
   `;
 
   let income = 0;
   let expense = 0;
 
-  for (const tx of transactions) {
-    const amt = Number((tx as any).amount);
-    const txCurrency = ((tx as any).currency as string) || 'LKR';
-    try {
-      const converted = await convert(amt, txCurrency, preferredCurrency);
-      if (converted > 0) income += converted;
-      else expense += converted;
-    } catch {
-      // If conversion fails, use raw amount
-      if (amt > 0) income += amt;
-      else expense += amt;
-    }
+  const rates = await prefetchRates(preferredCurrency);
+
+  for (const row of summaryRows) {
+    const txCurrency = ((row as any).currency as string) || 'LKR';
+    const rowIncome = Number((row as any).income);
+    const rowExpense = Number((row as any).expense);
+
+    income += convertSync(rowIncome, txCurrency, preferredCurrency, rates);
+    expense += convertSync(rowExpense, txCurrency, preferredCurrency, rates);
   }
 
   const balance = await WalletModel.moneyOnHand(userId, preferredCurrency);

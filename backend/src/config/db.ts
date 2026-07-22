@@ -1,7 +1,10 @@
-import { neon } from "@neondatabase/serverless"
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from 'ws';
 import 'dotenv/config';
 
-const rawSql = neon(process.env.DATABASE_URL!);
+neonConfig.webSocketConstructor = ws;
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
 
 const DB_QUERY_RETRIES = 1;          // one extra attempt after the first
 const DB_RETRY_BASE_DELAY_MS = 400;
@@ -27,7 +30,9 @@ export function isTransientDbError(err: any): boolean {
     code === 'EAI_AGAIN' ||
     code === 'ETIMEDOUT' ||
     /fetch failed/i.test(msg) ||
-    /Error connecting to database/i.test(msg)
+    /Error connecting to database/i.test(msg) ||
+    /Client was closed/i.test(msg) ||
+    /Connection terminated/i.test(msg)
   );
 }
 
@@ -56,23 +61,47 @@ async function withDbRetries<T>(attempt: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-/**
- * Drop-in replacement for the neon `sql` tagged-template that transparently
- * retries transient connection failures with a short backoff. All models use
- * the tagged form (`sql`...``), so wrapping here makes every query resilient.
- *
- * `transaction` MUST be re-attached: the `as typeof rawSql` cast below asserts
- * this object has neon's full surface, so without it `sql.transaction`
- * typechecks clean and is `undefined` at runtime. Its callback form is the one
- * to use — it hands you a tagged template that builds the lazy query promises
- * `transaction()` needs, whereas this wrapper resolves eagerly.
- */
+function buildQuery(strings: TemplateStringsArray, ...values: any[]) {
+  let text = '';
+  for (let i = 0; i < strings.length - 1; i++) {
+    text += strings[i] + '$' + (i + 1);
+  }
+  text += strings[strings.length - 1];
+  return { text, values };
+}
+
+async function executeSql(strings: TemplateStringsArray, ...values: any[]) {
+  const q = buildQuery(strings, ...values);
+  const res = await pool.query(q);
+  return res.rows;
+}
+
 const sqlWithRetries = (strings: TemplateStringsArray, ...values: any[]) =>
-  withDbRetries(() => (rawSql as any)(strings, ...values));
+  withDbRetries(() => executeSql(strings, ...values));
 
 export const sql = Object.assign(sqlWithRetries, {
-  transaction: (...args: any[]) => withDbRetries(() => (rawSql.transaction as any)(...args)),
-}) as unknown as typeof rawSql;
+  transaction: async (cb: (txn: (strings: TemplateStringsArray, ...values: any[]) => any) => any[]) => {
+    return withDbRetries(async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const queries = cb(buildQuery);
+        const results = [];
+        for (const q of queries) {
+          const res = await client.query(q);
+          results.push(res.rows);
+        }
+        await client.query('COMMIT');
+        return results;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+  }
+}) as any;
 
 const INIT_RETRIES = 3;
 const INIT_RETRY_DELAY_MS = 3000;
@@ -560,6 +589,17 @@ async function _runMigrations() {
           UPDATE goals SET group_id = NULL
           WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM groups)
         `;
+
+        // ── GROUP CHAT ────────────────────────────────────────────────────────
+        await sql`CREATE TABLE IF NOT EXISTS group_messages(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id, created_at DESC)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_user ON group_messages(user_id)`;
 
         await backfillGroupSplits();
 }

@@ -87,6 +87,10 @@ class BudgetsController extends Notifier<BudgetsState> {
 
   void dismissAlert() => state = state.copyWith(clearAlert: true);
 
+  void seed(List<BudgetModel> items) {
+    state = state.copyWith(items: items, isLoading: false, error: null);
+  }
+
   Future<void> refresh({int? year, int? month, int? day}) async {
     state = state.copyWith(isLoading: true, error: null);
     try {

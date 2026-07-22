@@ -138,6 +138,134 @@ export async function getGroupTransactions(req: AuthedRequest, res: Response) {
   return res.status(200).json({ transactions, summary });
 }
 
+/** GET /api/groups/:id/export?format=csv — Export combined feed to CSV */
+export async function exportGroupTransactions(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+  const format = req.query.format as string;
+
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+
+  if (format !== 'csv' && format !== 'pdf') {
+    return res.status(400).json({ message: 'Unsupported export format. Use ?format=csv or ?format=pdf' });
+  }
+
+  const transactions = await GroupModel.aggregatedTransactions(groupId, userId);
+  
+  if (transactions.length === 0) {
+    return res.status(404).json({ message: 'No group transactions to export' });
+  }
+
+  if (format === 'pdf') {
+    const currency = await preferredCurrency(userId);
+    const summary = await GroupModel.summary(groupId, currency);
+    const members = await GroupModel.memberSpendingBreakdown(groupId, currency);
+    const group = await GroupModel.findById(groupId);
+    
+    const { convert } = await import('../services/exchangeRateService');
+    const pdfTransactions = [];
+    for (const t of transactions.slice(0, 50)) { // limit to 50 for the report
+      const amt = Number(t.amount);
+      const cur = t.currency || 'LKR';
+      let converted = amt;
+      try { converted = await convert(amt, cur, currency); } catch { }
+      pdfTransactions.push({
+        date: t.created_at instanceof Date ? t.created_at.toISOString().slice(0, 10) : String(t.created_at).slice(0, 10),
+        title: String(t.title),
+        memberName: String(t.member_name),
+        amount: converted,
+        category: String(t.category)
+      });
+    }
+
+    const data = {
+      groupName: group?.name || 'Group',
+      currency,
+      income: summary.income,
+      expense: summary.expense,
+      balance: summary.balance,
+      members: members.map(m => ({
+        name: m.memberName,
+        amount: m.total,
+        pct: summary.expense > 0 ? (m.total / summary.expense) * 100 : 0
+      })).sort((a, b) => b.amount - a.amount),
+      transactions: pdfTransactions,
+      transactionCount: transactions.length
+    };
+    
+    const { renderGroupReportPdf } = await import('../services/pdfReportService');
+    const doc = renderGroupReportPdf(data);
+    
+    const filename = `group_${groupId}_export_${new Date().toISOString().split('T')[0]}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    doc.pipe(res);
+    return;
+  }
+
+  // Generate CSV manually (RFC 4180 standard)
+  const header = ['Date', 'Title', 'Member', 'Category', 'Amount', 'Currency', 'Notes', 'Receipt URL'];
+  const escapeCsv = (val: any) => {
+    if (val == null) return '';
+    const s = String(val).replace(/"/g, '""');
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s}"`;
+    return s;
+  };
+
+  const rows = transactions.map((t) => [
+    t.created_at,
+    t.title,
+    t.member_name,
+    t.category,
+    t.amount,
+    t.currency,
+    t.notes || '',
+    t.receipt_url || '',
+  ]);
+
+  const csvString = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\r\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="group_${groupId}_export_${new Date().toISOString().split('T')[0]}.csv"`);
+  // Prepend UTF-8 BOM so Excel opens it correctly.
+  return res.send('\uFEFF' + csvString);
+}
+
+/** GET /api/groups/:id/transactions/:txId — full details of a single group transaction (members only). */
+export async function getGroupTransactionDetail(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+  const txId = String(req.params.txId);
+
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+
+  const detail = await GroupModel.getTransactionDetail(groupId, txId, userId);
+  if (!detail) {
+    return res.status(404).json({ message: 'Transaction not found in this group' });
+  }
+
+  return res.status(200).json({ detail });
+}
+
+/** GET /api/groups/:id/analytics — per-member spending breakdown (members only). */
+export async function getGroupAnalytics(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const groupId = String(req.params.id);
+
+  if (!(await GroupModel.isMember(groupId, userId))) {
+    return res.status(403).json({ message: 'You are not a member of this group' });
+  }
+
+  const currency = await preferredCurrency(userId);
+  const analytics = await GroupModel.memberSpendingBreakdown(groupId, currency);
+
+  return res.status(200).json({ analytics, currency });
+}
+
 /** GET /api/groups/:id/goals — savings goals shared with this group. */
 export async function getGroupGoals(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);

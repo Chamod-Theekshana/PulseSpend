@@ -91,3 +91,22 @@ export async function convert(amount: number, from: string, to: string): Promise
 export async function getAllRates(base: string): Promise<Record<string, number>> {
   return fetchRates(base);
 }
+
+/**
+ * Prefetch exchange rates for a target base currency.
+ */
+export async function prefetchRates(base: string): Promise<Record<string, number>> {
+  return fetchRates(base);
+}
+
+/**
+ * Synchronous currency conversion using pre-fetched rates for the TARGET currency.
+ * If you fetched rates for 'USD' (the target), and want to convert 'LKR' to 'USD', 
+ * you pass the 'LKR' amount, 'LKR' as from, 'USD' as target, and the rates for 'USD'.
+ */
+export function convertSync(amount: number, from: string, target: string, targetRates: Record<string, number>): number {
+  if (from.toUpperCase() === target.toUpperCase()) return amount;
+  const rate = targetRates[from.toUpperCase()];
+  if (!rate) return amount; // Fallback to unconverted amount if rate is missing
+  return Math.round((amount / rate) * 100) / 100;
+}

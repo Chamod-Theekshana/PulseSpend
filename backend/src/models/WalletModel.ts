@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { sql } from '../config/db';
-import { convert } from '../services/exchangeRateService';
+import { convert, prefetchRates, convertSync } from '../services/exchangeRateService';
 import { netWorthContribution, liabilityBreakdown, moneyOnHand as foldMoneyOnHand } from '../utils/financeMath';
 
 export interface Wallet {
@@ -325,25 +325,31 @@ export class WalletModel {
   static async balances(userId: string, preferredCurrency: string): Promise<WalletBalance[]> {
     const wallets = await this.listByUser(userId);
     const rows = await sql`
-      SELECT wallet_id, amount, currency
+      SELECT 
+        wallet_id, 
+        currency,
+        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS income,
+        COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS expense
       FROM transactions
       WHERE user_id = ${userId} AND deleted_at IS NULL
+      GROUP BY wallet_id, currency
     `;
+
+    const rates = await prefetchRates(preferredCurrency);
 
     const totals = new Map<number | null, { income: number; expense: number }>();
     for (const r of rows) {
       const walletId = (r as any).wallet_id === null ? null : Number((r as any).wallet_id);
-      const amt = Number((r as any).amount);
       const cur = ((r as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
+      const rowIncome = Number((r as any).income);
+      const rowExpense = Math.abs(Number((r as any).expense));
+
+      const convertedIncome = convertSync(rowIncome, cur, preferredCurrency, rates);
+      const convertedExpense = convertSync(rowExpense, cur, preferredCurrency, rates);
+
       const entry = totals.get(walletId) ?? { income: 0, expense: 0 };
-      if (converted >= 0) entry.income += converted;
-      else entry.expense += Math.abs(converted);
+      entry.income += convertedIncome;
+      entry.expense += convertedExpense;
       totals.set(walletId, entry);
     }
 
@@ -355,24 +361,14 @@ export class WalletModel {
       // progress, the borrowed/charged split) is off by the FX rate.
       let opening: number | null = null;
       if (w.opening_balance !== null && w.opening_balance !== undefined) {
-        const raw = Number(w.opening_balance);
-        try {
-          opening = await convert(raw, w.currency || 'LKR', preferredCurrency);
-        } catch {
-          opening = raw;
-        }
+        opening = convertSync(Number(w.opening_balance), w.currency || 'LKR', preferredCurrency, rates);
       }
       // Same conversion story as opening_balance: the limit lives in the
       // wallet's currency, but "available credit" is computed against the
       // converted owed amount.
       let limit: number | null = null;
       if (w.credit_limit !== null && w.credit_limit !== undefined) {
-        const raw = Number(w.credit_limit);
-        try {
-          limit = await convert(raw, w.currency || 'LKR', preferredCurrency);
-        } catch {
-          limit = raw;
-        }
+        limit = convertSync(Number(w.credit_limit), w.currency || 'LKR', preferredCurrency, rates);
       }
       const { borrowed, charged, repaid } = liabilityBreakdown(opening, t.income, t.expense);
       result.push({
@@ -518,44 +514,50 @@ export class WalletModel {
     const typeOf = new Map(wallets.map((w) => [Number(w.id), w.type]));
 
     const rows = await sql`
-      SELECT wallet_id, amount, currency, created_at
+      SELECT 
+        wallet_id, 
+        currency,
+        DATE_TRUNC('month', created_at) as month_date,
+        SUM(amount) as net_amount
       FROM transactions
       WHERE user_id = ${userId} AND deleted_at IS NULL
+      GROUP BY wallet_id, currency, DATE_TRUNC('month', created_at)
     `;
 
-    // Convert once; the month loop below reuses these.
-    const entries: Array<{ walletId: number | null; amount: number; at: Date }> = [];
+    const rates = await prefetchRates(preferredCurrency);
+
+    const monthAggregates: Array<{ walletId: number | null; monthStr: string; amount: number }> = [];
     for (const r of rows) {
-      const raw = Number((r as any).amount);
+      const raw = Number((r as any).net_amount);
       const cur = ((r as any).currency as string) || 'LKR';
-      let amount = raw;
-      try {
-        amount = await convert(raw, cur, preferredCurrency);
-      } catch {
-        amount = raw;
-      }
-      entries.push({
+      const amount = convertSync(raw, cur, preferredCurrency, rates);
+      
+      const rawDate = (r as any).month_date;
+      const d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      
+      monthAggregates.push({
         walletId: (r as any).wallet_id === null ? null : Number((r as any).wallet_id),
-        amount,
-        at: new Date((r as any).created_at),
+        monthStr,
+        amount
       });
     }
 
     const now = new Date();
     const points: Array<{ month: string; balance: number }> = [];
     for (let i = months - 1; i >= 0; i--) {
-      // Exclusive upper bound: the first instant of the month after the target.
-      const cutoff = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
       const target = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const targetMonthStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
 
       const perWallet = new Map<number | null, number>();
-      for (const e of entries) {
-        if (e.at >= cutoff) continue;
-        perWallet.set(e.walletId, (perWallet.get(e.walletId) ?? 0) + e.amount);
+      for (const agg of monthAggregates) {
+        if (agg.monthStr <= targetMonthStr) {
+          perWallet.set(agg.walletId, (perWallet.get(agg.walletId) ?? 0) + agg.amount);
+        }
       }
 
       points.push({
-        month: `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`,
+        month: targetMonthStr,
         balance: foldMoneyOnHand(
           [...perWallet.entries()].map(([id, balance]) => ({
             // Unassigned rows sit in the default bucket, which is cash.
@@ -695,6 +697,8 @@ export class WalletModel {
       byType.set(key, entry);
     }
 
+    const rates = await prefetchRates(preferredCurrency);
+
     // Savings goals are money set aside — still the user's asset. Counting them
     // keeps wallet→goal funding net-worth-neutral (wallet drops, goals rise).
     // Group goals owned by others are excluded (user_id filter).
@@ -706,11 +710,7 @@ export class WalletModel {
     for (const g of goalRows) {
       const amt = Number((g as any).current_amount);
       const cur = String((g as any).currency || 'LKR');
-      try {
-        goalSavings += await convert(amt, cur, preferredCurrency);
-      } catch {
-        goalSavings += amt;
-      }
+      goalSavings += convertSync(amt, cur, preferredCurrency, rates);
     }
     // Money the user put into group goals OWNED BY OTHERS. Their wallet was
     // debited (contributeToGoal moves real money) but the goal above is counted
@@ -732,11 +732,7 @@ export class WalletModel {
     for (const r of sharedRows) {
       const raw = Number((r as any).total);
       const cur = String((r as any).currency || 'LKR');
-      try {
-        sharedSavings += await convert(raw, cur, preferredCurrency);
-      } catch {
-        sharedSavings += raw;
-      }
+      sharedSavings += convertSync(raw, cur, preferredCurrency, rates);
     }
     goalSavings += Math.max(0, sharedSavings);
 
@@ -758,12 +754,8 @@ export class WalletModel {
     for (const d of debtRows) {
       const raw = Number((d as any).amount);
       const cur = String((d as any).currency || 'LKR');
-      let amt = raw;
-      try {
-        amt = await convert(raw, cur, preferredCurrency);
-      } catch {
-        amt = raw;
-      }
+      const amt = convertSync(raw, cur, preferredCurrency, rates);
+
       if (String((d as any).direction) === 'i_owe') payable += amt;
       else receivable += amt;
     }

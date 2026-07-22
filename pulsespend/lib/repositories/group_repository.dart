@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import '../core/config/api_config.dart';
 import '../core/network/dio_client.dart';
 import '../models/goal_model.dart';
@@ -54,6 +55,50 @@ class GroupRepository {
           .toList();
       final summary = GroupSummary.fromJson(res.data['summary'] as Map<String, dynamic>);
       return GroupFeed(transactions: txs, summary: summary);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<String> exportCsv(int groupId) async {
+    try {
+      final res = await _dio.get(
+        ApiConfig.groupExport(groupId),
+        queryParameters: {'format': 'csv'},
+        options: Options(responseType: ResponseType.plain),
+      );
+      return res.data?.toString() ?? '';
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<List<int>> exportPdf(int groupId) async {
+    try {
+      final res = await _dio.get<List<int>>(
+        ApiConfig.groupExport(groupId),
+        queryParameters: {'format': 'pdf'},
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return res.data ?? [];
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<GroupTransactionDetail> transactionDetail(int groupId, int txId) async {
+    try {
+      final res = await _dio.get(ApiConfig.groupTransactionDetail(groupId, txId));
+      return GroupTransactionDetail.fromJson(res.data['detail'] as Map<String, dynamic>);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<GroupAnalytics> analytics(int groupId) async {
+    try {
+      final res = await _dio.get(ApiConfig.groupAnalytics(groupId));
+      return GroupAnalytics.fromJson(res.data as Map<String, dynamic>);
     } catch (e) {
       throw DioClient.toApiException(e);
     }

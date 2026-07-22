@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import type http from 'http';
 import { verifyAccessToken } from './utils/jwt';
 import { UserModel } from './models/UserModel';
+import { TokenVersionCache } from './config/tokenVersionCache';
 
 let io: Server | null = null;
 
@@ -23,7 +24,16 @@ export function initSocket(server: http.Server) {
       const token = (socket.handshake.auth as any)?.token;
       if (!token) return next(new Error('Unauthorized'));
       const user = verifyAccessToken(String(token));
-      const tokenVersion = await UserModel.getTokenVersion(String(user.id));
+      const userId = String(user.id);
+
+      let tokenVersion = TokenVersionCache.get(userId);
+      if (tokenVersion === null) {
+        tokenVersion = await UserModel.getTokenVersion(userId);
+        if (tokenVersion !== null) {
+          TokenVersionCache.set(userId, tokenVersion);
+        }
+      }
+
       if (tokenVersion === null || tokenVersion !== (user.tokenVersion || 0)) {
         return next(new Error('Unauthorized'));
       }

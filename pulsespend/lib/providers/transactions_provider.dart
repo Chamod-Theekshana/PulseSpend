@@ -204,7 +204,12 @@ class TransactionsController extends Notifier<TransactionsState> {
         splits: t.splits,
       );
 
-  Future<void> refresh() async {
+  
+  void seed(List<TransactionModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final userId = ref.read(currentUserIdProvider);

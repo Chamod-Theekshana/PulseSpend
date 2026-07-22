@@ -64,7 +64,12 @@ class DebtsController extends Notifier<DebtsState> {
     } catch (_) {}
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<DebtModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final items = await ref.read(debtRepositoryProvider).list();

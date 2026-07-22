@@ -40,7 +40,12 @@ class GroupsController extends Notifier<GroupsState> {
     return const GroupsState(isLoading: true);
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<GroupModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final items = await ref.read(groupRepositoryProvider).list();
@@ -65,6 +70,14 @@ class GroupsController extends Notifier<GroupsState> {
   Future<void> leave(int groupId) async {
     await ref.read(groupRepositoryProvider).leave(groupId);
     state = state.copyWith(items: state.items.where((g) => g.id != groupId).toList());
+  }
+
+  Future<String> exportCsv(int groupId) async {
+    return await ref.read(groupRepositoryProvider).exportCsv(groupId);
+  }
+
+  Future<List<int>> exportPdf(int groupId) async {
+    return await ref.read(groupRepositoryProvider).exportPdf(groupId);
   }
 
   Future<void> rename(int groupId, String name) async {
@@ -101,11 +114,25 @@ final groupFeedProvider =
   return ref.read(groupRepositoryProvider).feed(groupId);
 });
 
+/// Full detail for a single shared transaction.
+final groupTransactionDetailProvider = FutureProvider.autoDispose
+    .family<GroupTransactionDetail, ({int groupId, int txId})>((ref, args) async {
+  _onGroupChanged(ref, args.groupId);
+  return ref.read(groupRepositoryProvider).transactionDetail(args.groupId, args.txId);
+});
+
 /// Member roster for a single group.
 final groupMembersProvider =
     FutureProvider.autoDispose.family<List<GroupMember>, int>((ref, groupId) async {
   _onGroupChanged(ref, groupId);
   return ref.read(groupRepositoryProvider).members(groupId);
+});
+
+/// Group activity analytics.
+final groupAnalyticsProvider =
+    FutureProvider.autoDispose.family<GroupAnalytics, int>((ref, groupId) async {
+  _onGroupChanged(ref, groupId);
+  return ref.read(groupRepositoryProvider).analytics(groupId);
 });
 
 /// Splitwise-lite balances + settle-up suggestions for a group.

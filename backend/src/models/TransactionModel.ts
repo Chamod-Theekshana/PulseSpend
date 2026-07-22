@@ -151,24 +151,38 @@ export class TransactionModel {
     }
   }
 
-  /** Attaches each transaction's splits + tags. Bulk-fetches per user (one
-   *  query each) then joins in memory — same strategy the list endpoint used. */
+  /** Attaches each transaction's splits + tags. Bulk-fetches only the splits and
+   *  tags for the transactions in this batch, then joins in memory. */
   private static async hydrate(txRows: Transaction[], userId: string): Promise<Transaction[]> {
     if (txRows.length === 0) return txRows;
 
-    const splitRows = await this.listSplitsByUser(userId);
-    const tagRows = await this.listTagsByUser(userId);
+    const txIds = txRows.map((tx) => Number(tx.id));
+
+    const splitRows = await sql`
+      SELECT id, transaction_id, user_id, category, amount, percentage, created_at
+      FROM transaction_splits
+      WHERE user_id = ${userId} AND transaction_id = ANY(${txIds}::int[])
+      ORDER BY transaction_id DESC, id ASC
+    `;
+
+    const tagRows = await sql`
+      SELECT id, transaction_id, user_id, tag, created_at
+      FROM transaction_tags
+      WHERE user_id = ${userId} AND transaction_id = ANY(${txIds}::int[])
+      ORDER BY transaction_id DESC, id ASC
+    `;
+
     const splitsByTxId = new Map<number, TransactionSplit[]>();
     const tagsByTxId = new Map<number, string[]>();
 
-    for (const split of splitRows) {
+    for (const split of splitRows as TransactionSplit[]) {
       const txId = Number(split.transaction_id);
       const existing = splitsByTxId.get(txId) || [];
       existing.push(split);
       splitsByTxId.set(txId, existing);
     }
 
-    for (const tagRow of tagRows) {
+    for (const tagRow of tagRows as TransactionTagRow[]) {
       const txId = Number(tagRow.transaction_id);
       const existing = tagsByTxId.get(txId) || [];
       existing.push(String(tagRow.tag));

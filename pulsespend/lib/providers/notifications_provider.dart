@@ -68,7 +68,12 @@ class NotificationsController extends Notifier<NotificationsState> {
     return const NotificationsState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<NotificationModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(notificationRepositoryProvider).history();

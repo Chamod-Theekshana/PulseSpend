@@ -31,7 +31,12 @@ class WalletsController extends Notifier<WalletsState> {
     return const WalletsState(isLoading: true);
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<WalletModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final items = await ref.read(walletRepositoryProvider).list();

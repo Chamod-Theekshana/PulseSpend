@@ -153,6 +153,9 @@ class ApiConfig {
   static const String groupJoin = '$apiPrefix/groups/join';
   static String groupMembers(int id) => '$apiPrefix/groups/$id/members';
   static String groupTransactions(int id) => '$apiPrefix/groups/$id/transactions';
+  static String groupExport(int id) => '$apiPrefix/groups/$id/export';
+  static String groupTransactionDetail(int id, int txId) => '$apiPrefix/groups/$id/transactions/$txId';
+  static String groupAnalytics(int id) => '$apiPrefix/groups/$id/analytics';
   static String groupBalances(int id) => '$apiPrefix/groups/$id/balances';
   static String groupGoals(int id) => '$apiPrefix/groups/$id/goals';
   static String groupSettle(int id) => '$apiPrefix/groups/$id/settle';
@@ -162,6 +165,7 @@ class ApiConfig {
   static String groupOwner(int id) => '$apiPrefix/groups/$id/owner';
   static String groupMember(int id, String userId) => '$apiPrefix/groups/$id/members/$userId';
   static String groupLeave(int id) => '$apiPrefix/groups/$id/leave';
+  static String groupMessages(int id) => '$apiPrefix/groups/$id/messages';
 
   // ── Wallets / Accounts ───────────────────────────────────────────
   static const String wallets = '$apiPrefix/wallets';
@@ -177,6 +181,9 @@ class ApiConfig {
   static const String debts = '$apiPrefix/debts';
   static String debtSettle(int id) => '$apiPrefix/debts/$id/settle';
   static String debtById(int id) => '$apiPrefix/debts/$id';
+
+  // ── Sync ─────────────────────────────────────────────────────────
+  static const String syncUrl = '$apiPrefix/sync';
 
   // ── Exchange Rates ───────────────────────────────────────────────
   static const String exchangeRates = '$apiPrefix/exchange-rates';

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,8 +16,20 @@ import '../../../providers/currency_provider.dart';
 import '../../../providers/groups_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../providers/wallets_provider.dart';
+import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../goals/screens/contribute_goal_sheet.dart';
+import 'group_transaction_detail_sheet.dart';
+import 'group_analytics_section.dart';
+import 'group_chat_screen.dart';
+
+class _IsExportingNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool v) => state = v;
+}
+
+final _isExportingProvider = NotifierProvider.autoDispose<_IsExportingNotifier, bool>(_IsExportingNotifier.new);
 
 /// A single shared group: merged summary, invite code, members and a combined
 /// (read-only) transaction feed from everyone in the group.
@@ -128,6 +142,50 @@ class GroupDetailScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _exportCsv(BuildContext context, WidgetRef ref) async {
+    ref.read(_isExportingProvider.notifier).set(true);
+    try {
+      final csv = await ref.read(groupsControllerProvider.notifier).exportCsv(group.id);
+      final dir = await getTemporaryDirectory();
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      final file = File('${dir.path}/pulsespend_group_${group.id}_$stamp.csv');
+      await file.writeAsString(csv);
+      await Share.shareXFiles([XFile(file.path)], text: '${group.name} transactions');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(DioClient.toApiException(e).localizedMessage(context)),
+          backgroundColor: AppColors.expense,
+        ),
+      );
+    } finally {
+      ref.read(_isExportingProvider.notifier).set(false);
+    }
+  }
+
+  Future<void> _exportPdf(BuildContext context, WidgetRef ref) async {
+    ref.read(_isExportingProvider.notifier).set(true);
+    try {
+      final bytes = await ref.read(groupsControllerProvider.notifier).exportPdf(group.id);
+      final dir = await getTemporaryDirectory();
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      final file = File('${dir.path}/pulsespend_group_${group.id}_$stamp.pdf');
+      await file.writeAsBytes(bytes);
+      await Share.shareXFiles([XFile(file.path)], text: '${group.name} report');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(DioClient.toApiException(e).localizedMessage(context)),
+          backgroundColor: AppColors.expense,
+        ),
+      );
+    } finally {
+      ref.read(_isExportingProvider.notifier).set(false);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(groupFeedProvider(group.id));
@@ -136,12 +194,51 @@ class GroupDetailScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final isExporting = ref.watch(_isExportingProvider);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(group.name),
         actions: [
+          IconButton(
+            tooltip: 'Group Chat',
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (ctx) => GroupChatScreen(group: group),
+                ),
+              );
+            },
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Export',
+            enabled: !isExporting,
+            icon: isExporting
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download_rounded),
+            onSelected: (v) => v == 'pdf' ? _exportPdf(context, ref) : _exportCsv(context, ref),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'csv',
+                child: ListTile(
+                  leading: Icon(Icons.table_view_rounded),
+                  title: Text('Export CSV'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'pdf',
+                child: ListTile(
+                  leading: Icon(Icons.picture_as_pdf_rounded),
+                  title: Text('Export PDF'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
           if (group.isOwner)
             IconButton(
               tooltip: 'Rename group',
@@ -230,6 +327,10 @@ class GroupDetailScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 20),
 
+            // ── Analytics ──
+            GroupAnalyticsSection(groupId: group.id),
+            const SizedBox(height: 20),
+
             // ── Balances (Splitwise-lite) ──
             _BalancesSection(group: group, money: money, isDark: isDark),
             const SizedBox(height: 20),
@@ -241,6 +342,10 @@ class GroupDetailScreen extends ConsumerWidget {
             _GroupGoalsSection(group: group, money: money, isDark: isDark),
             const SizedBox(height: 20),
 
+            // ── Receipts Gallery ──
+            _ReceiptsGallerySection(group: group, isDark: isDark),
+            const SizedBox(height: 20),
+
             // ── Combined activity ──
             Text('Combined activity', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
             const SizedBox(height: 10),
@@ -250,7 +355,7 @@ class GroupDetailScreen extends ConsumerWidget {
                   : Column(
                       children: [
                         for (final tx in feed.transactions)
-                          _GroupTxRow(tx: tx, money: money, isDark: isDark),
+                          _GroupTxRow(tx: tx, money: money, isDark: isDark, groupId: group.id),
                       ],
                     ),
               loading: () => const SizedBox.shrink(),
@@ -615,6 +720,78 @@ class _GroupGoalsSection extends ConsumerWidget {
   }
 }
 
+class _ReceiptsGallerySection extends ConsumerWidget {
+  final GroupModel group;
+  final bool isDark;
+  const _ReceiptsGallerySection({required this.group, required this.isDark});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final feedAsync = ref.watch(groupFeedProvider(group.id));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Receipts', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: textPrimary)),
+        const SizedBox(height: 10),
+        feedAsync.when(
+          data: (feed) {
+            final txsWithReceipts = feed.transactions.where((t) => t.receiptUrl != null && t.receiptUrl!.isNotEmpty).toList();
+            if (txsWithReceipts.isEmpty) {
+              return Text('No receipts added yet.', style: TextStyle(color: textSecondary));
+            }
+            return SizedBox(
+              height: 100,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: txsWithReceipts.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final tx = txsWithReceipts[i];
+                  return InkWell(
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (ctx) => GroupTransactionDetailSheet(
+                          groupId: group.id,
+                          txId: tx.id,
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image(
+                        image: getProfileImageProvider(tx.receiptUrl!),
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 100,
+                          height: 100,
+                          color: isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.receipt_long_outlined, color: Colors.grey),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+          loading: () => const SizedBox.shrink(),
+          error: (_, _) => const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+}
+
 class _SummaryCard extends StatelessWidget {
   final GroupSummary summary;
   final MoneyFormatter money;
@@ -723,7 +900,8 @@ class _GroupTxRow extends StatelessWidget {
   final GroupTransaction tx;
   final MoneyFormatter money;
   final bool isDark;
-  const _GroupTxRow({required this.tx, required this.money, required this.isDark});
+  final int groupId;
+  const _GroupTxRow({required this.tx, required this.money, required this.isDark, required this.groupId});
 
   @override
   Widget build(BuildContext context) {
@@ -731,54 +909,68 @@ class _GroupTxRow extends StatelessWidget {
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
     final amountColor = tx.isExpense ? AppColors.expense : AppColors.income;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          CategoryIcon(category: tx.category, size: 42),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(tx.title,
-                          style: TextStyle(fontWeight: FontWeight.w700, color: textPrimary),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                    if (tx.receiptUrl != null) ...[
-                      const SizedBox(width: 6),
-                      Icon(Icons.receipt_long_outlined, size: 14, color: textSecondary),
+    return InkWell(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => GroupTransactionDetailSheet(
+            groupId: groupId,
+            txId: tx.id,
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        child: Row(
+          children: [
+            CategoryIcon(category: tx.category, size: 42),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(tx.title,
+                            style: TextStyle(fontWeight: FontWeight.w700, color: textPrimary),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      if (tx.receiptUrl != null) ...[
+                        const SizedBox(width: 6),
+                        Icon(Icons.receipt_long_outlined, size: 14, color: textSecondary),
+                      ],
                     ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  // Expense → "paid by X · you owe Y"; income → "received by X ·
-                  // you're owed Y" (income splits in reverse — the receiver owes
-                  // the others their share).
-                  '${tx.isExpense ? 'paid by' : 'received by'} ${tx.memberName}'
-                  '${tx.viewerOwed != null && tx.viewerOwed! > 0 ? ' · ${tx.isExpense ? 'you owe' : 'you\'re owed'} ${money.format(tx.viewerOwed!, tx.currency)}' : ''}'
-                  ' · ${DateFormatter.relative(tx.createdAt)}',
-                  style: TextStyle(fontSize: 12, color: textSecondary),
-                ),
-                if (tx.notes != null && tx.notes!.trim().isNotEmpty) ...[
+                  ),
                   const SizedBox(height: 2),
-                  Text(tx.notes!,
-                      style: TextStyle(fontSize: 11.5, color: textSecondary, fontStyle: FontStyle.italic),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    // Expense → "paid by X · you owe Y"; income → "received by X ·
+                    // you're owed Y" (income splits in reverse — the receiver owes
+                    // the others their share).
+                    '${tx.isExpense ? 'paid by' : 'received by'} ${tx.memberName}'
+                    '${tx.viewerOwed != null && tx.viewerOwed! > 0 ? ' · ${tx.isExpense ? 'you owe' : 'you\'re owed'} ${money.format(tx.viewerOwed!, tx.currency)}' : ''}'
+                    ' · ${DateFormatter.relative(tx.createdAt)}',
+                    style: TextStyle(fontSize: 12, color: textSecondary),
+                  ),
+                  if (tx.notes != null && tx.notes!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(tx.notes!,
+                        style: TextStyle(fontSize: 11.5, color: textSecondary, fontStyle: FontStyle.italic),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            money.format(tx.amount, tx.currency, showSign: true),
-            style: TextStyle(fontWeight: FontWeight.w800, color: amountColor),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Text(
+              money.format(tx.amount, tx.currency, showSign: true),
+              style: TextStyle(fontWeight: FontWeight.w800, color: amountColor),
+            ),
+          ],
+        ),
       ),
     );
   }

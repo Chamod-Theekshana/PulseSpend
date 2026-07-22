@@ -25,7 +25,7 @@ class GroupModel {
       name: (json['name'] as String?) ?? '',
       ownerId: json['owner_id'].toString(),
       inviteCode: (json['invite_code'] as String?) ?? '',
-      memberCount: (json['member_count'] as num?)?.toInt() ?? 1,
+      memberCount: int.tryParse(json['member_count']?.toString() ?? '') ?? 1,
       role: (json['role'] as String?) ?? 'member',
     );
   }
@@ -68,13 +68,13 @@ class GroupSummary {
   });
 
   factory GroupSummary.fromJson(Map<String, dynamic> json) {
-    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    double d(dynamic v) => v == null ? 0 : (double.tryParse(v.toString()) ?? 0);
     return GroupSummary(
       income: d(json['income']),
       expense: d(json['expense']),
       balance: d(json['balance']),
       currency: (json['currency'] as String?) ?? 'LKR',
-      transactionCount: (json['transactionCount'] as num?)?.toInt() ?? 0,
+      transactionCount: int.tryParse(json['transactionCount']?.toString() ?? '') ?? 0,
     );
   }
 }
@@ -128,6 +128,72 @@ class GroupTransaction {
   }
 }
 
+class GroupExpenseSplit {
+  final String userId;
+  final String name;
+  final double owedAmount;
+
+  const GroupExpenseSplit({
+    required this.userId,
+    required this.name,
+    required this.owedAmount,
+  });
+
+  factory GroupExpenseSplit.fromJson(Map<String, dynamic> json) {
+    return GroupExpenseSplit(
+      userId: json['user_id'].toString(),
+      name: (json['name'] as String?) ?? 'Member',
+      owedAmount: double.tryParse(json['owed_amount']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class GroupTransactionDetail extends GroupTransaction {
+  final String? memberEmail;
+  final String? walletName;
+  final List<String> tags;
+  final List<GroupExpenseSplit> splits;
+
+  const GroupTransactionDetail({
+    required super.id,
+    required super.memberName,
+    required super.title,
+    required super.amount,
+    required super.currency,
+    required super.category,
+    required super.createdAt,
+    super.notes,
+    super.receiptUrl,
+    super.viewerOwed,
+    this.memberEmail,
+    this.walletName,
+    this.tags = const [],
+    this.splits = const [],
+  });
+
+  factory GroupTransactionDetail.fromJson(Map<String, dynamic> json) {
+    final owed = json['viewer_owed'];
+    return GroupTransactionDetail(
+      id: int.parse(json['id'].toString()),
+      memberName: (json['member_name'] as String?) ?? 'Member',
+      title: (json['title'] as String?) ?? '',
+      amount: double.parse(json['amount'].toString()),
+      currency: (json['currency'] as String?) ?? 'LKR',
+      category: (json['category'] as String?) ?? '',
+      createdAt: DateTime.parse(json['created_at'].toString()),
+      notes: json['notes'] as String?,
+      receiptUrl: json['receipt_url'] as String?,
+      viewerOwed: owed == null ? null : double.tryParse(owed.toString()),
+      memberEmail: json['member_email'] as String?,
+      walletName: json['wallet_name'] as String?,
+      tags: (json['tags'] as List<dynamic>? ?? const []).map((e) => e.toString()).toList(),
+      splits: (json['splits'] as List<dynamic>? ?? const [])
+          .map((e) => GroupExpenseSplit.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Bundle returned by the group transactions endpoint.
 class GroupFeed {
   final List<GroupTransaction> transactions;
@@ -152,7 +218,7 @@ class MemberBalance {
   });
 
   factory MemberBalance.fromJson(Map<String, dynamic> json) {
-    double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+    double d(dynamic v) => v == null ? 0 : (double.tryParse(v.toString()) ?? 0);
     return MemberBalance(
       userId: json['user_id'].toString(),
       name: (json['name'] as String?) ?? 'Member',
@@ -195,7 +261,7 @@ class GroupSettlement {
       toName: (json['to_name'] as String?) ?? 'Member',
       fromUserId: json['from_user'].toString(),
       toUserId: json['to_user'].toString(),
-      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      amount: double.tryParse(json['amount']?.toString() ?? '') ?? 0,
       currency: (json['currency'] as String?) ?? 'LKR',
       status: (json['status'] as String?) ?? 'confirmed',
       createdAt: DateTime.parse(json['created_at'].toString()),
@@ -225,7 +291,7 @@ class SettleSuggestion {
       fromName: (json['from_name'] as String?) ?? '',
       toUserId: json['to'].toString(),
       toName: (json['to_name'] as String?) ?? '',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      amount: double.tryParse(json['amount']?.toString() ?? '') ?? 0,
     );
   }
 }
@@ -251,7 +317,50 @@ class GroupBalances {
       suggestions: (json['suggestions'] as List<dynamic>? ?? const [])
           .map((e) => SettleSuggestion.fromJson(e as Map<String, dynamic>))
           .toList(),
-      total: (json['total'] as num?)?.toDouble() ?? 0,
+      total: double.tryParse(json['total']?.toString() ?? '') ?? 0,
+      currency: (json['currency'] as String?) ?? 'LKR',
+    );
+  }
+}
+
+class GroupMemberAnalytics {
+  final String userId;
+  final String memberName;
+  final double total;
+  final Map<String, double> categories;
+
+  const GroupMemberAnalytics({
+    required this.userId,
+    required this.memberName,
+    required this.total,
+    required this.categories,
+  });
+
+  factory GroupMemberAnalytics.fromJson(Map<String, dynamic> json) {
+    return GroupMemberAnalytics(
+      userId: json['userId'].toString(),
+      memberName: (json['memberName'] as String?) ?? 'Member',
+      total: double.tryParse(json['total']?.toString() ?? '') ?? 0,
+      categories: (json['categories'] as Map<String, dynamic>? ?? {})
+          .map((k, v) => MapEntry(k, double.tryParse(v?.toString() ?? '') ?? 0)),
+    );
+  }
+}
+
+class GroupAnalytics {
+  final List<GroupMemberAnalytics> members;
+  final String currency;
+
+  const GroupAnalytics({
+    required this.members,
+    required this.currency,
+  });
+
+  factory GroupAnalytics.fromJson(Map<String, dynamic> json) {
+    return GroupAnalytics(
+      members: (json['analytics'] as List<dynamic>? ?? const [])
+          .map((e) => GroupMemberAnalytics.fromJson(e as Map<String, dynamic>))
+          .toList(),
       currency: (json['currency'] as String?) ?? 'LKR',
     );
   }

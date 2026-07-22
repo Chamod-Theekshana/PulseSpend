@@ -1,5 +1,5 @@
 import { sql } from '../config/db';
-import { convert } from '../services/exchangeRateService';
+import { convert, prefetchRates, convertSync } from '../services/exchangeRateService';
 
 export interface IncomeExpenseTrend {
   incomeData: number[];
@@ -81,6 +81,8 @@ export class AnalyticsModel {
         AND created_at >= ${from} AND created_at < ${to}
     `;
 
+    const rates = await prefetchRates(preferredCurrency);
+
     let income = 0;
     let expense = 0;
     const categoryTotals: Record<string, number> = {};
@@ -88,12 +90,7 @@ export class AnalyticsModel {
     for (const tx of rows) {
       const amt = Number((tx as any).amount);
       const txCurrency = ((tx as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, txCurrency, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
+      const converted = convertSync(amt, txCurrency, preferredCurrency, rates);
       if (converted > 0) {
         income += converted;
       } else {
@@ -143,6 +140,8 @@ export class AnalyticsModel {
         AND created_at >= ${from} AND created_at < ${to}
     `;
 
+    const rates = await prefetchRates(preferredCurrency);
+
     const byDay = new Map<string, DailyTotal>();
     for (const r of rows) {
       const amt = Number((r as any).amount);
@@ -154,12 +153,7 @@ export class AnalyticsModel {
         rawDay instanceof Date
           ? `${rawDay.getFullYear()}-${String(rawDay.getMonth() + 1).padStart(2, '0')}-${String(rawDay.getDate()).padStart(2, '0')}`
           : String(rawDay).slice(0, 10);
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
+      const converted = convertSync(amt, cur, preferredCurrency, rates);
       const entry = byDay.get(day) ?? { date: day, income: 0, expense: 0 };
       if (converted >= 0) entry.income += converted;
       else entry.expense += Math.abs(converted);
@@ -322,6 +316,8 @@ export class AnalyticsModel {
     
     const categoryTotals: Record<string, number> = {};
 
+    const rates = await prefetchRates(preferredCurrency);
+
     for (const tx of transactions) {
       const txDate = new Date(tx.created_at as string);
       const isCurrent = txDate >= startDate;
@@ -329,12 +325,7 @@ export class AnalyticsModel {
       const amt = Number((tx as any).amount);
       const txCurrency = ((tx as any).currency as string) || 'LKR';
       
-      let converted = amt;
-      try {
-        converted = await convert(amt, txCurrency, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
+      const converted = convertSync(amt, txCurrency, preferredCurrency, rates);
       
       if (isCurrent) {
         if (converted > 0) {

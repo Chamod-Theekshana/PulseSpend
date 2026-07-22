@@ -5,6 +5,9 @@ import {
   joinGroup,
   getMembers,
   getGroupTransactions,
+  exportGroupTransactions,
+  getGroupTransactionDetail,
+  getGroupAnalytics,
   getGroupBalances,
   getGroupGoals,
   settleUp,
@@ -18,16 +21,22 @@ import {
 import { requireAuth } from "../middleware/requireAuth";
 import { validateNumericParam } from "../middleware/validators";
 import { asyncHandler } from "../middleware/asyncHandler";
+import chatRoutes from "./chatRoutes";
 
 const router = express.Router();
 
 router.use(requireAuth);
 
+router.use("/:id/messages", chatRoutes);
+
 router.get("/", asyncHandler(listGroups));
 router.post("/", asyncHandler(createGroup));
 router.post("/join", asyncHandler(joinGroup));
 router.get("/:id/members", validateNumericParam("id"), asyncHandler(getMembers));
+router.get("/:id/export", validateNumericParam("id"), asyncHandler(exportGroupTransactions));
 router.get("/:id/transactions", validateNumericParam("id"), asyncHandler(getGroupTransactions));
+router.get("/:id/transactions/:txId", validateNumericParam("id"), validateNumericParam("txId"), asyncHandler(getGroupTransactionDetail));
+router.get("/:id/analytics", validateNumericParam("id"), asyncHandler(getGroupAnalytics));
 router.get("/:id/balances", validateNumericParam("id"), asyncHandler(getGroupBalances));
 router.get("/:id/goals", validateNumericParam("id"), asyncHandler(getGroupGoals));
 router.post("/:id/settle", validateNumericParam("id"), asyncHandler(settleUp));
