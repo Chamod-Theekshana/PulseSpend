@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/socket_service.dart';
 import '../models/chat_message_model.dart';
+import 'auth_provider.dart';
 import 'repository_providers.dart';
 
 class ChatState {
@@ -59,11 +60,26 @@ class ChatController extends Notifier<ChatState> {
       if (payloadGroupId != arg) return;
 
       final msgData = data['message'];
-      if (msgData != null) {
-        final newMsg = ChatMessage.fromJson(msgData);
-        // Prepend because our list is newest-first (reversed listview)
-        state = state.copyWith(messages: [newMsg, ...state.messages]);
-      }
+      if (msgData == null) return;
+
+      final newMsg = ChatMessage.fromJson(msgData);
+
+      // The server broadcasts to every member, including the sender, so our
+      // own message can arrive here even though sendMessage() already added
+      // it from the REST response. Without this guard the sender would see
+      // every message they send rendered twice.
+      if (state.messages.any((m) => m.id == newMsg.id)) return;
+
+      // isMe isn't set by ChatMessage.fromJson (it's computed by the
+      // repository for REST responses), so socket-delivered messages need it
+      // set explicitly here too, otherwise our own message can render on the
+      // wrong side/color if the socket event happens to arrive before the
+      // REST response does.
+      final myId = ref.read(currentUserIdProvider);
+      newMsg.isMe = newMsg.userId == myId;
+
+      // Prepend because our list is newest-first (reversed listview)
+      state = state.copyWith(messages: [newMsg, ...state.messages]);
     } catch (e) {
       // ignore parsing errors on socket events
     }

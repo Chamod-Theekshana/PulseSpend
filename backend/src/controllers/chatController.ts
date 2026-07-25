@@ -23,12 +23,17 @@ async function requireMembershipAndGetMembers(groupId: string, userId: string, r
 }
 
 export const sendMessage = async (req: AuthedRequest, res: Response): Promise<void> => {
-  const { id } = req.params; // groupId
+  const id = req.params.id as string; // groupId
   const { content } = req.body;
   const userId = String(req.user!.id);
 
   if (!content || typeof content !== 'string' || content.trim().length === 0) {
     res.status(400).json({ message: 'Message content is required' });
+    return;
+  }
+
+  if (content.trim().length > 2000) {
+    res.status(400).json({ message: 'Message is too long (max 2000 characters)' });
     return;
   }
 
@@ -51,7 +56,7 @@ export const sendMessage = async (req: AuthedRequest, res: Response): Promise<vo
 };
 
 export const getMessages = async (req: AuthedRequest, res: Response): Promise<void> => {
-  const { id } = req.params; // groupId
+  const id = req.params.id as string; // groupId
   const userId = String(req.user!.id);
   const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
   const beforeId = req.query.before ? parseInt(req.query.before as string) : undefined;
