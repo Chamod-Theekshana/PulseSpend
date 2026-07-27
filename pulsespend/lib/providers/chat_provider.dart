@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/chat_message_model.dart';
 import '../core/network/socket_service.dart';
+import '../repositories/chat_repository.dart';
 
 final chatProvider = NotifierProvider.family<ChatStateNotifier, List<ChatMessage>, int>(
   ChatStateNotifier.new,
@@ -10,6 +11,7 @@ final chatProvider = NotifierProvider.family<ChatStateNotifier, List<ChatMessage
 class ChatStateNotifier extends Notifier<List<ChatMessage>> {
   final int groupId;
   final _uuid = const Uuid();
+  final _chatRepository = ChatRepository();
 
   ChatStateNotifier(this.groupId);
 
@@ -20,7 +22,29 @@ class ChatStateNotifier extends Notifier<List<ChatMessage>> {
       SocketService.instance.emitWithAck('leave_group', {'groupId': groupId.toString()}, (_) {});
       SocketService.instance.off('new_message', _handleIncomingMessage);
     });
+    _loadHistory();
     return [];
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final history = await _chatRepository.getMessages(groupId);
+      // The API returns newest-first (for pagination); the UI renders
+      // chronologically, oldest first.
+      final ordered = history.reversed.toList();
+
+      // Merge rather than overwrite — a live message may have already
+      // arrived over the socket while this REST call was in flight.
+      final existingIds = state.map((m) => m.id).toSet();
+      final merged = [
+        ...ordered.where((m) => !existingIds.contains(m.id)),
+        ...state,
+      ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      state = merged;
+    } catch (_) {
+      // History failed to load (e.g. offline) — real-time chat still works
+      // once connected, so don't surface a blocking error here.
+    }
   }
 
   void _initSocket() {
@@ -63,12 +87,18 @@ class ChatStateNotifier extends Notifier<List<ChatMessage>> {
 
     SocketService.instance.emitWithAck('send_message', optimisticMsg.toJson(), (response) {
       if (response['status'] == 'success') {
-        state = [
+        final serverId = response['messageId']?.toString();
+        final updated = [
           for (final msg in state)
             if (msg.localId == localId)
-              msg.copyWith(status: MessageStatus.sent, id: response['messageId'])
+              msg.copyWith(status: MessageStatus.sent, id: serverId ?? msg.id)
             else
               msg,
+        ];
+        final seenIds = <String>{};
+        state = [
+          for (final msg in updated)
+            if (seenIds.add(msg.id)) msg,
         ];
       } else if (response['status'] != 'pending_offline') {
         _markMessageFailed(localId);

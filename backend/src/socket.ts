@@ -2,6 +2,11 @@ import http from 'http';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { GroupModel } from './models/GroupModel';
+import { ChatModel } from './models/ChatModel';
+import { redis } from './config/upstash';
+
+const CHAT_CACHE_LIMIT = 50;
+const CHAT_CACHE_TTL = 3600; // 1 hour, mirrors chatController's cache window
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -29,9 +34,9 @@ export const configureSocket = (io: Server): void => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
-        userId: string;
+        id: string | number;
       };
-      socket.userId = decoded.userId;
+      socket.userId = String(decoded.id);
       next();
     } catch (err) {
       next(new Error('Authentication error: Invalid token'));
@@ -79,24 +84,35 @@ export const configureSocket = (io: Server): void => {
         try {
           if (!socket.userId) return;
 
-          const { groupId, localId } = payload;
+          const { groupId, localId, content, metadata } = payload;
           const isMember = await GroupModel.isMember(groupId, socket.userId);
 
           if (!isMember) {
             return callback?.({ status: 'error', message: 'Unauthorized' });
           }
 
-          // Broadcast to others in the room
+          // Persist first — previously this only broadcast in-memory, so a
+          // message was lost forever for any recipient who wasn't connected
+          // at that exact moment, and history vanished on reconnect/reload.
+          const saved = await ChatModel.sendMessage(groupId, socket.userId, content, metadata ?? null);
+          const apiMessage = ChatModel.toApiShape(saved);
+
+          // Keep the REST cache warm so GET /messages reflects real-time sends.
+          const cacheKey = `chat:group:${groupId}`;
+          await redis.lpush(cacheKey, JSON.stringify(apiMessage));
+          await redis.ltrim(cacheKey, 0, CHAT_CACHE_LIMIT - 1);
+          await redis.expire(cacheKey, CHAT_CACHE_TTL);
+
+          // Broadcast to others in the room, with the real DB id/timestamp
           socket.to(`group_${groupId}`).emit('new_message', {
-            ...payload,
-            senderId: socket.userId,
-            timestamp: new Date().toISOString(),
+            ...apiMessage,
+            localId,
           });
 
-          // Acknowledge receipt to the sender
+          // Acknowledge receipt to the sender with the real message id
           callback?.({
             status: 'success',
-            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            messageId: apiMessage.id,
             localId,
           });
         } catch (error) {

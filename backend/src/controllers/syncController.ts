@@ -38,13 +38,13 @@ export async function syncAll(req: AuthedRequest, res: Response) {
       groups,
       debts,
     ] = await Promise.all([
-      UserModel.getProfile(userId),
+      UserModel.findById(userId),
       TransactionModel.listByUserFiltered(userId, {}, 30, 0),
-      BudgetModel.listByUser(userId),
-      GoalModel.listByUser(userId),
-      CategoryModel.listByUser(userId),
-      RecurringModel.listByUser(userId),
-      ReminderModel.listByUser(userId),
+      BudgetModel.listByUser(userId, 100, 0),
+      GoalModel.listByUser(userId, 100, 0),
+      CategoryModel.listByUser(userId, 100, 0),
+      RecurringModel.listByUser(userId, 100, 0),
+      ReminderModel.listByUser(userId, 100, 0),
       
       // Inline notifications query (matches notificationsController)
       sql`

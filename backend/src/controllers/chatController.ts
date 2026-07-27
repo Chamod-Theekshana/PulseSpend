@@ -10,23 +10,24 @@ const CACHE_TTL = 3600; // 1 hour
  * Sends a message to a group chat. Persists in DB and prepends to the Redis cache.
  */
 export const sendGroupMessage = async (req: Request, res: Response): Promise<Response> => {
-  const groupId = req.params.id;
+  const groupId = String(req.params.id);
   const userId = (req as any).userId;
-  const { content } = req.body;
+  const { content, metadata } = req.body;
 
   if (!content || typeof content !== 'string' || content.trim().length === 0) {
     return res.status(400).json({ error: 'Message content is required' });
   }
 
   try {
-    const message = await ChatModel.sendMessage(groupId, userId, content.trim());
+    const message = await ChatModel.sendMessage(groupId, userId, content.trim(), metadata ?? null);
+    const apiMessage = ChatModel.toApiShape(message);
 
     // Prepend to cache so next fetch picks it up
     const cacheKey = `chat:group:${groupId}`;
-    await redis.lpush(cacheKey, JSON.stringify(message));
+    await redis.lpush(cacheKey, JSON.stringify(apiMessage));
     await redis.ltrim(cacheKey, 0, CACHE_LIMIT - 1);
 
-    return res.status(201).json({ data: message });
+    return res.status(201).json({ data: apiMessage });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to send message' });
   }
@@ -38,7 +39,7 @@ export const sendGroupMessage = async (req: Request, res: Response): Promise<Res
  * Uses integer `before` (message ID) for cursor-based pagination.
  */
 export const getGroupMessages = async (req: Request, res: Response): Promise<Response> => {
-  const groupId = req.params.id;
+  const groupId = String(req.params.id);
   const { before, limit = 30 } = req.query;
   const parsedLimit = Math.min(Number(limit), 100);
   const beforeId = before ? Number(before) : undefined;
@@ -65,12 +66,15 @@ export const getGroupMessages = async (req: Request, res: Response): Promise<Res
 
     // 2. Database Fallback
     const dbMessages = await ChatModel.getMessages(groupId, parsedLimit, beforeId);
+    const apiMessages = dbMessages.map((msg) => ChatModel.toApiShape(msg));
 
     // 3. Warm the Redis cache (only for initial load)
-    if (!beforeId && dbMessages.length > 0) {
+    if (!beforeId && apiMessages.length > 0) {
       const pipeline = redis.pipeline();
       pipeline.del(cacheKey);
-      dbMessages.forEach((msg) => {
+      // apiMessages is newest-first (DESC by id); rpush in that order so the
+      // cache-hit branch's lrange(0, n) above keeps reading newest-first.
+      apiMessages.forEach((msg) => {
         pipeline.rpush(cacheKey, JSON.stringify(msg));
       });
       pipeline.ltrim(cacheKey, 0, CACHE_LIMIT - 1);
@@ -78,11 +82,11 @@ export const getGroupMessages = async (req: Request, res: Response): Promise<Res
       await pipeline.exec();
     }
 
-    const nextCursor = dbMessages.length === parsedLimit
-      ? dbMessages[dbMessages.length - 1].id
+    const nextCursor = apiMessages.length === parsedLimit
+      ? apiMessages[apiMessages.length - 1].id
       : null;
 
-    return res.status(200).json({ source: 'database', data: dbMessages, nextCursor });
+    return res.status(200).json({ source: 'database', data: apiMessages, nextCursor });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch messages' });
   }

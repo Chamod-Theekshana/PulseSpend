@@ -596,8 +596,12 @@ async function _runMigrations() {
             group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
             user_id VARCHAR(255) NOT NULL,
             content TEXT NOT NULL,
+            metadata JSONB,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`;
+        // Backfills the column for databases created before metadata support
+        // (e.g. shared-expense bubbles) was added — safe to run every boot.
+        await sql`ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS metadata JSONB`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id, created_at DESC)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_user ON group_messages(user_id)`;
 
