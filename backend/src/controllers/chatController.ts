@@ -1,74 +1,89 @@
-import type { Response } from 'express';
-import type { AuthedRequest } from '../middleware/requireAuth';
+import { Request, Response } from 'express';
+import { redis } from '../config/upstash';
 import { ChatModel } from '../models/ChatModel';
-import { GroupModel } from '../models/GroupModel';
-import { emitToUser } from '../socket';
+
+const CACHE_LIMIT = 50;
+const CACHE_TTL = 3600; // 1 hour
 
 /**
- * Validates that the user is a member of the group.
- * Returns the array of all member IDs so we can broadcast to them.
+ * POST /api/groups/:id/messages
+ * Sends a message to a group chat. Persists in DB and prepends to the Redis cache.
  */
-async function requireMembershipAndGetMembers(groupId: string, userId: string, res: Response): Promise<string[] | null> {
-  const group = await GroupModel.findById(groupId);
-  if (!group) {
-    res.status(404).json({ message: 'Group not found' });
-    return null;
-  }
-  const members = await GroupModel.memberIds(groupId);
-  if (!members.includes(userId)) {
-    res.status(403).json({ message: 'Access denied: not a group member' });
-    return null;
-  }
-  return members;
-}
-
-export const sendMessage = async (req: AuthedRequest, res: Response): Promise<void> => {
-  const id = req.params.id as string; // groupId
+export const sendGroupMessage = async (req: Request, res: Response): Promise<Response> => {
+  const groupId = req.params.id;
+  const userId = (req as any).userId;
   const { content } = req.body;
-  const userId = String(req.user!.id);
 
   if (!content || typeof content !== 'string' || content.trim().length === 0) {
-    res.status(400).json({ message: 'Message content is required' });
-    return;
+    return res.status(400).json({ error: 'Message content is required' });
   }
-
-  if (content.trim().length > 2000) {
-    res.status(400).json({ message: 'Message is too long (max 2000 characters)' });
-    return;
-  }
-
-  const members = await requireMembershipAndGetMembers(id, userId, res);
-  if (!members) return;
 
   try {
-    const message = await ChatModel.sendMessage(id, userId, content.trim());
-    
-    // Broadcast via socket to all members (including sender, though sender could ignore it based on ID)
-    for (const memberId of members) {
-      emitToUser(memberId, 'group:message', { groupId: Number(id), message });
-    }
+    const message = await ChatModel.sendMessage(groupId, userId, content.trim());
 
-    res.status(200).json({ message: 'Sent successfully', data: message });
-  } catch (err) {
-    console.error('[Chat] sendMessage failed:', err);
-    res.status(500).json({ message: 'Failed to send message' });
+    // Prepend to cache so next fetch picks it up
+    const cacheKey = `chat:group:${groupId}`;
+    await redis.lpush(cacheKey, JSON.stringify(message));
+    await redis.ltrim(cacheKey, 0, CACHE_LIMIT - 1);
+
+    return res.status(201).json({ data: message });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to send message' });
   }
 };
 
-export const getMessages = async (req: AuthedRequest, res: Response): Promise<void> => {
-  const id = req.params.id as string; // groupId
-  const userId = String(req.user!.id);
-  const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
-  const beforeId = req.query.before ? parseInt(req.query.before as string) : undefined;
-
-  const members = await requireMembershipAndGetMembers(id, userId, res);
-  if (!members) return;
+/**
+ * GET /api/groups/:id/messages?before=<id>&limit=<n>
+ * Retrieves paginated messages for a group chat.
+ * Uses integer `before` (message ID) for cursor-based pagination.
+ */
+export const getGroupMessages = async (req: Request, res: Response): Promise<Response> => {
+  const groupId = req.params.id;
+  const { before, limit = 30 } = req.query;
+  const parsedLimit = Math.min(Number(limit), 100);
+  const beforeId = before ? Number(before) : undefined;
+  const cacheKey = `chat:group:${groupId}`;
 
   try {
-    const messages = await ChatModel.getMessages(id, limit, beforeId);
-    res.status(200).json({ data: messages });
-  } catch (err) {
-    console.error('[Chat] getMessages failed:', err);
-    res.status(500).json({ message: 'Failed to fetch messages' });
+    // 1. Upstash Redis Cache hit (only for initial load — no cursor)
+    if (!beforeId) {
+      const cachedMessages = await redis.lrange(cacheKey, 0, parsedLimit - 1);
+      if (cachedMessages && cachedMessages.length > 0) {
+        const messages = cachedMessages.map((msg) =>
+          typeof msg === 'string' ? JSON.parse(msg) : msg
+        );
+        const nextCursor = messages.length === parsedLimit
+          ? messages[messages.length - 1].id
+          : null;
+        return res.status(200).json({
+          source: 'cache',
+          data: messages,
+          nextCursor,
+        });
+      }
+    }
+
+    // 2. Database Fallback
+    const dbMessages = await ChatModel.getMessages(groupId, parsedLimit, beforeId);
+
+    // 3. Warm the Redis cache (only for initial load)
+    if (!beforeId && dbMessages.length > 0) {
+      const pipeline = redis.pipeline();
+      pipeline.del(cacheKey);
+      dbMessages.forEach((msg) => {
+        pipeline.rpush(cacheKey, JSON.stringify(msg));
+      });
+      pipeline.ltrim(cacheKey, 0, CACHE_LIMIT - 1);
+      pipeline.expire(cacheKey, CACHE_TTL);
+      await pipeline.exec();
+    }
+
+    const nextCursor = dbMessages.length === parsedLimit
+      ? dbMessages[dbMessages.length - 1].id
+      : null;
+
+    return res.status(200).json({ source: 'database', data: dbMessages, nextCursor });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to fetch messages' });
   }
 };

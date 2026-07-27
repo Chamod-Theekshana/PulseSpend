@@ -1,166 +1,151 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../config/api_config.dart';
+import '../storage/outbox_service.dart';
 import '../storage/secure_storage.dart';
 
-/// High-level connection state exposed to the UI so it can show a subtle
-/// reconnecting indicator and trigger a data resync when the link is restored.
+/// Connection status exposed as a [ValueNotifier] so both Riverpod providers
+/// and imperative code (ConnectivityBanner, auth flow) can react to it.
 enum SocketStatus { disconnected, connecting, connected, reconnecting }
 
-/// Thin wrapper around socket_io_client matching the backend's `socket.ts`.
-///
-/// Server-side auth: the JWT access token is sent via the handshake's
-/// `auth.token` field (see `io.use(...)` in socket.ts), NOT a header.
-/// On connect, the server joins the socket to room `user:<id>` and emits
-/// events scoped to that room via `emitToUser()`.
-///
-/// Events emitted by the backend (verified against controllers):
-///  - tx:new, tx:updated, tx:deleted, tx:summary:invalidate
-///  - budget:created, budget:updated, budget:deleted, budget:alert
-///  - goal:completed
-///  - recurring:created, recurring:deleted
-///  - reminder:created, reminder:updated, reminder:deleted
-///  - profile:updated, profile:password:updated
+final socketServiceProvider = Provider<SocketService>((ref) {
+  return SocketService.instance;
+});
+
+class SocketSubscription {
+  final void Function() cancel;
+  SocketSubscription(this.cancel);
+}
+
 class SocketService {
-  SocketService._internal();
-  static final SocketService instance = SocketService._internal();
+  SocketService._();
+
+  /// Global singleton — used across providers, auth controller, etc.
+  static final SocketService instance = SocketService._();
 
   io.Socket? _socket;
+  final Map<String, List<Function(dynamic)>> _eventListeners = {};
+
+  /// Observable connection state. [SocketStatusController] bridges this into
+  /// Riverpod; other code can listen directly.
+  final ValueNotifier<SocketStatus> status =
+      ValueNotifier(SocketStatus.disconnected);
+
+  /// Set by [SocketStatusController] so a successful reconnect triggers
+  /// a full data resync (session_sync.dart).
+  VoidCallback? onReconnected;
+
   bool get isConnected => _socket?.connected ?? false;
 
-  final Map<String, List<void Function(dynamic)>> _listeners = {};
-
-  /// Broadcasts the live connection status. The UI (and a resync coordinator)
-  /// listen to this to show a reconnecting banner and refetch on recovery.
-  final ValueNotifier<SocketStatus> status =
-      ValueNotifier<SocketStatus>(SocketStatus.disconnected);
-
-  /// Called after the socket reconnects following an unexpected drop (NOT on
-  /// the first connect, and NOT after an explicit [disconnect]). A coordinator
-  /// uses this to resync all data that may have changed while offline.
-  void Function()? onReconnected;
-
-  bool _hasConnectedOnce = false;
-
+  /// Connects to the backend using the stored auth token. Called by
+  /// [AuthController] after sign-in / bootstrap / account-switch.
   Future<void> connect() async {
-    final token = await SecureStorageService.instance.accessToken;
-    if (token == null) return;
+    if (_socket != null && _socket!.connected) return;
 
-    disconnect();
+    final token = await SecureStorageService.instance.accessToken;
+    if (token == null || token.isEmpty) return;
+
     status.value = SocketStatus.connecting;
 
+    _socket?.dispose();
     _socket = io.io(
       ApiConfig.baseUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .disableAutoConnect()
-          .enableReconnection()
-          .setReconnectionAttempts(1 << 30)
-          .setReconnectionDelay(1000)
-          .setReconnectionDelayMax(5000)
           .setAuth({'token': token})
+          .enableAutoConnect()
+          .enableReconnection()
           .build(),
     );
-
-    _socket!.connect();
 
     _socket!.onConnect((_) {
       final wasReconnecting = status.value == SocketStatus.reconnecting;
       status.value = SocketStatus.connected;
-      debugPrint('[Socket] Connected');
-      // Only resync on a genuine reconnection (missed events while offline).
-      if (wasReconnecting && _hasConnectedOnce) {
-        onReconnected?.call();
-      }
-      _hasConnectedOnce = true;
+      if (wasReconnecting) onReconnected?.call();
+      _flushOutbox();
     });
 
     _socket!.onDisconnect((_) {
-      // The client auto-retries, so surface this as "reconnecting" rather than
-      // a hard disconnect (a hard disconnect only happens via [disconnect]).
       if (status.value != SocketStatus.disconnected) {
         status.value = SocketStatus.reconnecting;
       }
-      debugPrint('[Socket] Disconnected — attempting to reconnect');
     });
 
-    _socket!.onConnectError((err) {
-      if (status.value == SocketStatus.connecting) {
-        status.value = SocketStatus.reconnecting;
-      }
-      debugPrint('[Socket] Connect error: $err');
-    });
-
-    // Re-attach any listeners registered before connect() was called.
-    for (final entry in _listeners.entries) {
+    // Re-register any listeners that were added before this connect() call
+    // (e.g. by providers that build before auth completes).
+    for (final entry in _eventListeners.entries) {
       for (final cb in entry.value) {
         _socket!.on(entry.key, cb);
       }
     }
   }
 
-  /// Subscribe to a server event. Safe to call before [connect].
-  ///
-  /// Returns a [SocketSubscription]; call `.cancel()` (typically in
-  /// `ref.onDispose`) to remove *only this* callback. Removing the whole event
-  /// with [off] would also drop callbacks other providers registered for the
-  /// same event (e.g. several controllers listen to `tx:new`).
-  SocketSubscription on(String event, void Function(dynamic data) callback) {
-    _listeners.putIfAbsent(event, () => []).add(callback);
-    _socket?.on(event, callback);
-    return SocketSubscription._(this, event, callback);
-  }
-
-  void _removeListener(String event, void Function(dynamic) callback) {
-    final list = _listeners[event];
-    if (list != null) {
-      list.remove(callback);
-      if (list.isEmpty) _listeners.remove(event);
-    }
-    // socket_io_client removes only the matching handler when one is passed.
-    _socket?.off(event, callback);
-  }
-
-  /// Removes *all* callbacks for [event]. Prefer [SocketSubscription.cancel].
-  void off(String event) {
-    _listeners.remove(event);
-    _socket?.off(event);
-  }
-
-  /// Test hook: fires [event] to every registered listener as if the server
-  /// had emitted it. Tests can't drive a real socket, but the refresh wiring
-  /// (which provider reacts to which event) is exactly what regressed once —
-  /// 'tx:summary:invalidate' was emitted by 9 backend sites and heard by none.
-  @visibleForTesting
-  void simulateEvent(String event, [dynamic data]) {
-    final list = _listeners[event];
-    if (list == null) return;
-    for (final cb in List.of(list)) {
-      cb(data);
-    }
-  }
-
+  /// Cleanly tears down the socket. Called on logout / account-switch.
   void disconnect() {
+    status.value = SocketStatus.disconnected;
     _socket?.dispose();
     _socket = null;
-    _hasConnectedOnce = false;
-    status.value = SocketStatus.disconnected;
   }
-}
 
-/// Handle to a single [SocketService.on] registration. Call [cancel] to remove
-/// just this listener (idempotent).
-class SocketSubscription {
-  final SocketService _service;
-  final String _event;
-  final void Function(dynamic) _callback;
-  bool _cancelled = false;
+  /// Registers an event listener. Returns a tear-down object suitable for
+  /// `sub.cancel()`. If the socket isn't connected yet the listener is still
+  /// recorded and will be attached on the next [connect()].
+  SocketSubscription on(String event, Function(dynamic) callback) {
+    _socket?.on(event, callback);
+    _eventListeners.putIfAbsent(event, () => []).add(callback);
+    return SocketSubscription(() => off(event, callback));
+  }
 
-  SocketSubscription._(this._service, this._event, this._callback);
+  void off(String event, [Function(dynamic)? callback]) {
+    if (callback != null) {
+      _socket?.off(event, callback);
+      _eventListeners[event]?.remove(callback);
+    } else {
+      _socket?.off(event);
+      _eventListeners.remove(event);
+    }
+  }
 
-  void cancel() {
-    if (_cancelled) return;
-    _cancelled = true;
-    _service._removeListener(_event, _callback);
+  @visibleForTesting
+  void simulateEvent(String event, dynamic data) {
+    final listeners = _eventListeners[event] ?? [];
+    for (final callback in listeners) {
+      callback(data);
+    }
+  }
+
+  void emitWithAck(String event, Map<String, dynamic> data, Function(Map<String, dynamic>) ack) {
+    if (_socket != null && _socket!.connected) {
+      _socket!.emitWithAck(event, data, ack: (response) {
+        if (response is Map) {
+          ack(Map<String, dynamic>.from(response));
+        } else {
+          ack({'status': 'unknown', 'raw': response});
+        }
+      });
+    } else {
+      OutboxService.instance.savePendingEvent(event, data);
+      ack({'status': 'pending_offline', 'localId': data['localId']});
+    }
+  }
+
+  Future<void> _flushOutbox() async {
+    final pendingEvents = await OutboxService.instance.getPendingEvents();
+    if (pendingEvents.isEmpty) return;
+
+    for (final event in pendingEvents) {
+      if (_socket == null || !_socket!.connected) break;
+      _socket!.emitWithAck(event.eventName, event.payload, ack: (response) async {
+        if (response is Map && response['status'] == 'success') {
+          await OutboxService.instance.removeEvent(event.id);
+        }
+      });
+    }
+  }
+
+  void dispose() {
+    disconnect();
   }
 }

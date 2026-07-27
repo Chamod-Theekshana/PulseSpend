@@ -1,5 +1,5 @@
 import express from 'express';
-import { sendMessage, getMessages } from '../controllers/chatController';
+import { sendGroupMessage, getGroupMessages } from '../controllers/chatController';
 import { requireAuth } from '../middleware/requireAuth';
 import { validateNumericParam } from '../middleware/validators';
 import { asyncHandler } from '../middleware/asyncHandler';
@@ -10,7 +10,7 @@ const router = express.Router({ mergeParams: true });
 
 router.use(requireAuth);
 
-router.post('/', validateNumericParam('id'), asyncHandler(sendMessage));
-router.get('/', validateNumericParam('id'), asyncHandler(getMessages));
+router.post('/', validateNumericParam('id'), asyncHandler(sendGroupMessage));
+router.get('/', validateNumericParam('id'), asyncHandler(getGroupMessages));
 
 export default router;

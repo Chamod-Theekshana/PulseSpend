@@ -1,142 +1,85 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/network/socket_service.dart';
+import 'package:uuid/uuid.dart';
 import '../models/chat_message_model.dart';
-import 'auth_provider.dart';
-import 'repository_providers.dart';
+import '../core/network/socket_service.dart';
 
-class ChatState {
-  final List<ChatMessage> messages;
-  final bool isLoading;
-  final bool isSending;
-  final String? error;
-  final bool hasMore;
+final chatProvider = NotifierProvider.family<ChatStateNotifier, List<ChatMessage>, int>(
+  ChatStateNotifier.new,
+);
 
-  const ChatState({
-    this.messages = const [],
-    this.isLoading = false,
-    this.isSending = false,
-    this.error,
-    this.hasMore = true,
-  });
+class ChatStateNotifier extends Notifier<List<ChatMessage>> {
+  final int groupId;
+  final _uuid = const Uuid();
 
-  ChatState copyWith({
-    List<ChatMessage>? messages,
-    bool? isLoading,
-    bool? isSending,
-    String? error,
-    bool? hasMore,
-  }) {
-    return ChatState(
-      messages: messages ?? this.messages,
-      isLoading: isLoading ?? this.isLoading,
-      isSending: isSending ?? this.isSending,
-      error: error,
-      hasMore: hasMore ?? this.hasMore,
-    );
-  }
-}
-
-class ChatController extends Notifier<ChatState> {
-  ChatController(this.arg);
-  final int arg;
-
-  late SocketSubscription _socketSub;
+  ChatStateNotifier(this.groupId);
 
   @override
-  ChatState build() {
-    _socketSub = SocketService.instance.on('group:message', _onNewMessage);
+  List<ChatMessage> build() {
+    _initSocket();
     ref.onDispose(() {
-      _socketSub.cancel();
+      SocketService.instance.emitWithAck('leave_group', {'groupId': groupId.toString()}, (_) {});
+      SocketService.instance.off('new_message', _handleIncomingMessage);
     });
-    
-    Future.microtask(loadInitial);
-    return const ChatState(isLoading: true);
+    return [];
   }
 
-  void _onNewMessage(dynamic data) {
-    if (data == null) return;
-    try {
-      final payloadGroupId = data['groupId'] as int?;
-      if (payloadGroupId != arg) return;
+  void _initSocket() {
+    SocketService.instance.emitWithAck('join_group', {'groupId': groupId.toString()}, (response) {
+      // Joined group successfully
+    });
 
-      final msgData = data['message'];
-      if (msgData == null) return;
-
-      final newMsg = ChatMessage.fromJson(msgData);
-
-      // The server broadcasts to every member, including the sender, so our
-      // own message can arrive here even though sendMessage() already added
-      // it from the REST response. Without this guard the sender would see
-      // every message they send rendered twice.
-      if (state.messages.any((m) => m.id == newMsg.id)) return;
-
-      // isMe isn't set by ChatMessage.fromJson (it's computed by the
-      // repository for REST responses), so socket-delivered messages need it
-      // set explicitly here too, otherwise our own message can render on the
-      // wrong side/color if the socket event happens to arrive before the
-      // REST response does.
-      final myId = ref.read(currentUserIdProvider);
-      newMsg.isMe = newMsg.userId == myId;
-
-      // Prepend because our list is newest-first (reversed listview)
-      state = state.copyWith(messages: [newMsg, ...state.messages]);
-    } catch (e) {
-      // ignore parsing errors on socket events
-    }
+    SocketService.instance.on('new_message', _handleIncomingMessage);
   }
 
-  Future<void> loadInitial() async {
-    state = state.copyWith(isLoading: true, error: null);
-    try {
-      final msgs = await ref.read(chatRepositoryProvider).getMessages(arg);
-      state = state.copyWith(messages: msgs, isLoading: false, hasMore: msgs.length == 30);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
+  void _handleIncomingMessage(dynamic data) {
+    if (data is! Map) return;
+    final incomingMsg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
+
+    if (incomingMsg.groupId != groupId.toString()) return;
+
+    state = [
+      for (final msg in state)
+        if (msg.localId != null && msg.localId == incomingMsg.localId) incomingMsg else msg,
+      if (!state.any((m) => m.localId == incomingMsg.localId && m.id == incomingMsg.id))
+        incomingMsg,
+    ];
   }
 
-  Future<void> loadMore() async {
-    if (state.isLoading || !state.hasMore || state.messages.isEmpty) return;
-    
-    // The messages list is newest-first, so the last element is the oldest message
-    final oldestId = state.messages.last.id;
-    
-    state = state.copyWith(isLoading: true, error: null);
-    try {
-      final olderMsgs = await ref.read(chatRepositoryProvider).getMessages(arg, before: oldestId);
-      state = state.copyWith(
-        messages: [...state.messages, ...olderMsgs],
-        isLoading: false,
-        hasMore: olderMsgs.length == 30,
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
-  }
+  Future<void> sendMessage(String content, {Map<String, dynamic>? expenseMetadata, required String myUserId}) async {
+    final localId = _uuid.v4();
 
-  Future<void> sendMessage(String content) async {
-    if (content.trim().isEmpty) return;
-    state = state.copyWith(isSending: true, error: null);
-    try {
-      // The socket event will also fire for our own message, but we can optimistically 
-      // add it, or just let the socket handle it. The backend emits to all members, 
-      // including the sender. So we can just let the socket event populate it to avoid dupes,
-      // or we can add it here and filter dupes in _onNewMessage. 
-      // Let's rely on the REST response for our own message, and filter socket dupes.
-      final newMsg = await ref.read(chatRepositoryProvider).sendMessage(arg, content.trim());
-      
-      // Check if we already have it from socket
-      if (!state.messages.any((m) => m.id == newMsg.id)) {
-        state = state.copyWith(messages: [newMsg, ...state.messages], isSending: false);
-      } else {
-        state = state.copyWith(isSending: false);
+    final optimisticMsg = ChatMessage(
+      id: localId,
+      localId: localId,
+      groupId: groupId.toString(),
+      senderId: myUserId,
+      content: content,
+      status: MessageStatus.pending,
+      timestamp: DateTime.now(),
+      metadata: expenseMetadata,
+    );
+
+    state = [...state, optimisticMsg];
+
+    SocketService.instance.emitWithAck('send_message', optimisticMsg.toJson(), (response) {
+      if (response['status'] == 'success') {
+        state = [
+          for (final msg in state)
+            if (msg.localId == localId)
+              msg.copyWith(status: MessageStatus.sent, id: response['messageId'])
+            else
+              msg,
+        ];
+      } else if (response['status'] != 'pending_offline') {
+        _markMessageFailed(localId);
       }
-    } catch (e) {
-      state = state.copyWith(isSending: false, error: e.toString());
-    }
+    });
+  }
+
+  void _markMessageFailed(String localId) {
+    state = [
+      for (final msg in state)
+        if (msg.localId == localId) msg.copyWith(status: MessageStatus.failed) else msg,
+    ];
   }
 }
-
-final chatControllerProvider = NotifierProvider.autoDispose.family<ChatController, ChatState, int>(
-  (int arg) => ChatController(arg),
-);

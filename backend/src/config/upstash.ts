@@ -4,7 +4,7 @@ import "dotenv/config"
 
 const isProd = process.env.NODE_ENV === 'production';
 
-const redis = Redis.fromEnv();
+export const redis = Redis.fromEnv();
 
 // ── Global limiter ────────────────────────────────────────────────────────────
 // Development: 200 req / 60 s — prevents 429 from Flutter hot-reloads & rebuilds.
