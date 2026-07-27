@@ -10,6 +10,9 @@ export interface Goal {
   deadline?: string | null;
   is_completed: boolean;
   created_at: string;
+  auto_amount?: number | null;
+  auto_day?: number | null;
+  group_id?: number | null;
   /** Calculated field: percentage towards target */
   progress_percentage?: number;
 }
@@ -17,9 +20,9 @@ export interface Goal {
 export class GoalModel {
   static async listByUser(userId: string, limit: number, offset: number): Promise<Goal[]> {
     const rows = await sql`
-      SELECT 
+      SELECT
         id, user_id, name, target_amount, current_amount, currency,
-        deadline, is_completed, created_at,
+        deadline, is_completed, created_at, auto_amount, auto_day,
         CASE WHEN target_amount > 0 
           THEN ROUND((current_amount / target_amount) * 100, 1) 
           ELSE 0 
@@ -43,9 +46,9 @@ export class GoalModel {
 
   static async findById(userId: string, id: number): Promise<Goal | null> {
     const rows = await sql`
-      SELECT 
+      SELECT
         id, user_id, name, target_amount, current_amount, currency,
-        deadline, is_completed, created_at,
+        deadline, is_completed, created_at, last_milestone, auto_amount, auto_day,
         CASE WHEN target_amount > 0 
           THEN ROUND((current_amount / target_amount) * 100, 1) 
           ELSE 0 
@@ -62,16 +65,18 @@ export class GoalModel {
     targetAmount: number,
     currency: string = 'LKR',
     deadline?: string | null,
+    groupId?: number | null,
   ): Promise<Goal> {
+    const group = groupId && groupId > 0 ? groupId : null;
     const rows = deadline
       ? await sql`
-          INSERT INTO goals (user_id, name, target_amount, currency, deadline)
-          VALUES (${userId}, ${name}, ${targetAmount}, ${currency}, ${deadline})
+          INSERT INTO goals (user_id, name, target_amount, currency, deadline, group_id)
+          VALUES (${userId}, ${name}, ${targetAmount}, ${currency}, ${deadline}, ${group})
           RETURNING *, 0 AS progress_percentage
         `
       : await sql`
-          INSERT INTO goals (user_id, name, target_amount, currency)
-          VALUES (${userId}, ${name}, ${targetAmount}, ${currency})
+          INSERT INTO goals (user_id, name, target_amount, currency, group_id)
+          VALUES (${userId}, ${name}, ${targetAmount}, ${currency}, ${group})
           RETURNING *, 0 AS progress_percentage
         `;
     return rows[0] as Goal;
@@ -101,27 +106,199 @@ export class GoalModel {
     return (rows[0] as Goal) || null;
   }
 
+  /**
+   * Applies a deposit (positive) or withdrawal (negative) and records it in
+   * goal_contributions. current_amount is clamped to [0, target]; a withdrawal
+   * below target un-completes the goal. [source] tags the origin
+   * ('manual' | 'auto' | 'roundup') for the timeline UI.
+   */
   static async addContribution(
     userId: string,
     id: number,
     amount: number,
+    source: string = 'manual',
+  ): Promise<(Goal & { applied_delta: number }) | null> {
+    // The self-join captures the pre-update amount so the APPLIED delta (after
+    // the [0, target] clamp) is known: that's what the timeline logs and what
+    // callers debit a wallet by. Logging the raw request overstated history and
+    // debiting by it would take money the goal never received.
+    const rows = await sql`
+      UPDATE goals g
+      SET
+        current_amount = GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)),
+        is_completed = (GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)) >= g.target_amount)
+      FROM (
+        SELECT id, current_amount AS old_amount FROM goals
+        WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
+      ) o
+      WHERE g.id = o.id
+      RETURNING g.*, o.old_amount,
+        CASE WHEN target_amount > 0
+          THEN ROUND((current_amount / target_amount) * 100, 1)
+          ELSE 0
+        END AS progress_percentage
+    `;
+    const row = rows[0] as (Goal & { old_amount?: number }) | undefined;
+    if (!row) return null;
+    const applied =
+      Math.round((Number(row.current_amount) - Number(row.old_amount ?? row.current_amount)) * 100) / 100;
+    delete row.old_amount;
+    // A fully-clamped contribution (goal already at target / already empty)
+    // applied nothing — a zero row in the timeline is noise.
+    if (applied !== 0) {
+      await sql`
+        INSERT INTO goal_contributions (goal_id, user_id, amount, source)
+        VALUES (${id}, ${userId}, ${applied}, ${source})
+      `;
+    }
+    return Object.assign(row, { applied_delta: applied });
+  }
+
+  /**
+   * A goal the user may act on: their own, or any goal shared with a group
+   * they belong to. Used by contribute/timeline for group goals.
+   */
+  static async findAccessible(userId: string, id: number): Promise<Goal | null> {
+    const rows = await sql`
+      SELECT
+        g.id, g.user_id, g.name, g.target_amount, g.current_amount, g.currency,
+        g.deadline, g.is_completed, g.created_at, g.last_milestone, g.auto_amount,
+        g.auto_day, g.group_id,
+        CASE WHEN g.target_amount > 0
+          THEN ROUND((g.current_amount / g.target_amount) * 100, 1)
+          ELSE 0
+        END AS progress_percentage
+      FROM goals g
+      WHERE g.id = ${id} AND g.deleted_at IS NULL
+        AND (
+          g.user_id = ${userId}
+          OR (g.group_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM group_members gm
+            WHERE gm.group_id = g.group_id AND gm.user_id = ${userId}
+          ))
+        )
+    `;
+    return (rows[0] as Goal) || null;
+  }
+
+  /**
+   * Contribution by any member with access (the caller must have verified via
+   * findAccessible). The contribution row records WHO contributed.
+   */
+  static async addContributionById(
+    goalId: number,
+    contributorId: string,
+    amount: number,
+    source: string = 'manual',
+    walletId: number | null = null,
+  ): Promise<(Goal & { applied_delta: number }) | null> {
+    // Same clamp-aware shape as addContribution: the timeline row records the
+    // APPLIED delta, matching both the goal's actual change and the wallet
+    // movement the controller makes.
+    const rows = await sql`
+      UPDATE goals g
+      SET
+        current_amount = GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)),
+        is_completed = (GREATEST(0, LEAST(g.current_amount + ${amount}, g.target_amount)) >= g.target_amount)
+      FROM (
+        SELECT id, current_amount AS old_amount FROM goals
+        WHERE id = ${goalId} AND deleted_at IS NULL
+      ) o
+      WHERE g.id = o.id
+      RETURNING g.*, o.old_amount,
+        CASE WHEN g.target_amount > 0
+          THEN ROUND((g.current_amount / g.target_amount) * 100, 1)
+          ELSE 0
+        END AS progress_percentage
+    `;
+    const row = rows[0] as (Goal & { old_amount?: number }) | undefined;
+    if (!row) return null;
+    const applied =
+      Math.round((Number(row.current_amount) - Number(row.old_amount ?? row.current_amount)) * 100) / 100;
+    delete row.old_amount;
+    if (applied !== 0) {
+      const wallet = walletId && walletId > 0 ? walletId : null;
+      await sql`
+        INSERT INTO goal_contributions (goal_id, user_id, amount, source, wallet_id)
+        VALUES (${goalId}, ${contributorId}, ${applied}, ${source}, ${wallet})
+      `;
+    }
+    return Object.assign(row, { applied_delta: applied });
+  }
+
+  /** Goals shared with a group, for the group detail screen. */
+  static async listByGroup(groupId: number): Promise<Goal[]> {
+    const rows = await sql`
+      SELECT
+        id, user_id, name, target_amount, current_amount, currency,
+        deadline, is_completed, created_at, group_id,
+        CASE WHEN target_amount > 0
+          THEN ROUND((current_amount / target_amount) * 100, 1)
+          ELSE 0
+        END AS progress_percentage
+      FROM goals
+      WHERE group_id = ${groupId} AND deleted_at IS NULL
+      ORDER BY is_completed ASC, created_at DESC
+    `;
+    return rows as Goal[];
+  }
+
+  /** Sets or clears (nulls) the monthly auto-contribution rule. The wallet is
+   *  what each contribution debits (0 = default bucket) — without one the rule
+   *  stays paused, because a contribution has to come from somewhere. */
+  static async setAutoRule(
+    userId: string,
+    id: number,
+    autoAmount: number | null,
+    autoDay: number | null,
+    autoWalletId: number | null,
   ): Promise<Goal | null> {
     const rows = await sql`
       UPDATE goals
-      SET 
-        current_amount = LEAST(current_amount + ${amount}, target_amount),
-        is_completed = CASE 
-          WHEN (current_amount + ${amount}) >= target_amount THEN true 
-          ELSE is_completed 
-        END
+      SET auto_amount = ${autoAmount}, auto_day = ${autoDay}, auto_wallet_id = ${autoWalletId}
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
       RETURNING *,
-        CASE WHEN target_amount > 0 
-          THEN ROUND((current_amount / target_amount) * 100, 1) 
-          ELSE 0 
+        CASE WHEN target_amount > 0
+          THEN ROUND((current_amount / target_amount) * 100, 1)
+          ELSE 0
         END AS progress_percentage
     `;
     return (rows[0] as Goal) || null;
+  }
+
+  /** Active auto-rules due on [day] that haven't auto-contributed today yet. */
+  static async listDueAutoRules(day: number) {
+    return sql`
+      SELECT g.id, g.user_id, g.name, g.auto_amount, g.auto_wallet_id, g.currency
+      FROM goals g
+      WHERE g.deleted_at IS NULL
+        AND g.is_completed = false
+        AND g.auto_amount IS NOT NULL AND g.auto_amount > 0
+        AND g.auto_day = ${day}
+        AND NOT EXISTS (
+          SELECT 1 FROM goal_contributions c
+          WHERE c.goal_id = g.id AND c.source = 'auto'
+            AND c.created_at::date = CURRENT_DATE
+        )
+    `;
+  }
+
+  /**
+   * Contribution timeline, newest first — includes every member's rows (the
+   * caller verifies access first via findAccessible) with a display name for
+   * group-goal member breakdowns.
+   */
+  static async listContributions(goalId: number, limit = 100) {
+    const rows = await sql`
+      SELECT c.id, c.goal_id, c.user_id, c.amount, c.source, c.created_at,
+             COALESCE(u.name, split_part(u.email, '@', 1)) AS contributor_name
+      FROM goal_contributions c
+      LEFT JOIN users u ON u.id::text = c.user_id
+      WHERE c.goal_id = ${goalId}
+      ORDER BY c.created_at DESC, c.id DESC
+      LIMIT ${limit}
+    `;
+    return rows;
   }
 
   static async delete(userId: string, id: number): Promise<void> {

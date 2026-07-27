@@ -6,6 +6,8 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
+import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
 
@@ -36,12 +38,13 @@ class TransactionDetailScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final wallets = ref.watch(walletsControllerProvider).items;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transaction Details'),
@@ -98,6 +101,18 @@ class TransactionDetailScreen extends ConsumerWidget {
                   label: 'Currency',
                   value: transaction.currency,
                 ),
+                // Which wallet this came out of — only once wallets exist, since
+                // before that everything is implicitly the default bucket.
+                if (wallets.isNotEmpty)
+                  _DetailRow(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'Wallet',
+                    value: wallets
+                            .where((w) => w.id == transaction.walletId)
+                            .firstOrNull
+                            ?.name ??
+                        'Default',
+                  ),
               ],
             ),
             if (transaction.isSplit) ...[
@@ -122,7 +137,9 @@ class TransactionDetailScreen extends ConsumerWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.lightSurfaceAlt,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkSurfaceAlt
+                      : AppColors.lightSurfaceAlt,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(transaction.notes!),
@@ -138,7 +155,57 @@ class TransactionDetailScreen extends ConsumerWidget {
                 children: transaction.tags.map((t) => Chip(label: Text('#$t'))).toList(),
               ),
             ],
+            if (transaction.receiptUrl != null && transaction.receiptUrl!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Receipt', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => _ReceiptViewer(url: transaction.receiptUrl!),
+                  ),
+                ),
+                borderRadius: BorderRadius.circular(16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image(
+                    image: getProfileImageProvider(transaction.receiptUrl!),
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      height: 80,
+                      alignment: Alignment.center,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkSurfaceAlt
+                          : AppColors.lightSurfaceAlt,
+                      child: const Text('Receipt unavailable'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen, zoomable receipt view.
+class _ReceiptViewer extends StatelessWidget {
+  final String url;
+  const _ReceiptViewer({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
+      body: Center(
+        child: InteractiveViewer(
+          maxScale: 5,
+          child: Image(image: getProfileImageProvider(url)),
         ),
       ),
     );
@@ -151,10 +218,12 @@ class _DetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.lightSurfaceAlt,
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(children: children),
@@ -171,14 +240,17 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final primary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.lightTextSecondary),
+          Icon(icon, size: 20, color: secondary),
           const SizedBox(width: 12),
-          Expanded(child: Text(label, style: const TextStyle(color: AppColors.lightTextSecondary))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Expanded(child: Text(label, style: TextStyle(color: secondary))),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: primary)),
         ],
       ),
     );

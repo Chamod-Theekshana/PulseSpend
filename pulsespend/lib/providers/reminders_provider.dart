@@ -23,14 +23,26 @@ class RemindersState {
 class RemindersController extends Notifier<RemindersState> {
   @override
   RemindersState build() {
-    SocketService.instance.on('reminder:created', (_) => refresh());
-    SocketService.instance.on('reminder:updated', (_) => refresh());
-    SocketService.instance.on('reminder:deleted', (_) => refresh());
+    final subs = [
+      SocketService.instance.on('reminder:created', (_) => refresh()),
+      SocketService.instance.on('reminder:updated', (_) => refresh()),
+      SocketService.instance.on('reminder:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const RemindersState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<ReminderModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(reminderRepositoryProvider).list();

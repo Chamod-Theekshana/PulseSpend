@@ -26,6 +26,7 @@ class ProfileRepository {
     String? theme,
     String? currency,
     String? dateFormat,
+    String? language,
     bool? biometricEnabled,
   }) async {
     try {
@@ -40,6 +41,7 @@ class ProfileRepository {
       if (theme != null) body['theme'] = theme;
       if (currency != null) body['currency'] = currency;
       if (dateFormat != null) body['date_format'] = dateFormat;
+      if (language != null) body['language'] = language;
       if (biometricEnabled != null) body['biometric_enabled'] = biometricEnabled;
 
       final res = await _dio.put(ApiConfig.profile(userId), data: body);
@@ -75,10 +77,58 @@ class ProfileRepository {
     }
   }
 
+  /// Same backup as [exportData] but as a single CSV bundle (one titled
+  /// section per entity) — spreadsheet-friendly GDPR portability.
+  Future<String> exportDataCsv(String userId) async {
+    try {
+      final res = await _dio.get(
+        ApiConfig.profileDataExport(userId),
+        queryParameters: {'format': 'csv'},
+      );
+      return res.data as String;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
   /// Import user data
   Future<void> importData(String userId, Map<String, dynamic> data) async {
     try {
       await _dio.post(ApiConfig.profileDataImport(userId), data: data);
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Configure round-up savings; null goalId turns it off. [walletId] is what
+  /// each round-up debits (0 = default bucket) — required when enabling, or the
+  /// backend pauses the rule.
+  Future<void> updateRoundup(String userId, {int? goalId, int? roundTo, int? walletId}) async {
+    try {
+      await _dio.put(
+        ApiConfig.profileRoundup(userId),
+        data: {'goal_id': goalId, 'round_to': roundTo, 'wallet_id': walletId},
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Schedules account deletion (7-day grace window). The current [password]
+  /// is re-checked server-side; sessions are revoked immediately. Signing in
+  /// again during the window offers [cancelDeletion].
+  Future<void> deleteAccount(String userId, {required String password}) async {
+    try {
+      await _dio.delete(ApiConfig.profile(userId), data: {'password': password});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Restores an account that is inside its deletion grace window.
+  Future<void> cancelDeletion(String userId) async {
+    try {
+      await _dio.post(ApiConfig.profileCancelDeletion(userId));
     } catch (e) {
       throw DioClient.toApiException(e);
     }

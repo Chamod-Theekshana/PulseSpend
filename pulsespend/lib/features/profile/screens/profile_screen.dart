@@ -3,15 +3,20 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/repository_providers.dart';
+import '../../../shared/utils/image_utils.dart';
+import '../../auth/screens/splash_gate.dart';
+import '../widgets/settings_widgets.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -28,7 +33,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   String? _selectedGender;
   bool _isSaving = false;
   bool _isExporting = false;
+  bool _isExportingCsv = false;
   bool _isImporting = false;
+  bool _isDeleting = false;
+  String? _pickedProfilePhoto;
 
   @override
   void initState() {
@@ -39,7 +47,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     _contactNoController = TextEditingController(text: user?.contactNo ?? '');
     _selectedDob = user?.dob;
     _selectedGender = user?.gender;
-    
+
     // Refresh profile whenever screen is opened to recover from any previous network errors
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(profileControllerProvider.notifier).refresh();
@@ -77,16 +85,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             contactNo: _contactNoController.text.trim(),
             dob: _selectedDob?.toIso8601String(),
             gender: _selectedGender,
+            profilePhoto: _pickedProfilePhoto,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: AppColors.income),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
@@ -99,20 +108,44 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     try {
       final userId = ref.read(currentUserIdProvider);
       final data = await ref.read(profileRepositoryProvider).exportData(userId);
-      
+
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/pulsespend_export.json');
       await file.writeAsString(jsonEncode(data));
-      
+
       await Share.shareXFiles([XFile(file.path)], text: 'My PulseSpend Data Backup');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
       if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  /// GDPR-portable CSV bundle (one titled section per entity) — opens in any
+  /// spreadsheet, unlike the JSON backup which is for re-import.
+  Future<void> _exportDataCsv() async {
+    setState(() => _isExportingCsv = true);
+    try {
+      final userId = ref.read(currentUserIdProvider);
+      final csv = await ref.read(profileRepositoryProvider).exportDataCsv(userId);
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/pulsespend_export.csv');
+      await file.writeAsString(csv);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'My PulseSpend Data (CSV)');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingCsv = false);
     }
   }
 
@@ -123,28 +156,100 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
-      
+
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final content = await file.readAsString();
         final Map<String, dynamic> data = jsonDecode(content);
-        
+
         await ref.read(profileControllerProvider.notifier).importData(data);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Data imported successfully!'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Data imported successfully!'), backgroundColor: AppColors.income),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
         );
       }
     } finally {
       if (mounted) setState(() => _isImporting = false);
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    // The dialog owns its own controller (see _DeleteAccountDialog) so it is
+    // disposed only after the dismiss animation — disposing it here would crash
+    // the still-animating TextField.
+    final password = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+
+    if (password == null) return; // cancelled
+    if (password.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password is required'), backgroundColor: AppColors.expense),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isDeleting = true);
+    try {
+      await ref.read(authControllerProvider.notifier).deleteAccount(password);
+      if (mounted) {
+        // Account is gone — route to a fresh gate (sign-in, or the next account).
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const SplashGate()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context)), backgroundColor: AppColors.expense),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final bytes = await file.readAsBytes();
+
+        if (bytes.lengthInBytes > 1.5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image is too large. Please select an image under 1.5MB.'), backgroundColor: AppColors.expense),
+            );
+          }
+          return;
+        }
+
+        final base64String = base64Encode(bytes);
+        final dataUri = 'data:image/jpeg;base64,$base64String';
+
+        setState(() {
+          _pickedProfilePhoto = dataUri;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: AppColors.expense),
+        );
+      }
     }
   }
 
@@ -168,276 +273,609 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final scaffoldBgColor = isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF6F6F6);
-    final textColor = isDark ? Colors.white : const Color(0xFF1F1F1F);
-    final fieldBgColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF3C3C3C) : const Color(0xFFE5E5E5);
+    final bg = isDark ? AppColors.darkBg : AppColors.lightBg;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
 
     return Scaffold(
-      backgroundColor: scaffoldBgColor,
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: scaffoldBgColor,
+        backgroundColor: bg,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           'Manage Profile',
-          style: TextStyle(
-            color: textColor,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
         ),
       ),
       body: user == null
           ? Center(
-              child: state.error != null 
+              child: state.error != null
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(state.error!, style: const TextStyle(color: Colors.red)),
+                        Text(state.error!, style: const TextStyle(color: AppColors.expense)),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => ref.read(profileControllerProvider.notifier).refresh(),
                           child: const Text('Retry'),
-                        )
+                        ),
                       ],
                     )
-                  : const CircularProgressIndicator())
+                  : const AppLoader(size: 36))
           : ListView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
               children: [
-                // Profile Avatar
-                Center(
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          border: Border.all(color: AppColors.primary, width: 2),
-                          image: user.profilePhoto != null && user.profilePhoto!.isNotEmpty
-                              ? DecorationImage(
-                                  image: NetworkImage(user.profilePhoto!),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
-                        ),
-                        child: user.profilePhoto == null || user.profilePhoto!.isEmpty
-                            ? Center(
-                                child: Text(
-                                  (user.firstName?.isNotEmpty == true
-                                          ? user.firstName![0]
-                                          : user.name?.isNotEmpty == true
-                                              ? user.name![0]
-                                              : user.email.isNotEmpty == true
-                                                  ? user.email[0]
-                                                  : '?')
-                                      .toUpperCase(),
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 32,
-                                  ),
+                _buildHeader(user, isDark),
+                const SizedBox(height: 28),
+
+                const SettingsSectionTitle('Personal Information'),
+                _buildCard(isDark, [
+                  _field(
+                    label: 'First Name',
+                    icon: Icons.person_outline_rounded,
+                    child: _textInput(_firstNameController, 'John'),
+                  ),
+                  _field(
+                    label: 'Surname',
+                    icon: Icons.badge_outlined,
+                    child: _textInput(_surnameController, 'Christopher'),
+                  ),
+                  _field(
+                    label: 'Date of Birth',
+                    icon: Icons.cake_outlined,
+                    child: InkWell(
+                      onTap: _pickDate,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedDob != null
+                                    ? DateFormat('MMMM dd, yyyy').format(_selectedDob!)
+                                    : 'Select date of birth',
+                                style: TextStyle(
+                                  color: _selectedDob != null
+                                      ? (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary)
+                                      : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              )
-                            : null,
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.edit_outlined, color: Colors.white, size: 16),
+                              ),
+                            ),
+                            Icon(Icons.calendar_month_rounded,
+                                size: 18,
+                                color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // First Name
-                _buildLabel('First Name', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_firstNameController, 'John', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 20),
-
-                // Surname
-                _buildLabel('Surname', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_surnameController, 'Christopher', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 20),
-
-                // Date of Birth
-                _buildLabel('Date of Birth', textColor),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: _pickDate,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: fieldBgColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: borderColor),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _selectedDob != null ? DateFormat('MMMM dd, yyyy').format(_selectedDob!) : 'Select Date of Birth',
-                          style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                  _field(
+                    label: 'Gender',
+                    icon: Icons.wc_rounded,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedGender == null || !['Male', 'Female', 'Other'].contains(_selectedGender)
+                            ? 'Male'
+                            : _selectedGender,
+                        isExpanded: true,
+                        borderRadius: BorderRadius.circular(14),
+                        icon: Icon(Icons.keyboard_arrow_down_rounded,
+                            color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                        dropdownColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                        style: TextStyle(
+                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w600,
                         ),
-                        Icon(Icons.calendar_month_outlined, color: textColor),
-                      ],
+                        items: ['Male', 'Female', 'Other']
+                            .map((v) => DropdownMenuItem<String>(value: v, child: Text(v)))
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedGender = v),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-
-                // Gender
-                _buildLabel('Gender', textColor),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: fieldBgColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: borderColor),
+                  _field(
+                    label: 'Contact No.',
+                    icon: Icons.phone_outlined,
+                    child: _textInput(_contactNoController, '+94 71 216 0350',
+                        keyboardType: TextInputType.phone),
+                    isLast: true,
                   ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedGender ?? 'Male',
-                      isExpanded: true,
-                      icon: Icon(Icons.keyboard_arrow_down_rounded, color: textColor),
-                      dropdownColor: fieldBgColor,
-                      style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w500),
-                      items: ['Male', 'Female', 'Other'].map((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() {
-                          _selectedGender = newValue;
-                        });
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
+                ]),
+                const SizedBox(height: 28),
 
-                // Contact No
-                _buildLabel('Contact No.', textColor),
-                const SizedBox(height: 8),
-                _buildTextField(_contactNoController, '+94 71 216 0350', fieldBgColor, borderColor, textColor),
-                const SizedBox(height: 40),
+                _buildSaveButton(),
+                const SizedBox(height: 28),
 
-                // Save Changes Button
-                ElevatedButton(
-                  onPressed: _isSaving ? null : _saveChanges,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Save Changes',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Export and Import Data
+                const SettingsSectionTitle('Data & Backup'),
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isExporting ? null : _exportData,
-                        icon: _isExporting 
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
-                            : const Icon(Icons.download_rounded, size: 18),
-                        label: const Text('Export Data'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                      child: _softAction(
+                        icon: Icons.download_rounded,
+                        label: 'Export',
+                        loading: _isExporting,
+                        onTap: _exportData,
+                        isDark: isDark,
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 14),
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isImporting ? null : _importData,
-                        icon: _isImporting 
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
-                            : const Icon(Icons.upload_rounded, size: 18),
-                        label: const Text('Import Data'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                      child: _softAction(
+                        icon: Icons.table_view_rounded,
+                        label: 'CSV',
+                        loading: _isExportingCsv,
+                        onTap: _exportDataCsv,
+                        isDark: isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _softAction(
+                        icon: Icons.upload_rounded,
+                        label: 'Import',
+                        loading: _isImporting,
+                        onTap: _importData,
+                        isDark: isDark,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Export a JSON backup (re-importable) or a CSV bundle for spreadsheets.',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                      fontSize: 12.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // ── Danger zone ──
+                const SettingsSectionTitle('Danger Zone'),
+                _DeleteAccountButton(
+                  loading: _isDeleting,
+                  onTap: _confirmDeleteAccount,
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Deletes your account and all data after a 7-day grace period. '
+                    'Signing in again within 7 days lets you cancel.',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                      fontSize: 12.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
               ],
             ),
     );
   }
 
-  Widget _buildLabel(String text, Color color) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: color.withValues(alpha: 0.7),
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
+  // ── Header ─────────────────────────────────────────────────────────────────
+
+  Widget _buildHeader(dynamic user, bool isDark) {
+    final surface = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final fullName = [user.firstName, user.surname]
+        .where((s) => s != null && (s as String).trim().isNotEmpty)
+        .map((s) => (s as String).trim())
+        .join(' ');
+    final displayName = fullName.isNotEmpty
+        ? fullName
+        : (user.name != null && (user.name as String).trim().isNotEmpty
+            ? (user.name as String).trim()
+            : (user.email as String).split('@').first);
+
+    final hasPhoto = _pickedProfilePhoto != null ||
+        (user.profilePhoto != null && (user.profilePhoto as String).isNotEmpty);
+
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: _pickProfilePhoto,
+          child: Stack(
+            children: [
+              // Gradient ring + soft glow around the avatar.
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.primaryDark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.30),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: surface,
+                    border: Border.all(color: surface, width: 3),
+                    image: hasPhoto
+                        ? DecorationImage(
+                            image: getProfileImageProvider(_pickedProfilePhoto ?? user.profilePhoto!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  child: hasPhoto
+                      ? null
+                      : Center(
+                          child: Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 36,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              Positioned(
+                bottom: 2,
+                right: 2,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: surface, width: 2.5),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 15),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          displayName,
+          style: TextStyle(
+            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          user.email,
+          style: TextStyle(
+            color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Field card ─────────────────────────────────────────────────────────────
+
+  Widget _buildCard(bool isDark, List<Widget> children) {
+    final surface = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _field({
+    required String label,
+    required IconData icon,
+    required Widget child,
+    bool isLast = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return Container(
+      decoration: isLast
+          ? null
+          : BoxDecoration(
+              border: Border(bottom: BorderSide(color: border)),
+            ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                child,
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, Color bg, Color border, Color text) {
+  Widget _textInput(TextEditingController controller, String hint, {TextInputType? keyboardType}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return TextField(
       controller: controller,
-      style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.w500),
+      keyboardType: keyboardType,
+      style: TextStyle(
+        color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
       decoration: InputDecoration(
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 6),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
         hintText: hint,
-        hintStyle: TextStyle(color: text.withValues(alpha: 0.4), fontWeight: FontWeight.w400),
-        filled: true,
-        fillColor: bg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: border),
+        hintStyle: TextStyle(
+          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+          fontSize: 15.5,
+          fontWeight: FontWeight.w500,
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary),
+      ),
+    );
+  }
+
+  // ── Buttons ────────────────────────────────────────────────────────────────
+
+  Widget _buildSaveButton() {
+    return Container(
+      height: 54,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.34),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: _isSaving ? null : _saveChanges,
+          child: Center(
+            child: _isSaving
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: AppLoader(size: 22, color: Colors.white),
+                  )
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Save Changes',
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _softAction({
+    required IconData icon,
+    required String label,
+    required bool loading,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    final fill = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    return Material(
+      color: fill,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: loading ? null : onTap,
+        child: Container(
+          height: 50,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: AppLoader(size: 18),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 18, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Confirmation dialog for account deletion. Owns its password controller and
+/// disposes it in [State.dispose] (after the dismiss animation), returning the
+/// entered password via Navigator.pop, or null if cancelled.
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Delete account?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This permanently erases your account and all your data — '
+            'transactions, budgets, goals, reminders and more. This cannot be undone.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            obscureText: true,
+            autofocus: true,
+            onSubmitted: (_) => Navigator.pop(context, _controller.text),
+            decoration: const InputDecoration(
+              labelText: 'Enter your password to confirm',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Delete', style: TextStyle(color: AppColors.expense)),
+        ),
+      ],
+    );
+  }
+}
+
+/// Full-width destructive action for the Danger Zone. Kept visually distinct
+/// (expense/red tint) from the soft primary actions above it.
+class _DeleteAccountButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _DeleteAccountButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.expense.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: loading ? null : onTap,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.expense.withValues(alpha: 0.4)),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: AppLoader(size: 18, color: AppColors.expense),
+                  )
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.delete_forever_rounded, size: 20, color: AppColors.expense),
+                      SizedBox(width: 8),
+                      Text(
+                        'Delete Account',
+                        style: TextStyle(
+                          color: AppColors.expense,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
       ),
     );

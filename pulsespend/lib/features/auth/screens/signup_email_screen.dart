@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
+import '../../../shared/widgets/auth_header.dart';
 import '../../../shared/widgets/primary_button.dart';
 import 'signup_verify_screen.dart';
 
@@ -40,7 +40,7 @@ class _SignupEmailScreenState extends ConsumerState<SignupEmailScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -58,14 +58,10 @@ class _SignupEmailScreenState extends ConsumerState<SignupEmailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Create your account',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "We'll email you a one-time passkey to verify it's you.",
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.lightTextSecondary),
+                const AuthHeader(
+                  icon: Icons.person_add_alt_1_rounded,
+                  title: 'Create your account',
+                  subtitle: Text("We'll email you a one-time passkey to verify it's you."),
                 ),
                 const SizedBox(height: 32),
                 AppTextField(

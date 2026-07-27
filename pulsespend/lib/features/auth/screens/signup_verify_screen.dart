@@ -4,6 +4,7 @@ import 'package:pin_code_fields/pin_code_fields.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../shared/widgets/auth_header.dart';
 import '../../../shared/widgets/primary_button.dart';
 import 'signup_password_screen.dart';
 
@@ -53,7 +54,7 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
       );
     } catch (e) {
       final apiEx = DioClient.toApiException(e);
-      setState(() => _errorText = apiEx.message);
+      setState(() => _errorText = apiEx.localizedMessage(context));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -70,7 +71,7 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
     } catch (e) {
       if (!mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     } finally {
       if (mounted) setState(() => _isResending = false);
     }
@@ -78,6 +79,11 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+
     return Scaffold(
       appBar: AppBar(),
       body: SafeArea(
@@ -86,21 +92,19 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Check your inbox',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              Text.rich(
-                TextSpan(
-                  text: 'Enter the 6-digit passkey we sent to ',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.lightTextSecondary),
-                  children: [
-                    TextSpan(
-                      text: widget.email,
-                      style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
-                    ),
-                  ],
+              AuthHeader(
+                icon: Icons.mark_email_read_outlined,
+                title: 'Check your inbox',
+                subtitle: Text.rich(
+                  TextSpan(
+                    text: 'Enter the 6-digit passkey we sent to ',
+                    children: [
+                      TextSpan(
+                        text: widget.email,
+                        style: TextStyle(fontWeight: FontWeight.w700, color: textPrimary),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
@@ -110,17 +114,22 @@ class _SignupVerifyScreenState extends ConsumerState<SignupVerifyScreen> {
                 controller: _pinController,
                 keyboardType: TextInputType.number,
                 animationType: AnimationType.fade,
+                // Transparent, or the hidden input inherits the global filled
+                // input theme and paints a rectangle behind the 6 boxes.
+                backgroundColor: Colors.transparent,
+                textStyle: TextStyle(color: textPrimary, fontWeight: FontWeight.w700, fontSize: 18),
                 pinTheme: PinTheme(
                   shape: PinCodeFieldShape.box,
                   borderRadius: BorderRadius.circular(14),
                   fieldHeight: 54,
                   fieldWidth: 46,
+                  borderWidth: 1.4,
                   activeColor: AppColors.primary,
                   selectedColor: AppColors.primary,
-                  inactiveColor: AppColors.lightBorder,
-                  activeFillColor: AppColors.lightSurfaceAlt,
-                  selectedFillColor: AppColors.lightSurfaceAlt,
-                  inactiveFillColor: AppColors.lightSurfaceAlt,
+                  inactiveColor: border,
+                  activeFillColor: surfaceAlt,
+                  selectedFillColor: surfaceAlt,
+                  inactiveFillColor: surfaceAlt,
                 ),
                 enableActiveFill: true,
                 onCompleted: (_) => _verify(),

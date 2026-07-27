@@ -1,8 +1,107 @@
-import { neon } from "@neondatabase/serverless"
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from 'ws';
 import 'dotenv/config';
 
+neonConfig.webSocketConstructor = ws;
 
-export const sql = neon(process.env.DATABASE_URL!);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+
+const DB_QUERY_RETRIES = 1;          // one extra attempt after the first
+const DB_RETRY_BASE_DELAY_MS = 400;
+
+/**
+ * Neon's HTTP driver can intermittently fail to reach the database with a
+ * transient network error (connect timeout, DNS blip, reset). These mean the
+ * query almost certainly never reached the server, so they're safe to retry —
+ * unlike an actual SQL error, which we surface immediately.
+ */
+export function isTransientDbError(err: any): boolean {
+  const code =
+    err?.sourceError?.cause?.code ||
+    err?.cause?.code ||
+    err?.code ||
+    '';
+  const msg = String(err?.message ?? '') + ' ' + String(err?.sourceError?.message ?? '');
+  return (
+    code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    code === 'ETIMEDOUT' ||
+    /fetch failed/i.test(msg) ||
+    /Error connecting to database/i.test(msg) ||
+    /Client was closed/i.test(msg) ||
+    /Connection terminated/i.test(msg)
+  );
+}
+
+/**
+ * Runs [attempt] with a short backoff on transient connection failures. Only
+ * safe because those errors mean the query never reached the server.
+ */
+async function withDbRetries<T>(attempt: () => Promise<T>): Promise<T> {
+  let lastErr: any;
+  for (let tries = 0; tries <= DB_QUERY_RETRIES; tries++) {
+    try {
+      return await attempt();
+    } catch (err: any) {
+      lastErr = err;
+      if (!isTransientDbError(err) || tries === DB_QUERY_RETRIES) break;
+      const delay = DB_RETRY_BASE_DELAY_MS * Math.pow(2, tries);
+      console.warn(
+        `[DB] Transient error (attempt ${tries + 1}/${DB_QUERY_RETRIES + 1}), retrying in ${delay}ms:`,
+        err?.message,
+      );
+      await sleep(delay);
+    }
+  }
+  // Tag so the error handler can map it to a clean 503 instead of a 500.
+  if (lastErr && isTransientDbError(lastErr)) lastErr.isDbConnectionError = true;
+  throw lastErr;
+}
+
+function buildQuery(strings: TemplateStringsArray, ...values: any[]) {
+  let text = '';
+  for (let i = 0; i < strings.length - 1; i++) {
+    text += strings[i] + '$' + (i + 1);
+  }
+  text += strings[strings.length - 1];
+  return { text, values };
+}
+
+async function executeSql(strings: TemplateStringsArray, ...values: any[]) {
+  const q = buildQuery(strings, ...values);
+  const res = await pool.query(q);
+  return res.rows;
+}
+
+const sqlWithRetries = (strings: TemplateStringsArray, ...values: any[]) =>
+  withDbRetries(() => executeSql(strings, ...values));
+
+export const sql = Object.assign(sqlWithRetries, {
+  transaction: async (cb: (txn: (strings: TemplateStringsArray, ...values: any[]) => any) => any[]) => {
+    return withDbRetries(async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const queries = cb(buildQuery);
+        const results = [];
+        for (const q of queries) {
+          const res = await client.query(q);
+          results.push(res.rows);
+        }
+        await client.query('COMMIT');
+        return results;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+  }
+}) as any;
 
 const INIT_RETRIES = 3;
 const INIT_RETRY_DELAY_MS = 3000;
@@ -48,6 +147,9 @@ async function _runMigrations() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`;
 
+        // New users default to following the device (system) theme.
+        await sql`ALTER TABLE users ALTER COLUMN theme SET DEFAULT 'system'`;
+
         // Backward-compatible schema upgrades
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'USD'`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format VARCHAR(20) DEFAULT 'DD/MM/YYYY'`;
@@ -81,6 +183,56 @@ async function _runMigrations() {
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+
+        // Idempotency key for offline-created transactions: a client generates a
+        // stable id per queued op, so replaying it after a reconnect (or a lost
+        // response) never creates a duplicate. Unique per user when present.
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS client_op_id VARCHAR(64)`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_user_op ON transactions(user_id, client_op_id) WHERE client_op_id IS NOT NULL`;
+
+        // ── WALLETS / ACCOUNTS ────────────────────────────────────────────────
+        // Cash / bank / card accounts. transactions.wallet_id is nullable —
+        // NULL means the default wallet (legacy rows keep working untouched).
+        await sql`CREATE TABLE IF NOT EXISTS wallets(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            type VARCHAR(20) NOT NULL DEFAULT 'cash',
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP,
+            UNIQUE(user_id, name)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_wallets_user ON wallets(user_id)`;
+        // The table-level UNIQUE(user_id, name) ignores soft delete, so a deleted
+        // wallet's name stays taken forever and re-creating it 409s. Wallets are
+        // only soft-deleted, and "make a new wallet and move the money" is the
+        // advised fix for a type/currency change — so the name must come back.
+        await sql`ALTER TABLE wallets DROP CONSTRAINT IF EXISTS wallets_user_id_name_key`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wallets_user_name
+                    ON wallets(user_id, name) WHERE deleted_at IS NULL`;
+        // The amount the wallet was seeded with at creation (for liabilities, the
+        // original amount owed). Kept for reference so loan payoff progress can be
+        // measured against the starting debt.
+        await sql`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS opening_balance DECIMAL(12,2)`;
+        // The transfer uuid of the wallet's opening seed, so correcting it later
+        // can find its leg(s) — one for plain debt, two for a loan drawdown.
+        await sql`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS opening_transfer_id VARCHAR(64)`;
+        // Spending ceiling for credit/card wallets: a charge that would push
+        // the amount owed past this is refused. NULL = no limit.
+        await sql`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS credit_limit DECIMAL(12,2)`;
+        // Backfill wallets seeded before the column existed, so the correction
+        // flow has one code path instead of a legacy branch.
+        await sql`
+          UPDATE wallets w SET opening_transfer_id = (
+            SELECT t.transfer_id FROM transactions t
+            WHERE t.wallet_id = w.id AND t.category = 'Opening Balance' AND t.deleted_at IS NULL
+            LIMIT 1
+          )
+          WHERE w.opening_transfer_id IS NULL AND w.opening_balance IS NOT NULL
+        `;
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_wallet ON transactions(wallet_id)`;
 
         await sql`CREATE TABLE IF NOT EXISTS transaction_splits(
             id SERIAL PRIMARY KEY,
@@ -134,6 +286,12 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Alert dedupe + pacing state. alert_period is the current window's start
+        // date (ISO); alert_level is the highest threshold (80/100) already
+        // pushed this period; pace_alerted marks the one pacing alert per period.
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_period VARCHAR(10)`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS alert_level SMALLINT NOT NULL DEFAULT 0`;
+        await sql`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS pace_alerted BOOLEAN NOT NULL DEFAULT false`;
 
         await sql`CREATE TABLE IF NOT EXISTS recurring_transactions(
             id SERIAL PRIMARY KEY,
@@ -150,6 +308,28 @@ async function _runMigrations() {
 
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'LKR'`;
         await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
+        // Recurring rules can target a specific wallet; the materialized
+        // transaction inherits it (NULL = the default wallet bucket).
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        // Day-before reminder dedupe: last date we pushed an "upcoming" reminder.
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS last_reminded_on DATE`;
+        // When set, the rule is a recurring TRANSFER: |amount| moves from
+        // wallet_id into to_wallet_id each run as a transfer-tagged pair
+        // (0 = the default bucket; NULL = a plain income/expense rule). This is
+        // how an EMI/repayment is modelled — an expense rule aimed at a loan
+        // wallet would grow the debt every month instead of shrinking it.
+        await sql`ALTER TABLE recurring_transactions ADD COLUMN IF NOT EXISTS to_wallet_id INTEGER`;
+
+        // Subscriptions the user dismissed from the "Detected subscriptions"
+        // list, keyed by the detector's normalized series key so they stay
+        // hidden across re-detections.
+        await sql`CREATE TABLE IF NOT EXISTS dismissed_subscriptions(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            series_key VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_dismissed_sub ON dismissed_subscriptions(user_id, series_key)`;
 
         await sql`CREATE TABLE IF NOT EXISTS reminders(
             id SERIAL PRIMARY KEY,
@@ -189,8 +369,91 @@ async function _runMigrations() {
         await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS is_completed BOOLEAN NOT NULL DEFAULT false`;
         await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`;
 
+        // ── GOAL CONTRIBUTION HISTORY ─────────────────────────────────────────
+        // Every deposit/withdrawal to a goal, with its origin. Powers the goal
+        // timeline, withdraw/undo, milestones, auto-contribute and round-ups.
+        await sql`CREATE TABLE IF NOT EXISTS goal_contributions(
+            id SERIAL PRIMARY KEY,
+            goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            source VARCHAR(20) NOT NULL DEFAULT 'manual',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_goal_contributions_goal ON goal_contributions(goal_id)`;
+        // Wallet-backed funding: which wallet a manual contribution/withdrawal
+        // moved money to/from (NULL = the default bucket, or auto/roundup which
+        // are virtual and touch no wallet).
+        await sql`ALTER TABLE goal_contributions ADD COLUMN IF NOT EXISTS wallet_id INTEGER`;
+        // Highest 25/50/75 milestone already celebrated (so each fires once).
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS last_milestone INT NOT NULL DEFAULT 0`;
+        // Auto-contribution rule: add auto_amount every month on auto_day (1–28).
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS auto_amount DECIMAL(10,2)`;
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS auto_day INT`;
+        // The wallet an auto-contribution debits (0 = default bucket). NULL
+        // pauses the rule: a contribution that debits no wallet grows the goal
+        // — and net worth — out of nothing.
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS auto_wallet_id INT`;
+        // Round-up savings: expenses round up to roundup_to; the spare change
+        // auto-contributes to roundup_goal_id.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_goal_id INT`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_to INT`;
+        // The wallet round-up spare change is taken from (0 = default bucket).
+        // NULL pauses round-ups — same money-creation reasoning as auto_wallet_id.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_wallet_id INT`;
+        // Shared group goals: a goal linked to a group is visible to (and can
+        // receive contributions from) every member.
+        await sql`ALTER TABLE goals ADD COLUMN IF NOT EXISTS group_id INT`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_goals_group ON goals(group_id)`;
+
+        // ── 1:1 IOUs / DEBTS ──────────────────────────────────────────────────
+        // Lightweight person-to-person debt tracking ("Alex owes me 2000")
+        // without the weight of a full shared group. client_op_id gives the
+        // offline outbox exactly-once creates, like transactions.
+        await sql`CREATE TABLE IF NOT EXISTS debts(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            counterparty_name VARCHAR(120) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            direction VARCHAR(20) NOT NULL DEFAULT 'owed_to_me',
+            note TEXT,
+            status VARCHAR(20) NOT NULL DEFAULT 'open',
+            client_op_id VARCHAR(64),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            settled_at TIMESTAMP,
+            deleted_at TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id)`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_debts_user_op ON debts(user_id, client_op_id) WHERE client_op_id IS NOT NULL`;
+
         // Transaction Receipts
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_url TEXT`;
+
+        // ── WALLET TRANSFERS ──────────────────────────────────────────────────
+        // A transfer is a pair of transactions (−from / +to) sharing one uuid.
+        // Legs shift wallet balances but are excluded from income/expense
+        // analytics, the digest and the heatmap (money only moved, not spent).
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transfer_id VARCHAR(36)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_transfer ON transactions(transfer_id) WHERE transfer_id IS NOT NULL`;
+
+        // ── GDPR GRACE-PERIOD DELETION ────────────────────────────────────────
+        // Account deletion is a 7-day soft-delete: the timestamp marks the
+        // request; a daily purge job hard-deletes once the grace period lapses.
+        // Signing in during the window lets the user cancel (restore).
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP`;
+
+        // Optional overall monthly spending cap (NULL = off), separate from the
+        // per-category budgets. Measured in the user's preferred currency.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_budget DECIMAL(12,2)`;
+
+        // ── TOTP 2FA ──────────────────────────────────────────────────────────
+        // totp_secret is stored on enroll but 2FA only enforces once the user
+        // has proven a working authenticator (totp_enabled = true). Recovery
+        // codes are stored as a JSON array of sha256 hashes; each is one-shot.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes TEXT`;
 
         // ── NOTIFICATION HISTORY TABLE ─────────────────────────────────────────
         // Stores every push/in-app notification per user so they can see a history
@@ -208,4 +471,179 @@ async function _runMigrations() {
         await sql`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read)`;
+
+        // ── NOTIFICATION PREFERENCES ──────────────────────────────────────────
+        // One row per user. Missing row ⇒ everything enabled (see NotificationPreferenceModel).
+        // Push/scheduler code consults these before delivering, so users can mute
+        // categories (bill reminders, goal reminders, budget alerts, recurring runs)
+        // without disabling their whole account.
+        await sql`CREATE TABLE IF NOT EXISTS notification_preferences(
+            user_id VARCHAR(255) PRIMARY KEY,
+            push_enabled BOOLEAN NOT NULL DEFAULT true,
+            bill_reminders BOOLEAN NOT NULL DEFAULT true,
+            goal_reminders BOOLEAN NOT NULL DEFAULT true,
+            budget_alerts BOOLEAN NOT NULL DEFAULT true,
+            recurring_alerts BOOLEAN NOT NULL DEFAULT true,
+            summary_digest BOOLEAN NOT NULL DEFAULT true,
+            group_activity BOOLEAN NOT NULL DEFAULT true,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS summary_digest BOOLEAN NOT NULL DEFAULT true`;
+        await sql`ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS group_activity BOOLEAN NOT NULL DEFAULT true`;
+
+        // ── USER FEEDBACK / "REPORT A PROBLEM" ────────────────────────────────
+        await sql`CREATE TABLE IF NOT EXISTS feedback(
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            category VARCHAR(40) NOT NULL DEFAULT 'problem',
+            subject VARCHAR(200) NOT NULL,
+            message TEXT NOT NULL,
+            email VARCHAR(255),
+            app_version VARCHAR(40),
+            platform VARCHAR(40),
+            status VARCHAR(20) NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC)`;
+
+        // ── SHARED / FAMILY GROUPS ─────────────────────────────────────────────
+        // A group is a shared "household" whose members can see a combined,
+        // read-only view of everyone's transactions + a merged summary. Members
+        // keep owning their own transactions (no ownership refactor); the group
+        // only aggregates them. Joining is via a short invite code.
+        await sql`CREATE TABLE IF NOT EXISTS groups(
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            owner_id VARCHAR(255) NOT NULL,
+            invite_code VARCHAR(16) UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE TABLE IF NOT EXISTS group_members(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            role VARCHAR(20) NOT NULL DEFAULT 'member',
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(group_id, user_id)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)`;
+
+        // ── GROUP SETTLEMENTS (Splitwise-lite) ────────────────────────────────
+        // transactions.group_id marks an expense as SHARED with a group (split
+        // equally between members for balance math). group_settlements records
+        // member-to-member repayments so balances converge to zero.
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_id INTEGER`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)`;
+        await sql`CREATE TABLE IF NOT EXISTS group_settlements(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            from_user VARCHAR(255) NOT NULL,
+            to_user VARCHAR(255) NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_settlements_group ON group_settlements(group_id)`;
+
+        // Per-expense split shares: how a shared expense is divided, FROZEN at
+        // creation so adding/removing a member never re-splits past expenses.
+        // owed_amount is positive, in the expense's own currency (also frozen).
+        await sql`CREATE TABLE IF NOT EXISTS group_expense_splits(
+            id SERIAL PRIMARY KEY,
+            transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+            group_id INTEGER NOT NULL,
+            user_id VARCHAR(255) NOT NULL,
+            owed_amount DECIMAL(10,2) NOT NULL,
+            currency VARCHAR(10) NOT NULL DEFAULT 'LKR',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(transaction_id, user_id)
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_group ON group_expense_splits(group_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_transaction ON group_expense_splits(transaction_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_ges_user ON group_expense_splits(user_id)`;
+
+        // Settlement confirmation (Phase 3): a payer records a settlement, the
+        // payee confirms/disputes. Existing rows are treated as confirmed.
+        await sql`ALTER TABLE group_settlements ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'confirmed'`;
+        // A settle-up now moves real cash — the payer's wallet out, the payee's
+        // default bucket in — as a transfer-tagged pair. transfer_id links the
+        // settlement to those two legs so an undo can reverse both. Nullable:
+        // legacy settlements predate the cash legs and have nothing to reverse.
+        await sql`ALTER TABLE group_settlements ADD COLUMN IF NOT EXISTS transfer_id VARCHAR(64)`;
+
+        // Referential-integrity sweep: transactions.group_id / goals.group_id
+        // have no FK, so a group deleted before the disband-cleanup existed can
+        // leave rows pointing at a dead id. Revert those to private + drop the
+        // stranded splits. Idempotent (a clean DB matches nothing).
+        await sql`
+          DELETE FROM group_expense_splits
+          WHERE group_id NOT IN (SELECT id FROM groups)
+        `;
+        await sql`
+          UPDATE transactions SET group_id = NULL
+          WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM groups)
+        `;
+        await sql`
+          UPDATE goals SET group_id = NULL
+          WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM groups)
+        `;
+
+        // ── GROUP CHAT ────────────────────────────────────────────────────────
+        await sql`CREATE TABLE IF NOT EXISTS group_messages(
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id VARCHAR(255) NOT NULL,
+            content TEXT NOT NULL,
+            metadata JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
+        // Backfills the column for databases created before metadata support
+        // (e.g. shared-expense bubbles) was added — safe to run every boot.
+        await sql`ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS metadata JSONB`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id, created_at DESC)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_user ON group_messages(user_id)`;
+
+        await backfillGroupSplits();
+}
+
+/**
+ * Gives every pre-existing shared expense the split rows it never had, so the
+ * new balance math (which reads frozen splits) sees them. Equal-split among the
+ * group's CURRENT members via the same rounding authority the write path uses —
+ * so the rows sum exactly and, once written, are frozen and never re-split.
+ * Idempotent: the NOT EXISTS guard skips anything already backfilled.
+ */
+async function backfillGroupSplits(): Promise<void> {
+  const pending = await sql`
+    SELECT t.id, t.user_id, t.amount, t.currency, t.group_id
+    FROM transactions t
+    WHERE t.group_id IS NOT NULL AND t.deleted_at IS NULL AND t.amount < 0
+      AND NOT EXISTS (SELECT 1 FROM group_expense_splits s WHERE s.transaction_id = t.id)
+  `;
+  if (pending.length === 0) return;
+
+  const { deriveGroupSplit } = await import('../utils/financeMath');
+  let filled = 0;
+  for (const t of pending as any[]) {
+    const members = await sql`SELECT user_id FROM group_members WHERE group_id = ${t.group_id}`;
+    if (members.length === 0) continue; // disbanded group — memberBalances returns nothing anyway
+    const participants = members.map((m: any) => ({ user_id: String(m.user_id) }));
+    let rows: Array<{ user_id: string; owed: number }>;
+    try {
+      rows = deriveGroupSplit('equal', participants, Math.abs(Number(t.amount)), String(t.user_id));
+    } catch {
+      continue;
+    }
+    const cur = String(t.currency || 'LKR');
+    await sql`
+      INSERT INTO group_expense_splits (transaction_id, group_id, user_id, owed_amount, currency)
+      SELECT ${Number(t.id)}::int, ${Number(t.group_id)}::int, u.user_id, u.owed::numeric, ${cur}
+      FROM UNNEST(${rows.map((r) => r.user_id)}::text[], ${rows.map((r) => r.owed)}::numeric[]) AS u(user_id, owed)
+      ON CONFLICT (transaction_id, user_id) DO NOTHING
+    `;
+    filled++;
+  }
+  if (filled > 0) console.log(`[DB] Backfilled group splits for ${filled} shared expense(s).`);
 }

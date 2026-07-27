@@ -6,6 +6,11 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
+  // ── Aliases used across feature screens ───────────────────────────
+  static const Color primaryAccent = primary;    // chat bubbles, send buttons
+  static const Color background = lightBg;       // scaffold background
+  static const Color surfaceDark = darkSurface;  // dark-mode card backgrounds
+
   // Brand
   static const Color primary = Color(0xFF5B5FEF); // electric indigo
   static const Color primaryDark = Color(0xFF4347C4);

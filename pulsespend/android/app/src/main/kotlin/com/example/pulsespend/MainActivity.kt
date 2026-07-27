@@ -1,5 +1,7 @@
 package com.example.pulsespend
 
-import io.flutter.embedding.android.FlutterActivity
+// FlutterFragmentActivity (not FlutterActivity) is required by local_auth so the
+// androidx BiometricPrompt can attach to a FragmentActivity host.
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterFragmentActivity()

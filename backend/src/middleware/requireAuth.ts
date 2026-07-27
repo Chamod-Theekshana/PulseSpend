@@ -1,11 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { verifyAccessToken, type JwtUserPayload } from '../utils/jwt';
 import { UserModel } from '../models/UserModel';
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __reqUser: any;
-}
+import { TokenVersionCache } from '../config/tokenVersionCache';
 
 export type AuthedRequest = Request & { user?: JwtUserPayload };
 
@@ -17,7 +13,16 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
       return res.status(401).json({ message: 'Unauthorized' });
     }
     const user = verifyAccessToken(token);
-    const tokenVersion = await UserModel.getTokenVersion(String(user.id));
+    const userId = String(user.id);
+    
+    let tokenVersion = TokenVersionCache.get(userId);
+    if (tokenVersion === null) {
+      tokenVersion = await UserModel.getTokenVersion(userId);
+      if (tokenVersion !== null) {
+        TokenVersionCache.set(userId, tokenVersion);
+      }
+    }
+
     if (tokenVersion === null || tokenVersion !== (user.tokenVersion || 0)) {
       return res.status(401).json({ message: 'Unauthorized' });
     }

@@ -7,9 +7,13 @@ import '../../providers/profile_provider.dart';
 import '../../features/auth/screens/splash_gate.dart';
 import '../../features/budgets/screens/budgets_screen.dart';
 import '../../features/categories/screens/categories_screen.dart';
+import '../../features/debts/screens/debts_screen.dart';
 import '../../features/goals/screens/goals_screen.dart';
+import '../../features/groups/screens/groups_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/recurring/screens/recurring_screen.dart';
+import '../../features/wallets/screens/wallets_screen.dart';
+import '../utils/image_utils.dart';
 
 // ──────────────────────────────────────────────────────────
 // Controller – exposes a ValueNotifier so any child widget can
@@ -136,6 +140,17 @@ class _ProfileDrawerPanel extends ConsumerWidget {
   final VoidCallback onClose;
   const _ProfileDrawerPanel({required this.onClose});
 
+  /// Closes the drawer, then pushes [screen] once the slide-out animation has
+  /// settled (so the transition isn't janky).
+  void _go(BuildContext context, Widget screen) {
+    onClose();
+    Future.delayed(const Duration(milliseconds: 280), () {
+      if (context.mounted) {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -200,6 +215,29 @@ class _ProfileDrawerPanel extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ── Money section ──
+                    _SectionHeader(label: 'Money', textSecondary: textSecondary),
+                    _DrawerTile(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: 'Wallets',
+                      dividerColor: dividerColor,
+                      surfaceColor: surfaceColor,
+                      textPrimary: textPrimary,
+                      onTap: () => _go(context, const WalletsScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.handshake_outlined,
+                      label: 'IOUs',
+                      dividerColor: dividerColor,
+                      surfaceColor: surfaceColor,
+                      textPrimary: textPrimary,
+                      isLast: true,
+                      onTap: () => _go(context, const DebtsScreen()),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ── Financial Planning section ──
                     _SectionHeader(label: 'Financial Planning', textSecondary: textSecondary),
                     _DrawerTile(
                       icon: Icons.track_changes_outlined,
@@ -207,16 +245,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
                       dividerColor: dividerColor,
                       surfaceColor: surfaceColor,
                       textPrimary: textPrimary,
-                      onTap: () {
-                        onClose();
-                        Future.delayed(const Duration(milliseconds: 280), () {
-                          if (context.mounted) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const GoalsScreen()),
-                            );
-                          }
-                        });
-                      },
+                      onTap: () => _go(context, const GoalsScreen()),
                     ),
                     _DrawerTile(
                       icon: Icons.pie_chart_outline_rounded,
@@ -224,16 +253,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
                       dividerColor: dividerColor,
                       surfaceColor: surfaceColor,
                       textPrimary: textPrimary,
-                      onTap: () {
-                        onClose();
-                        Future.delayed(const Duration(milliseconds: 280), () {
-                          if (context.mounted) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const BudgetsScreen()),
-                            );
-                          }
-                        });
-                      },
+                      onTap: () => _go(context, const BudgetsScreen()),
                     ),
                     _DrawerTile(
                       icon: Icons.autorenew_rounded,
@@ -242,16 +262,29 @@ class _ProfileDrawerPanel extends ConsumerWidget {
                       surfaceColor: surfaceColor,
                       textPrimary: textPrimary,
                       isLast: true,
-                      onTap: () {
-                        onClose();
-                        Future.delayed(const Duration(milliseconds: 280), () {
-                          if (context.mounted) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const RecurringScreen()),
-                            );
-                          }
-                        });
-                      },
+                      onTap: () => _go(context, const RecurringScreen()),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ── More section ──
+                    _SectionHeader(label: 'More', textSecondary: textSecondary),
+                    _DrawerTile(
+                      icon: Icons.groups_outlined,
+                      label: 'Shared Groups',
+                      dividerColor: dividerColor,
+                      surfaceColor: surfaceColor,
+                      textPrimary: textPrimary,
+                      onTap: () => _go(context, const GroupsScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.sell_outlined,
+                      label: 'Categories',
+                      dividerColor: dividerColor,
+                      surfaceColor: surfaceColor,
+                      textPrimary: textPrimary,
+                      isLast: true,
+                      onTap: () => _go(context, const CategoriesScreen()),
                     ),
 
                     const SizedBox(height: 20),
@@ -264,34 +297,8 @@ class _ProfileDrawerPanel extends ConsumerWidget {
                       dividerColor: dividerColor,
                       surfaceColor: surfaceColor,
                       textPrimary: textPrimary,
-                      onTap: () {
-                        onClose();
-                        Future.delayed(const Duration(milliseconds: 280), () {
-                          if (context.mounted) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                            );
-                          }
-                        });
-                      },
-                    ),
-                    _DrawerTile(
-                      icon: Icons.sell_outlined,
-                      label: 'Categories',
-                      dividerColor: dividerColor,
-                      surfaceColor: surfaceColor,
-                      textPrimary: textPrimary,
                       isLast: true,
-                      onTap: () {
-                        onClose();
-                        Future.delayed(const Duration(milliseconds: 280), () {
-                          if (context.mounted) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const CategoriesScreen()),
-                            );
-                          }
-                        });
-                      },
+                      onTap: () => _go(context, const ProfileScreen()),
                     ),
                   ],
                 ),
@@ -409,8 +416,9 @@ class _DrawerAvatar extends StatelessWidget {
         ],
       ),
       child: user?.profilePhoto != null
-          ? ClipOval(
-              child: Image.network(user!.profilePhoto!, fit: BoxFit.cover),
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: Image(image: getProfileImageProvider(user!.profilePhoto!), fit: BoxFit.cover),
             )
           : Center(
               child: Text(

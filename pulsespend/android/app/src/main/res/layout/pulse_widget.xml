@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PulseSpend home widget: balance + this month's spend at a glance.
+     Values come from HomeWidget shared prefs written by the Flutter side
+     (see core/widget/home_widget_service.dart). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="@drawable/pulse_widget_bg">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="PulseSpend"
+        android:textStyle="bold"
+        android:textSize="12sp"
+        android:textColor="#5B5FEF" />
+
+    <TextView
+        android:id="@+id/widget_balance"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="—"
+        android:textStyle="bold"
+        android:textSize="20sp"
+        android:textColor="#1A1A1A" />
+
+    <TextView
+        android:id="@+id/widget_spend"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text=""
+        android:textSize="12sp"
+        android:textColor="#666666" />
+</LinearLayout>

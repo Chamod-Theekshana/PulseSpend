@@ -43,6 +43,19 @@ class DioClient {
   bool _isRefreshing = false;
   final List<Completer<void>> _refreshWaiters = [];
 
+  static const int _maxTransientRetries = 1;
+
+  /// A failure worth retrying: the request either never reached the server
+  /// (connection could not be established) or the server explicitly said the
+  /// condition is temporary (503). We deliberately exclude [receiveTimeout],
+  /// since there the server may have already processed a mutating request.
+  bool _isTransient(DioException error) {
+    final status = error.response?.statusCode;
+    if (status == 503) return true;
+    return error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.connectionError;
+  }
+
   InterceptorsWrapper _authInterceptor() {
     return InterceptorsWrapper(
       onRequest: (options, handler) async {
@@ -68,6 +81,24 @@ class DioClient {
             await SecureStorageService.instance.clear();
             onSessionExpired?.call();
             return handler.next(error);
+          }
+        }
+
+        // Transparently retry transient connectivity failures (e.g. the backend
+        // briefly can't reach the database → 503, or the connection couldn't be
+        // established). This smooths over the intermittent Neon connect timeouts.
+        if (_isTransient(error)) {
+          final attempts = (error.requestOptions.extra['retryAttempts'] as int?) ?? 0;
+          if (attempts < _maxTransientRetries) {
+            await Future.delayed(Duration(milliseconds: 400 * (attempts + 1)));
+            try {
+              final opts = error.requestOptions
+                ..extra['retryAttempts'] = attempts + 1;
+              final response = await _dio.fetch(opts);
+              return handler.resolve(response);
+            } catch (e) {
+              return handler.next(e is DioException ? e : error);
+            }
           }
         }
         handler.next(error);
@@ -133,23 +164,33 @@ class DioClient {
     );
   }
 
-  /// Converts any Dio failure into a clean [ApiException].
+  /// Converts any Dio failure into a clean [ApiException]. English fallback
+  /// text stays here for logs/toString; screens should render
+  /// [ApiException.localizedMessage] so the user sees their own language.
   static ApiException toApiException(Object error) {
     if (error is DioException) {
       final statusCode = error.response?.statusCode;
       final data = error.response?.data;
+      final isTimeout = error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout;
       String message;
+      var hasServerMessage = false;
       if (data is Map && data['message'] != null) {
         message = data['message'].toString();
-      } else if (error.type == DioExceptionType.connectionTimeout ||
-          error.type == DioExceptionType.receiveTimeout) {
+        hasServerMessage = true;
+      } else if (isTimeout) {
         message = 'Connection timed out. Check your network and try again.';
       } else if (error.type == DioExceptionType.connectionError) {
         message = 'Could not reach the server. Is the backend running?';
       } else {
         message = 'Something went wrong. Please try again.';
       }
-      return ApiException(message, statusCode: statusCode);
+      return ApiException(
+        message,
+        statusCode: statusCode,
+        hasServerMessage: hasServerMessage,
+        kind: isTimeout ? ApiErrorKind.timeout : ApiException.kindForStatus(statusCode),
+      );
     }
     if (error is ApiException) return error;
     return ApiException(error.toString());

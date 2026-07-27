@@ -1,378 +1,480 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../providers/profile_provider.dart';
+import '../../../core/utils/currency_formatter.dart';
+import '../../../l10n/l10n_ext.dart';
 import '../../../providers/auth_provider.dart';
-import '../../notifications/screens/notifications_screen.dart';
+import '../../../providers/profile_provider.dart';
+import '../../../shared/utils/image_utils.dart';
+import '../../../shared/widgets/selection_sheet.dart';
+import '../../auth/screens/splash_gate.dart';
+import '../../notifications/screens/notification_preferences_screen.dart';
+import '../widgets/settings_widgets.dart';
+import 'about_screen.dart';
+import 'accounts_screen.dart';
+import 'help_center_screen.dart';
 import 'profile_screen.dart';
+import 'report_problem_screen.dart';
+import 'security_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
+  // ── Option catalogues ──────────────────────────────────────────────
+  static const _currencies = [
+    ('LKR', 'Sri Lankan Rupee'),
+    ('USD', 'US Dollar'),
+    ('EUR', 'Euro'),
+    ('GBP', 'British Pound'),
+    ('INR', 'Indian Rupee'),
+    ('AUD', 'Australian Dollar'),
+    ('JPY', 'Japanese Yen'),
+    ('CAD', 'Canadian Dollar'),
+  ];
+
+  static const _dateFormats = [
+    ('DD/MM/YYYY', '31/12/2026'),
+    ('MM/DD/YYYY', '12/31/2026'),
+    ('YYYY-MM-DD', '2026-12-31'),
+  ];
+
+  static const _languages = [
+    'English',
+    'Sinhala',
+    'Tamil',
+    'Spanish',
+    'French',
+    'German',
+    'Hindi',
+  ];
+
+  Future<void> _update(
+    BuildContext context,
+    WidgetRef ref, {
+    String? theme,
+    String? currency,
+    String? dateFormat,
+    String? language,
+  }) async {
+    try {
+      await ref.read(profileControllerProvider.notifier).update(
+            theme: theme,
+            currency: currency,
+            dateFormat: dateFormat,
+            language: language,
+          );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(DioClient.toApiException(e).localizedMessage(context))),
+      );
+    }
+  }
+
+  Future<void> _pickTheme(BuildContext context, WidgetRef ref, String current) async {
+    final l = context.l10n;
+    final choice = await showSelectionSheet<String>(
+      context: context,
+      title: 'Appearance',
+      subtitle: 'Choose how PulseSpend looks',
+      selected: current,
+      options: [
+        SelectionOption(
+            value: 'system', title: l.themeSystem, icon: Icons.brightness_auto_outlined),
+        SelectionOption(value: 'light', title: l.lightMode, icon: Icons.light_mode_outlined),
+        SelectionOption(value: 'dark', title: l.darkMode, icon: Icons.dark_mode_outlined),
+      ],
+    );
+    if (choice != null && choice != current && context.mounted) {
+      await _update(context, ref, theme: choice);
+    }
+  }
+
+  Future<void> _pickCurrency(BuildContext context, WidgetRef ref, String current) async {
+    final choice = await showSelectionSheet<String>(
+      context: context,
+      title: 'Default Currency',
+      subtitle: 'Used to display amounts across the app',
+      selected: current,
+      options: _currencies
+          .map((c) => SelectionOption(
+                value: c.$1,
+                title: '${c.$1} · ${c.$2}',
+                leading: _CurrencyBadge(symbol: CurrencyFormatter.symbolFor(c.$1)),
+              ))
+          .toList(),
+    );
+    if (choice != null && choice != current && context.mounted) {
+      await _update(context, ref, currency: choice);
+    }
+  }
+
+  Future<void> _pickDateFormat(BuildContext context, WidgetRef ref, String current) async {
+    final choice = await showSelectionSheet<String>(
+      context: context,
+      title: 'Date Format',
+      selected: current,
+      options: _dateFormats
+          .map((d) => SelectionOption(
+                value: d.$1,
+                title: d.$1,
+                subtitle: 'e.g. ${d.$2}',
+                icon: Icons.calendar_today_outlined,
+              ))
+          .toList(),
+    );
+    if (choice != null && choice != current && context.mounted) {
+      await _update(context, ref, dateFormat: choice);
+    }
+  }
+
+  Future<void> _pickLanguage(BuildContext context, WidgetRef ref, String current) async {
+    final choice = await showSelectionSheet<String>(
+      context: context,
+      title: 'Language',
+      subtitle: 'App language for menus and labels',
+      selected: current,
+      options: _languages
+          .map((l) => SelectionOption(value: l, title: l, icon: Icons.translate_rounded))
+          .toList(),
+    );
+    if (choice != null && choice != current && context.mounted) {
+      await _update(context, ref, language: choice);
+    }
+  }
+
+  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You can sign back in anytime.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign Out', style: TextStyle(color: AppColors.expense)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(authControllerProvider.notifier).logout();
+      if (context.mounted) {
+        // Reset to a fresh gate so the next account (or sign-in) loads cleanly.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const SplashGate()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(profileControllerProvider).user;
+    final profile = ref.watch(profileControllerProvider);
+    final user = profile.user;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    final scaffoldBgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF3F4F6);
-    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final subtitleColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-    final sectionTitleColor = isDark ? Colors.grey[400]! : const Color(0xFF6B7280);
+    final l = context.l10n;
 
     return Scaffold(
-      backgroundColor: scaffoldBgColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: scaffoldBgColor,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
         title: Text(
-          'Profile Settings',
+          l.settingsTitle,
           style: TextStyle(
-            color: textColor,
+            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.only(left: 20, right: 20, top: 16, bottom: 100),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
         children: [
-          // Profile Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: isDark
-                  ? []
-                  : [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.02),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                  backgroundImage: profile?.profilePhoto != null && profile!.profilePhoto!.isNotEmpty
-                      ? NetworkImage(profile.profilePhoto!)
-                      : null,
-                  child: profile?.profilePhoto == null || profile!.profilePhoto!.isEmpty
-                      ? Text(
-                          (profile?.name?.isNotEmpty == true
-                                  ? profile!.name![0]
-                                  : profile?.email.isNotEmpty == true
-                                      ? profile!.email[0]
-                                      : '?')
-                              .toUpperCase(),
-                          style: const TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 22,
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile?.name ?? 'My Profile',
-                        style: TextStyle(
-                          color: textColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        profile?.email ?? '',
-                        style: TextStyle(
-                          color: subtitleColor,
-                          fontSize: 14,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          // ── Profile header card ──
+          _ProfileHeaderCard(
+            name: user?.fullName ?? 'My Profile',
+            email: user?.email ?? '',
+            photo: user?.profilePhoto,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
 
-          // Account Section
-          _SectionTitle(title: 'Account', color: sectionTitleColor),
-          _SettingsCard(
-            cardColor: cardColor,
+          // ── Account ──
+          SettingsSectionTitle(l.sectionAccount),
+          SettingsCard(
             children: [
-              _SettingsTile(
-                icon: Icons.person_outline,
-                title: 'Manage Profile',
-                textColor: textColor,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              SettingsTile(
+                icon: Icons.person_outline_rounded,
+                title: l.manageProfile,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                ),
               ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.lock_outline,
-                title: 'Password & Security',
-                textColor: textColor,
-                onTap: () {}, // TODO: Implement password & security
+              SettingsTile(
+                icon: Icons.lock_outline_rounded,
+                title: l.passwordSecurity,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SecurityScreen()),
+                ),
               ),
+              // Wallets / IOUs / Shared groups moved to the dashboard drawer —
+              // they're features, not settings. Settings keeps account + prefs.
             ],
           ),
-
           const SizedBox(height: 24),
 
-          // Preferences Section
-          _SectionTitle(title: 'Preferences', color: sectionTitleColor),
-          _SettingsCard(
-            cardColor: cardColor,
+          // ── Preferences ──
+          SettingsSectionTitle(l.sectionPreferences),
+          SettingsCard(
             children: [
-              _SettingsTile(
-                icon: Icons.notifications_none,
-                title: 'Notifications',
-                textColor: textColor,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+              SettingsTile(
+                icon: Icons.notifications_none_rounded,
+                title: l.notifications,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NotificationPreferencesScreen()),
+                ),
               ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.light_mode_outlined,
-                title: 'Theme',
-                textColor: textColor,
-                trailingText: profile?.theme == 'dark' ? 'Dark Mode' : 'Light Mode',
-                onTap: () {}, // TODO: Implement theme selector
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.currency_pound,
-                title: 'Default Currency',
-                textColor: textColor,
-                trailingText: profile?.currency ?? 'USD',
-                onTap: () {}, // TODO: Implement currency selector
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.calendar_today_outlined,
-                title: 'Date Format',
-                textColor: textColor,
-                trailingText: profile?.dateFormat ?? 'DD/MM/YYYY',
-                onTap: () {}, // TODO: Implement date format selector
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.translate,
-                title: 'Language',
-                textColor: textColor,
-                trailingText: profile?.language ?? 'English',
-                onTap: () {}, // TODO: Implement language selector
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // Support Section
-          _SectionTitle(title: 'Support', color: sectionTitleColor),
-          _SettingsCard(
-            cardColor: cardColor,
-            children: [
-              _SettingsTile(
-                icon: Icons.assignment_outlined,
-                title: 'About',
-                textColor: textColor,
-                onTap: () {}, // TODO: Implement about
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.error_outline,
-                title: 'Report a Problem',
-                textColor: textColor,
-                onTap: () {}, // TODO: Implement report a problem
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.help_outline,
-                title: 'Help Center',
-                textColor: textColor,
-                onTap: () {}, // TODO: Implement help center
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // Add Account & Logout
-          _SettingsCard(
-            cardColor: cardColor,
-            children: [
-              _SettingsTile(
-                icon: Icons.person_add_alt_1_outlined,
-                title: 'Add Account',
-                textColor: textColor,
-                onTap: () {}, // TODO: Implement add account
-              ),
-              _Divider(isDark: isDark),
-              _SettingsTile(
-                icon: Icons.logout,
-                title: 'Logout',
-                textColor: Colors.red,
-                iconColor: Colors.red,
-                showArrow: false,
-                onTap: () {
-                  ref.read(authControllerProvider.notifier).logout();
+              SettingsTile(
+                icon: isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+                title: l.theme,
+                trailingText: switch (user?.theme) {
+                  'dark' => l.darkMode,
+                  'light' => l.lightMode,
+                  _ => l.themeSystem,
                 },
+                showChevron: false,
+                onTap: () => _pickTheme(context, ref, user?.theme ?? 'system'),
+              ),
+              SettingsTile(
+                icon: Icons.payments_outlined,
+                title: l.defaultCurrency,
+                trailingText: profile.currency,
+                showChevron: false,
+                onTap: () => _pickCurrency(context, ref, profile.currency),
+              ),
+              SettingsTile(
+                icon: Icons.calendar_today_outlined,
+                title: l.dateFormat,
+                trailingText: profile.dateFormatPattern,
+                showChevron: false,
+                onTap: () => _pickDateFormat(context, ref, profile.dateFormatPattern),
+              ),
+              SettingsTile(
+                icon: Icons.translate_rounded,
+                title: l.language,
+                trailingText: profile.language,
+                showChevron: false,
+                onTap: () => _pickLanguage(context, ref, profile.language),
               ),
             ],
           ),
-          
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
+
+          // ── Support ──
+          SettingsSectionTitle(l.sectionSupport),
+          SettingsCard(
+            children: [
+              SettingsTile(
+                icon: Icons.info_outline_rounded,
+                title: l.about,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AboutScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.report_gmailerrorred_rounded,
+                title: l.reportProblem,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ReportProblemScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.help_outline_rounded,
+                title: l.helpCenter,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HelpCenterScreen()),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // ── Accounts / Logout ──
+          SettingsCard(
+            children: [
+              SettingsTile(
+                icon: Icons.people_alt_outlined,
+                title: l.addAccount,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AccountsScreen()),
+                ),
+              ),
+              SettingsTile(
+                icon: Icons.logout_rounded,
+                title: l.logout,
+                iconColor: AppColors.expense,
+                titleColor: AppColors.expense,
+                showChevron: false,
+                onTap: () => _confirmLogout(context, ref),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  final String title;
-  final Color color;
-
-  const _SectionTitle({required this.title, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 12),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: color,
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsCard extends StatelessWidget {
-  final List<Widget> children;
-  final Color cardColor;
-
-  const _SettingsCard({required this.children, required this.cardColor});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: isDark
-            ? []
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                )
-              ],
-      ),
-      child: Column(
-        children: children,
-      ),
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final Color textColor;
-  final Color? iconColor;
-  final String? trailingText;
-  final bool showArrow;
+class _ProfileHeaderCard extends StatelessWidget {
+  final String name;
+  final String email;
+  final String? photo;
   final VoidCallback onTap;
 
-  const _SettingsTile({
-    required this.icon,
-    required this.title,
-    required this.textColor,
-    this.iconColor,
-    this.trailingText,
-    this.showArrow = true,
+  const _ProfileHeaderCard({
+    required this.name,
+    required this.email,
+    required this.photo,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final defaultIconColor = isDark ? Colors.white : Colors.black87;
-    
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        child: Row(
-          children: [
-            Icon(icon, color: iconColor ?? defaultIconColor, size: 24),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final hasPhoto = photo != null && photo!.isNotEmpty;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [AppColors.darkSurface, AppColors.darkSurfaceAlt]
+                  : [AppColors.primary, AppColors.primaryDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            if (trailingText != null) ...[
-              Text(
-                trailingText!,
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: isDark ? 0.0 : 0.28),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: Colors.white.withValues(alpha: 0.22),
+                backgroundImage: hasPhoto ? getProfileImageProvider(photo!) : null,
+                child: !hasPhoto
+                    ? Text(
+                        (name.isNotEmpty ? name[0] : '?').toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 24,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        color: isDark ? textPrimary : Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 19,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      email,
+                      style: TextStyle(
+                        color: isDark ? textSecondary : Colors.white.withValues(alpha: 0.85),
+                        fontSize: 13.5,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: isDark ? 0.10 : 0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.edit_outlined,
+                              size: 13,
+                              color: isDark ? AppColors.primary : Colors.white),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Edit profile',
+                            style: TextStyle(
+                              color: isDark ? AppColors.primary : Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
             ],
-            if (showArrow)
-              Icon(
-                Icons.arrow_forward_ios,
-                color: isDark ? Colors.grey[600] : Colors.black,
-                size: 16,
-              ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _Divider extends StatelessWidget {
-  final bool isDark;
-  
-  const _Divider({required this.isDark});
+class _CurrencyBadge extends StatelessWidget {
+  final String symbol;
+  const _CurrencyBadge({required this.symbol});
 
   @override
   Widget build(BuildContext context) {
-    return Divider(
-      height: 1,
-      thickness: 1,
-      color: isDark ? Colors.grey[800] : Colors.grey[200],
-      indent: 56, // Align with text
-      endIndent: 16,
+    return Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        symbol,
+        style: const TextStyle(
+          color: AppColors.primary,
+          fontWeight: FontWeight.w800,
+          fontSize: 14,
+        ),
+      ),
     );
   }
 }

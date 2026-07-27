@@ -1,0 +1,26 @@
+[debug] [2026-07-13T11:59:30.137Z] ----------------------------------------------------------------------
+[debug] [2026-07-13T11:59:30.139Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Chamod\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js login
+[debug] [2026-07-13T11:59:30.139Z] CLI Version:   15.23.0
+[debug] [2026-07-13T11:59:30.139Z] Platform:      win32
+[debug] [2026-07-13T11:59:30.139Z] Node Version:  v22.22.0
+[debug] [2026-07-13T11:59:30.140Z] Detected Agent: unknown
+[debug] [2026-07-13T11:59:30.140Z] Time:          Mon Jul 13 2026 17:29:30 GMT+0530 (India Standard Time)
+[debug] [2026-07-13T11:59:30.140Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-13T11:59:30.148Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Firebase. Learn more about Gemini in Firebase and how it uses your data: https://firebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data 
+[debug] [2026-07-13T11:59:31.059Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-07-13T11:59:31.060Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2026-07-13T11:59:37.743Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (C:\Users\Chamod\AppData\Roaming\npm\node_modules\firebase-tools\node_modules\@inquirer\core\dist\commonjs\lib\create-prompt.js:101:37)
+    at Interface.emit (node:events:519:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1134:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:271:20)
+    at ReadStream.emit (node:events:531:35)
+    at emitKeys (node:internal/readline/utils:370:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12)
+[error] 
+[error] Error: An unexpected error has occurred.

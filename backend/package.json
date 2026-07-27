@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon",
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -16,19 +17,24 @@
   "type": "module",
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "@types/ws": "^8.18.1",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.36.0",
     "bcrypt": "^5.1.1",
+    "cloudinary": "^2.10.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "firebase-admin": "^13.6.0",
+    "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.12",
+    "otplib": "^13.4.1",
+    "pdfkit": "^0.19.1",
     "socket.io": "^4.8.1",
-    "upstash": "^0.0.1",
-    "helmet": "^8.0.0"
+    "tsx": "^4.0.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
@@ -38,10 +44,9 @@
     "@types/node": "^25.1.0",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^6.4.14",
+    "@types/pdfkit": "^0.17.6",
     "nodemon": "^3.1.11",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "@types/helmet": "^4.0.0",
     "vitest": "^3.2.4"
   }
 }

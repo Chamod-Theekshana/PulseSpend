@@ -1,5 +1,5 @@
 import { UserModel } from '../models/UserModel';
-import { sendPasskeyEmail } from '../config/nodemailer';
+import { sendPasskeyEmail } from '../config/email';
 import {
   generateOTP,
   storeOTP,
@@ -10,6 +10,7 @@ import {
   validatePassword,
 } from '../config/signupAuth';
 import bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../config/security';
 import { saveUserToken, sendPushToUser } from '../services/pushService';
 import { signAccessToken, signRefreshToken } from '../utils/jwt';
 import { CategoryModel } from '../models/CategoryModel';
@@ -99,7 +100,7 @@ export async function setPassword(req: any, res: any) {
   }
 
   // Hash password
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   // Create user
   const user = await UserModel.create(normalizedEmail, passwordHash);
@@ -129,22 +130,31 @@ export async function setPassword(req: any, res: any) {
     },
   });
 
-  // Best-effort: FCM must not fail signup after user insert (avoids 500 + "already registered" on retry)
-  if (fcm_token && user.id) {
-    (async () => {
-      try {
+  // Fire-and-forget AFTER the response so a slow token save / FCM call never
+  // delays signup (and never turns a post-insert failure into a 500 that makes
+  // the client retry and hit "already registered").
+  (async () => {
+    try {
+      // Register this device's push token first (if the client sent one) so the
+      // welcome push below can actually be delivered to it.
+      if (fcm_token && user.id) {
         console.log('[Push] Saving FCM token for new user:', user.id);
         await saveUserToken(String(user.id), String(fcm_token));
-        await sendPushToUser(
-          String(user.id),
-          'Welcome to PulseSpend! 🎉',
-          'Your account is ready. Start tracking your expenses!',
-          { type: 'welcome' }
-        );
-        console.log('[Push] Welcome push sent to user:', user.id);
-      } catch (err) {
-        console.error('[Signup] FCM save or welcome push failed (account still created):', err);
       }
-    })();
-  }
+
+      // Always create the welcome notification. sendPushToUser saves the in-app
+      // inbox record even when no FCM token exists, so a brand-new user always
+      // sees this in their notification inbox — and it's pushed too if a token
+      // was registered above.
+      await sendPushToUser(
+        String(user.id),
+        'Welcome to PulseSpend! 🎉',
+        'Your account is ready. Start tracking your expenses and take control of your money.',
+        { type: 'welcome' }
+      );
+      console.log('[Push] Welcome notification created for user:', user.id);
+    } catch (err) {
+      console.error('[Signup] Welcome notification failed (account still created):', err);
+    }
+  })();
 }

@@ -1,5 +1,8 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
@@ -11,6 +14,8 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Required by flutter_local_notifications (uses java.time APIs).
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -35,10 +40,22 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 runs on release builds only; proguard-rules.pro silences the
+            // ML Kit language-model classes we deliberately don't ship.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Enables the Java 8+ APIs flutter_local_notifications relies on, back to
+    // older Android versions (pairs with isCoreLibraryDesugaringEnabled above).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

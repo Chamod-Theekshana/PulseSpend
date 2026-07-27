@@ -17,6 +17,7 @@ class ProfileState {
 
   String get currency => user?.currency ?? 'USD';
   String get dateFormatPattern => user?.dateFormat ?? 'DD/MM/YYYY';
+  String get language => user?.language ?? 'English';
 }
 
 class ProfileController extends Notifier<ProfileState> {
@@ -28,14 +29,17 @@ class ProfileController extends Notifier<ProfileState> {
       }
     });
 
-    SocketService.instance.on('profile:updated', (data) {
+    final sub = SocketService.instance.on('profile:updated', (data) {
       if (data is Map<String, dynamic> && data['profile'] != null) {
         state = state.copyWith(user: UserModel.fromJson(data['profile'] as Map<String, dynamic>));
       }
     });
+    ref.onDispose(sub.cancel);
 
     try {
-      final userId = ref.read(currentUserIdProvider);
+      // Throws if not yet authenticated; in that case the auth listener above
+      // triggers the first refresh once a user id is available.
+      ref.read(currentUserIdProvider);
       Future.microtask(refresh);
     } catch (_) {
       // Ignore: will be triggered by the listener once authenticated
@@ -44,7 +48,12 @@ class ProfileController extends Notifier<ProfileState> {
     return const ProfileState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(UserModel data) {
+    state = state.copyWith(user: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final userId = ref.read(currentUserIdProvider);
@@ -66,6 +75,7 @@ class ProfileController extends Notifier<ProfileState> {
     String? theme,
     String? currency,
     String? dateFormat,
+    String? language,
     bool? biometricEnabled,
   }) async {
     final userId = ref.read(currentUserIdProvider);
@@ -81,8 +91,9 @@ class ProfileController extends Notifier<ProfileState> {
           theme: theme,
           currency: currency,
           dateFormat: dateFormat,
-      biometricEnabled: biometricEnabled,
-    );
+          language: language,
+          biometricEnabled: biometricEnabled,
+        );
     state = state.copyWith(user: updated);
   }
 

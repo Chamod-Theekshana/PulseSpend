@@ -35,8 +35,25 @@ export interface Transaction {
   deleted_at?: Date | null;
   notes?: string | null;
   receipt_url?: string | null;
+  wallet_id?: number | null;
   tags?: string[];
   splits?: TransactionSplit[];
+}
+
+/**
+ * Optional server-side filters for the transaction list / export. Any field
+ * left null/undefined is ignored (see the null-safe WHERE in the query below),
+ * so callers only set what the user actually chose.
+ */
+export interface TransactionFilters {
+  q?: string | null;              // free text over title + category
+  category?: string | null;       // exact category match
+  from?: string | null;           // ISO date, inclusive lower bound
+  to?: string | null;             // ISO date, inclusive upper bound
+  minAmount?: number | null;      // amount >= (signed; expenses are negative)
+  maxAmount?: number | null;      // amount <=
+  type?: 'income' | 'expense' | null;
+  walletId?: number | null;       // wallet filter; 0 = the default (NULL) wallet
 }
 
 export class TransactionModel {
@@ -134,30 +151,38 @@ export class TransactionModel {
     }
   }
 
-  static async listByUser(userId: string, limit: number, offset: number): Promise<Transaction[]> {
-    const transactions = await sql`
-      SELECT * FROM transactions 
-      WHERE user_id = ${userId} AND deleted_at IS NULL
-      ORDER BY created_at DESC, id DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-
-    const txRows = transactions as Transaction[];
+  /** Attaches each transaction's splits + tags. Bulk-fetches only the splits and
+   *  tags for the transactions in this batch, then joins in memory. */
+  private static async hydrate(txRows: Transaction[], userId: string): Promise<Transaction[]> {
     if (txRows.length === 0) return txRows;
 
-    const splitRows = await this.listSplitsByUser(userId);
-    const tagRows = await this.listTagsByUser(userId);
+    const txIds = txRows.map((tx) => Number(tx.id));
+
+    const splitRows = await sql`
+      SELECT id, transaction_id, user_id, category, amount, percentage, created_at
+      FROM transaction_splits
+      WHERE user_id = ${userId} AND transaction_id = ANY(${txIds}::int[])
+      ORDER BY transaction_id DESC, id ASC
+    `;
+
+    const tagRows = await sql`
+      SELECT id, transaction_id, user_id, tag, created_at
+      FROM transaction_tags
+      WHERE user_id = ${userId} AND transaction_id = ANY(${txIds}::int[])
+      ORDER BY transaction_id DESC, id ASC
+    `;
+
     const splitsByTxId = new Map<number, TransactionSplit[]>();
     const tagsByTxId = new Map<number, string[]>();
 
-    for (const split of splitRows) {
+    for (const split of splitRows as TransactionSplit[]) {
       const txId = Number(split.transaction_id);
       const existing = splitsByTxId.get(txId) || [];
       existing.push(split);
       splitsByTxId.set(txId, existing);
     }
 
-    for (const tagRow of tagRows) {
+    for (const tagRow of tagRows as TransactionTagRow[]) {
       const txId = Number(tagRow.transaction_id);
       const existing = tagsByTxId.get(txId) || [];
       existing.push(String(tagRow.tag));
@@ -172,11 +197,82 @@ export class TransactionModel {
     }));
   }
 
-  static async countByUser(userId: string): Promise<number> {
+  static listByUser(userId: string, limit: number, offset: number): Promise<Transaction[]> {
+    return this.listByUserFiltered(userId, {}, limit, offset);
+  }
+
+  /**
+   * Filtered + paginated list. Every filter clause is written to short-circuit
+   * to TRUE when its parameter is null, so passing an empty `filters` behaves
+   * exactly like an unfiltered list.
+   */
+  static async listByUserFiltered(
+    userId: string,
+    filters: TransactionFilters,
+    limit: number,
+    offset: number,
+  ): Promise<Transaction[]> {
+    const { q, category, from, to, minAmount, maxAmount, type, walletId } = filters;
+    const like = q && q.trim() ? `%${q.trim()}%` : null;
+    const cat = category && category.trim() ? category.trim() : null;
+    const fromDate = from || null;
+    const toDate = to || null;
+    const minAmt = minAmount ?? null;
+    const maxAmt = maxAmount ?? null;
+    const txType = type || null;
+    const wallet = walletId ?? null;
+
+    const transactions = await sql`
+      SELECT * FROM transactions
+      WHERE user_id = ${userId} AND deleted_at IS NULL
+        AND (${like}::text IS NULL OR title ILIKE ${like} OR category ILIKE ${like})
+        AND (${cat}::text IS NULL OR category = ${cat})
+        AND (${fromDate}::date IS NULL OR created_at >= ${fromDate}::date)
+        AND (${toDate}::date IS NULL OR created_at <= ${toDate}::date)
+        AND (${minAmt}::numeric IS NULL OR amount >= ${minAmt})
+        AND (${maxAmt}::numeric IS NULL OR amount <= ${maxAmt})
+        AND (${txType}::text IS NULL
+             OR (${txType} = 'income' AND amount >= 0)
+             OR (${txType} = 'expense' AND amount < 0))
+        AND (${wallet}::int IS NULL
+             OR (CASE WHEN ${wallet} = 0 THEN wallet_id IS NULL ELSE wallet_id = ${wallet} END))
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    return this.hydrate(transactions as Transaction[], userId);
+  }
+
+  static countByUser(userId: string): Promise<number> {
+    return this.countByUserFiltered(userId, {});
+  }
+
+  static async countByUserFiltered(userId: string, filters: TransactionFilters): Promise<number> {
+    const { q, category, from, to, minAmount, maxAmount, type, walletId } = filters;
+    const like = q && q.trim() ? `%${q.trim()}%` : null;
+    const cat = category && category.trim() ? category.trim() : null;
+    const fromDate = from || null;
+    const toDate = to || null;
+    const minAmt = minAmount ?? null;
+    const maxAmt = maxAmount ?? null;
+    const txType = type || null;
+    const wallet = walletId ?? null;
+
     const rows = await sql`
       SELECT COUNT(*)::int AS count
       FROM transactions
       WHERE user_id = ${userId} AND deleted_at IS NULL
+        AND (${like}::text IS NULL OR title ILIKE ${like} OR category ILIKE ${like})
+        AND (${cat}::text IS NULL OR category = ${cat})
+        AND (${fromDate}::date IS NULL OR created_at >= ${fromDate}::date)
+        AND (${toDate}::date IS NULL OR created_at <= ${toDate}::date)
+        AND (${minAmt}::numeric IS NULL OR amount >= ${minAmt})
+        AND (${maxAmt}::numeric IS NULL OR amount <= ${maxAmt})
+        AND (${txType}::text IS NULL
+             OR (${txType} = 'income' AND amount >= 0)
+             OR (${txType} = 'expense' AND amount < 0))
+        AND (${wallet}::int IS NULL
+             OR (CASE WHEN ${wallet} = 0 THEN wallet_id IS NULL ELSE wallet_id = ${wallet} END))
     `;
     return Number((rows[0] as any)?.count || 0);
   }
@@ -192,20 +288,37 @@ export class TransactionModel {
     splits?: TransactionSplitInput[],
     notes?: string | null,
     tags?: string[],
+    clientOpId?: string | null,
+    walletId?: number | null,
   ): Promise<Transaction> {
     const cur = currency || 'LKR';
     const receipt = receiptUrl || null;
     const normalizedNotes = notes && notes.trim().length > 0 ? notes.trim() : null;
     const normalizedTags = this.normalizeTags(tags);
+    const opId = clientOpId && clientOpId.trim() ? clientOpId.trim() : null;
+    const wallet = walletId && walletId > 0 ? walletId : null;
+
+    // Idempotency: if this op was already applied (e.g. a queued offline create
+    // replayed after the response was lost), return the existing row untouched.
+    if (opId) {
+      const existing = await sql`
+        SELECT * FROM transactions
+        WHERE user_id = ${userId} AND client_op_id = ${opId} AND deleted_at IS NULL
+      `;
+      if (existing[0]) {
+        return (await this.findByIdAndUser(String((existing[0] as any).id), userId)) as Transaction;
+      }
+    }
+
     const result = createdAt
       ? await sql`
-          INSERT INTO transactions (user_id, title, amount, category, currency, created_at, receipt_url, notes)
-          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${createdAt}, ${receipt}, ${normalizedNotes})
+          INSERT INTO transactions (user_id, title, amount, category, currency, created_at, receipt_url, notes, client_op_id, wallet_id)
+          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${createdAt}, ${receipt}, ${normalizedNotes}, ${opId}, ${wallet})
           RETURNING *
         `
       : await sql`
-          INSERT INTO transactions (user_id, title, amount, category, currency, receipt_url, notes)
-          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${receipt}, ${normalizedNotes})
+          INSERT INTO transactions (user_id, title, amount, category, currency, receipt_url, notes, client_op_id, wallet_id)
+          VALUES (${userId}, ${title}, ${amount}, ${category}, ${cur}, ${receipt}, ${normalizedNotes}, ${opId}, ${wallet})
           RETURNING *
         `;
 
@@ -273,6 +386,7 @@ export class TransactionModel {
     splits?: TransactionSplitInput[],
     notes?: string | null,
     tags?: string[],
+    walletId?: number | null,
   ): Promise<Transaction | null> {
     const cur = currency || 'LKR';
     const receipt = receiptUrl !== undefined ? receiptUrl : null;
@@ -314,6 +428,12 @@ export class TransactionModel {
 
     const updated = (rows?.[0] as Transaction) || null;
     if (!updated) return null;
+
+    // Wallet assignment (undefined = untouched; 0/null = back to default).
+    if (walletId !== undefined) {
+      const wallet = walletId && walletId > 0 ? walletId : null;
+      await sql`UPDATE transactions SET wallet_id = ${wallet} WHERE id = ${id} AND user_id = ${userId}`;
+    }
 
     if (splits !== undefined) {
       await sql`DELETE FROM transaction_splits WHERE transaction_id = ${id} AND user_id = ${userId}`;

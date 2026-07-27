@@ -12,6 +12,7 @@ class CategoryIcon extends StatelessWidget {
 
   static IconData _iconFor(String category) {
     final c = category.toLowerCase();
+    if (c.contains('transfer')) return Icons.swap_horiz_rounded; // wallet transfer legs
     if (c.contains('food') || c.contains('grocer') || c.contains('restaurant')) return Icons.restaurant_rounded;
     if (c.contains('transport') || c.contains('fuel') || c.contains('car') || c.contains('taxi')) {
       return Icons.directions_car_filled_rounded;
@@ -38,10 +39,16 @@ class CategoryIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = AppColors.categoryColor(category);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: color.withOpacity(0.14), shape: BoxShape.circle),
+      decoration: BoxDecoration(
+        // A touch more tint in dark mode so the badge stays visible on the
+        // near-black surface.
+        color: color.withValues(alpha: isDark ? 0.24 : 0.14),
+        shape: BoxShape.circle,
+      ),
       child: Icon(_iconFor(category), color: color, size: size * 0.5),
     );
   }

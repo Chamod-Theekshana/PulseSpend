@@ -1,6 +1,5 @@
 import express from 'express';
 import { saveUserToken } from '../services/pushService';
-import { startTestNotifications, stopTestNotifications } from '../services/notificationScheduler';
 import { requireAuth } from '../middleware/requireAuth';
 import { asyncHandler } from '../middleware/asyncHandler';
 import {
@@ -8,6 +7,8 @@ import {
   markAllRead,
   markOneRead,
   clearNotifications,
+  getNotificationPreferences,
+  updateNotificationPreferences,
 } from '../controllers/notificationsController';
 
 const router = express.Router();
@@ -38,22 +39,14 @@ router.post('/save-token', asyncHandler(async (req, res) => {
 // DELETE /api/notifications/clear        → wipe inbox
 router.get('/history',        asyncHandler(getNotificationHistory));
 router.patch('/mark-all-read', asyncHandler(markAllRead));
+
+// ── Notification Preferences (per-category toggles) ──────────────────────────
+// GET /api/notifications/preferences  → current toggle state
+// PUT /api/notifications/preferences  → update one or more toggles
+router.get('/preferences', asyncHandler(getNotificationPreferences));
+router.put('/preferences', asyncHandler(updateNotificationPreferences));
+
 router.patch('/:id/read',      asyncHandler(markOneRead));
 router.delete('/clear',        asyncHandler(clearNotifications));
-
-// ── Dev / Test Helpers ───────────────────────────────────────────────────────
-// POST /api/notifications/start-test  → start periodic test pushes (every 60 s)
-// POST /api/notifications/stop-test   → stop them
-router.post('/start-test', asyncHandler(async (req, res) => {
-  const user_id = String((req as any).user?.id);
-  await startTestNotifications(user_id);
-  return res.json({ status: 200, message: 'Test notifications started (daily schedule)' });
-}));
-
-router.post('/stop-test', asyncHandler(async (req, res) => {
-  const user_id = String((req as any).user?.id);
-  stopTestNotifications(user_id);
-  return res.json({ status: 200, message: 'Test notifications stopped' });
-}));
 
 export default router;

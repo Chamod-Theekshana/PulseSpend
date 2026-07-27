@@ -5,6 +5,8 @@ import { parsePagination, validateBudgetBody, validateBudgetUpdateBody, validate
 import {
   listBudgets,
   getBudgetStatus,
+  getTotalBudgetStatus,
+  setTotalBudget,
   createBudget,
   updateBudget,
   deleteBudget,
@@ -17,6 +19,8 @@ router.use(requireAuth);
 
 router.get('/', parsePagination(), asyncHandler(listBudgets));
 router.get('/status', asyncHandler(getBudgetStatus));
+router.get('/total-status', asyncHandler(getTotalBudgetStatus));
+router.put('/total', asyncHandler(setTotalBudget));
 router.post('/bulk-delete', validateIdListBody('ids'), asyncHandler(bulkDeleteBudgets));
 router.post('/', validateBudgetBody, asyncHandler(createBudget));
 router.put('/:id', validateNumericParam('id'), validateBudgetUpdateBody, asyncHandler(updateBudget));

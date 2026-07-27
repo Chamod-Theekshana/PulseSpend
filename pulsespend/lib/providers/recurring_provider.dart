@@ -18,13 +18,25 @@ class RecurringState {
 class RecurringController extends Notifier<RecurringState> {
   @override
   RecurringState build() {
-    SocketService.instance.on('recurring:created', (_) => refresh());
-    SocketService.instance.on('recurring:deleted', (_) => refresh());
+    final subs = [
+      SocketService.instance.on('recurring:created', (_) => refresh()),
+      SocketService.instance.on('recurring:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
+      }
+    });
     Future.microtask(refresh);
     return const RecurringState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<RecurringModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(recurringRepositoryProvider).list();
@@ -57,3 +69,12 @@ class RecurringController extends Notifier<RecurringState> {
 
 final recurringControllerProvider =
     NotifierProvider<RecurringController, RecurringState>(RecurringController.new);
+
+/// Subscription-like series detected from real history (badges on the
+/// Recurring screen). Refreshes when transactions change.
+final detectedSubscriptionsProvider =
+    FutureProvider.autoDispose<List<DetectedSubscription>>((ref) async {
+  final sub = SocketService.instance.on('tx:new', (_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(recurringRepositoryProvider).detected();
+});

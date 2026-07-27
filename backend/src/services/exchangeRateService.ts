@@ -9,12 +9,21 @@ type RatesCache = {
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const cache: Map<string, RatesCache> = new Map();
 
-// Authenticated ExchangeRate-API v6
+// If an ExchangeRate-API v6 key is configured we use the authenticated endpoint;
+// otherwise we transparently fall back to the free, keyless `open.er-api.com`
+// (same provider) so multi-currency conversion works out of the box with real
+// rates (e.g. 1 USD ≈ 335 LKR) — no API key required.
 const API_KEY = process.env.EXCHANGE_RATE_API_KEY || '';
-const API_BASE = `https://v6.exchangerate-api.com/v6/${API_KEY}/latest`;
+
+function endpointFor(base: string): string {
+  return API_KEY
+    ? `https://v6.exchangerate-api.com/v6/${API_KEY}/latest/${base}`
+    : `https://open.er-api.com/v6/latest/${base}`;
+}
 
 /**
- * Fetch exchange rates for a base currency with 1-hour cache.
+ * Fetch exchange rates for a base currency with 1-hour cache. Normalizes both
+ * the authenticated (`conversion_rates`) and keyless (`rates`) response shapes.
  */
 async function fetchRates(base: string): Promise<Record<string, number>> {
   const upperBase = base.toUpperCase();
@@ -25,13 +34,18 @@ async function fetchRates(base: string): Promise<Record<string, number>> {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/${upperBase}`);
+    const res = await fetch(endpointFor(upperBase));
     if (!res.ok) throw new Error(`ExchangeRate API returned ${res.status}`);
 
-    const data = (await res.json()) as { result: string; conversion_rates: Record<string, number> };
-    if (data.result !== 'success') throw new Error('ExchangeRate API failed');
-
-    const rates = data.conversion_rates;
+    const data = (await res.json()) as {
+      result?: string;
+      conversion_rates?: Record<string, number>;
+      rates?: Record<string, number>;
+    };
+    const rates = data.conversion_rates ?? data.rates;
+    if ((data.result && data.result !== 'success') || !rates) {
+      throw new Error('ExchangeRate API failed');
+    }
 
     cache.set(upperBase, {
       base: upperBase,
@@ -39,7 +53,10 @@ async function fetchRates(base: string): Promise<Record<string, number>> {
       fetchedAt: Date.now(),
     });
 
-    console.log(`[ExchangeRate] Fetched ${Object.keys(rates).length} rates for ${upperBase}`);
+    console.log(
+      `[ExchangeRate] Fetched ${Object.keys(rates).length} rates for ${upperBase} ` +
+        `(${API_KEY ? 'authenticated' : 'keyless'})`,
+    );
     return rates;
   } catch (err) {
     console.error('[ExchangeRate] Failed to fetch rates:', err);
@@ -73,4 +90,23 @@ export async function convert(amount: number, from: string, to: string): Promise
  */
 export async function getAllRates(base: string): Promise<Record<string, number>> {
   return fetchRates(base);
+}
+
+/**
+ * Prefetch exchange rates for a target base currency.
+ */
+export async function prefetchRates(base: string): Promise<Record<string, number>> {
+  return fetchRates(base);
+}
+
+/**
+ * Synchronous currency conversion using pre-fetched rates for the TARGET currency.
+ * If you fetched rates for 'USD' (the target), and want to convert 'LKR' to 'USD', 
+ * you pass the 'LKR' amount, 'LKR' as from, 'USD' as target, and the rates for 'USD'.
+ */
+export function convertSync(amount: number, from: string, target: string, targetRates: Record<string, number>): number {
+  if (from.toUpperCase() === target.toUpperCase()) return amount;
+  const rate = targetRates[from.toUpperCase()];
+  if (!rate) return amount; // Fallback to unconverted amount if rate is missing
+  return Math.round((amount / rate) * 100) / 100;
 }

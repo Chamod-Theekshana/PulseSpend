@@ -7,6 +7,9 @@ import {
   getTransactionSummaryByUserId,
   updateTransaction,
   bulkDeleteTransactions,
+  bulkImportTransactions,
+  exportTransactionsCsv,
+  exportMonthlyReportPdf,
 } from "../controllers/transactionsController";
 import { parsePagination, validateIdListBody, validateNumericParam, validateTransactionBody } from "../middleware/validators";
 import { requireAuth, requireUserMatchParam } from "../middleware/requireAuth";
@@ -22,6 +25,20 @@ router.get(
   validateNumericParam("user_id"),
   requireUserMatchParam("user_id"),
   asyncHandler(getTransactionSummaryByUserId)
+);
+
+router.get(
+  "/export/:user_id",
+  validateNumericParam("user_id"),
+  requireUserMatchParam("user_id"),
+  asyncHandler(exportTransactionsCsv)
+);
+
+router.get(
+  "/report-pdf/:user_id",
+  validateNumericParam("user_id"),
+  requireUserMatchParam("user_id"),
+  asyncHandler(exportMonthlyReportPdf)
 );
 
 router.get(
@@ -45,5 +62,7 @@ router.post(
   validateIdListBody("ids"),
   asyncHandler(bulkDeleteTransactions)
 );
+
+router.post("/bulk-import", asyncHandler(bulkImportTransactions));
 
 export default router;

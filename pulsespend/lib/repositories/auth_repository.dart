@@ -64,20 +64,123 @@ class AuthRepository {
     }
   }
 
-  Future<({String userId, String email})> signIn({
+  /// Signs in. When the account has TOTP 2FA enabled and no [totpCode] was
+  /// given, the backend answers 202 `{twoFactorRequired: true}` — surfaced
+  /// here as `twoFactorRequired: true` with null user fields; the caller
+  /// should collect a code and retry.
+  Future<({String? userId, String? email, bool twoFactorRequired})> signIn({
     required String email,
     required String password,
+    String? totpCode,
   }) async {
     try {
-      final res = await _dio.post(ApiConfig.signIn, data: {'email': email, 'password': password});
+      final res = await _dio.post(ApiConfig.signIn, data: {
+        'email': email,
+        'password': password,
+        if (totpCode != null && totpCode.trim().isNotEmpty) 'totp_code': totpCode.trim(),
+      });
       final data = res.data as Map<String, dynamic>;
+      if (res.statusCode == 202 || data['twoFactorRequired'] == true) {
+        return (userId: null, email: null, twoFactorRequired: true);
+      }
       await SecureStorageService.instance.saveSession(
         accessToken: data['token'] as String,
         refreshToken: data['refreshToken'] as String,
         userId: data['user']['id'].toString(),
         email: data['user']['email'] as String,
       );
-      return (userId: data['user']['id'].toString(), email: data['user']['email'] as String);
+      return (
+        userId: data['user']['id'].toString(),
+        email: data['user']['email'] as String,
+        twoFactorRequired: false,
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  // ── TOTP 2FA (authed; see twoFactorController.ts) ─────────────────────────
+
+  Future<bool> twoFactorStatus() async {
+    try {
+      final res = await _dio.get(ApiConfig.twoFaStatus);
+      return res.data['totp_enabled'] == true;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Starts enrollment: returns the QR payload, the manual-entry secret and
+  /// the one-shot recovery codes. 2FA activates only after [verifyTwoFactor].
+  Future<({String secret, String otpauthUrl, List<String> recoveryCodes})>
+      enrollTwoFactor() async {
+    try {
+      final res = await _dio.post(ApiConfig.twoFaEnroll);
+      final data = res.data as Map<String, dynamic>;
+      return (
+        secret: data['secret'] as String,
+        otpauthUrl: data['otpauth_url'] as String,
+        recoveryCodes:
+            (data['recovery_codes'] as List<dynamic>).map((e) => e.toString()).toList(),
+      );
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<void> verifyTwoFactor(String code) async {
+    try {
+      await _dio.post(ApiConfig.twoFaVerify, data: {'code': code});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  Future<void> disableTwoFactor({required String password, required String code}) async {
+    try {
+      await _dio.post(ApiConfig.twoFaDisable, data: {'password': password, 'code': code});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  // ── Password reset (see passwordResetController.ts) ──────────────────────
+
+  /// Sends a reset passkey to [email]. The backend responds identically whether
+  /// or not the address is registered (no account probing).
+  Future<void> sendResetOTP(String email) async {
+    try {
+      await _dio.post(ApiConfig.resetSend, data: {'email': email});
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Verifies the reset passkey; returns a short-lived `resetToken`.
+  Future<String> verifyResetOTP({required String email, required String passkey}) async {
+    try {
+      final res = await _dio.post(
+        ApiConfig.resetVerify,
+        data: {'email': email, 'passkey': passkey},
+      );
+      return res.data['resetToken'] as String;
+    } catch (e) {
+      throw DioClient.toApiException(e);
+    }
+  }
+
+  /// Sets the new password. Old sessions are revoked server-side; the user
+  /// signs in fresh afterwards.
+  Future<void> completeReset({
+    required String email,
+    required String password,
+    required String resetToken,
+  }) async {
+    try {
+      await _dio.post(
+        ApiConfig.resetComplete,
+        data: {'email': email, 'password': password, 'resetToken': resetToken},
+      );
     } catch (e) {
       throw DioClient.toApiException(e);
     }

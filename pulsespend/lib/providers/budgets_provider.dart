@@ -67,18 +67,29 @@ class BudgetsController extends Notifier<BudgetsState> {
   }
 
   void _attachSocketListeners() {
-    SocketService.instance.on('budget:alert', (data) {
-      if (data is Map<String, dynamic>) {
-        state = state.copyWith(latestAlert: BudgetAlert.fromSocket(data));
+    final subs = [
+      SocketService.instance.on('budget:alert', (data) {
+        if (data is Map<String, dynamic>) {
+          state = state.copyWith(latestAlert: BudgetAlert.fromSocket(data));
+        }
+        refresh();
+      }),
+      SocketService.instance.on('budget:created', (_) => refresh()),
+      SocketService.instance.on('budget:updated', (_) => refresh()),
+      SocketService.instance.on('budget:deleted', (_) => refresh()),
+    ];
+    ref.onDispose(() {
+      for (final s in subs) {
+        s.cancel();
       }
-      refresh();
     });
-    SocketService.instance.on('budget:created', (_) => refresh());
-    SocketService.instance.on('budget:updated', (_) => refresh());
-    SocketService.instance.on('budget:deleted', (_) => refresh());
   }
 
   void dismissAlert() => state = state.copyWith(clearAlert: true);
+
+  void seed(List<BudgetModel> items) {
+    state = state.copyWith(items: items, isLoading: false, error: null);
+  }
 
   Future<void> refresh({int? year, int? month, int? day}) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -107,3 +118,22 @@ class BudgetsController extends Notifier<BudgetsState> {
 }
 
 final budgetsControllerProvider = NotifierProvider<BudgetsController, BudgetsState>(BudgetsController.new);
+
+/// Overall monthly budget cap vs actual. Re-fetches when budgets or
+/// transactions change so the master ring stays live.
+final totalBudgetStatusProvider = FutureProvider.autoDispose<TotalBudgetStatus>((ref) async {
+  final subs = [
+    SocketService.instance.on('budget:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('budget:created', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('budget:deleted', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:new', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:updated', (_) => ref.invalidateSelf()),
+    SocketService.instance.on('tx:deleted', (_) => ref.invalidateSelf()),
+  ];
+  ref.onDispose(() {
+    for (final s in subs) {
+      s.cancel();
+    }
+  });
+  return ref.read(budgetRepositoryProvider).totalStatus();
+});

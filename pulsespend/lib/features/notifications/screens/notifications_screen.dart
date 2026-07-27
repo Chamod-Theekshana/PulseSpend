@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/notifications/notification_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/notification_model.dart';
@@ -73,6 +74,14 @@ class NotificationsScreen extends ConsumerWidget {
                           if (!n.read) {
                             ref.read(notificationsControllerProvider.notifier).markOneRead(n.id);
                           }
+                          // Deep-link to the screen that gives this notification
+                          // context (same mapping as push taps).
+                          final screen = screenForNotificationType(n.type);
+                          if (screen != null) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => screen),
+                            );
+                          }
                         },
                         icon: _iconForType(n.type),
                       );
@@ -92,13 +101,20 @@ class _NotificationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: notification.read ? Colors.transparent : AppColors.primaryLight.withOpacity(0.4),
+          color: notification.read
+              ? Colors.transparent
+              : AppColors.primary.withValues(alpha: isDark ? 0.16 : 0.08),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -106,7 +122,10 @@ class _NotificationTile extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: AppColors.primaryLight, shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.12),
+                shape: BoxShape.circle,
+              ),
               child: Icon(icon, color: AppColors.primary, size: 20),
             ),
             const SizedBox(width: 12),
@@ -116,14 +135,17 @@ class _NotificationTile extends StatelessWidget {
                 children: [
                   Text(
                     notification.title,
-                    style: TextStyle(fontWeight: notification.read ? FontWeight.w600 : FontWeight.w800),
+                    style: TextStyle(
+                      color: textPrimary,
+                      fontWeight: notification.read ? FontWeight.w600 : FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 2),
-                  Text(notification.body, style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 13)),
+                  Text(notification.body, style: TextStyle(color: textSecondary, fontSize: 13)),
                   const SizedBox(height: 4),
                   Text(
                     DateFormatter.relative(notification.createdAt),
-                    style: const TextStyle(color: AppColors.lightTextTertiary, fontSize: 11),
+                    style: TextStyle(color: textTertiary, fontSize: 11),
                   ),
                 ],
               ),

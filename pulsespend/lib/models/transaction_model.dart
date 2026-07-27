@@ -40,6 +40,17 @@ class TransactionModel {
   final DateTime createdAt;
   final String? notes;
   final String? receiptUrl;
+  final int? walletId;
+
+  /// Set on transfer legs, opening-balance seeds, goal movements and IOU legs.
+  /// These rows move wallet balances but are NOT income or spending — anything
+  /// aggregating amounts client-side must skip them via [isTransfer].
+  final String? transferId;
+  final int? groupId; // shared with this group (Splitwise-lite) when set
+
+  /// How the shared expense is divided ({mode, participants}), sent to the
+  /// server which freezes the owed amounts. Request-only — not read back.
+  final Map<String, dynamic>? groupSplit;
   final List<String> tags;
   final List<TransactionSplit> splits;
 
@@ -53,11 +64,19 @@ class TransactionModel {
     required this.createdAt,
     this.notes,
     this.receiptUrl,
+    this.walletId,
+    this.transferId,
+    this.groupId,
+    this.groupSplit,
     this.tags = const [],
     this.splits = const [],
   });
 
   bool get isExpense => amount < 0;
+
+  /// True for money-movement rows (transfers, opening balances, goal/IOU legs)
+  /// that must never count as earning or spending.
+  bool get isTransfer => transferId != null;
   bool get isIncome => amount > 0;
   bool get isSplit => splits.isNotEmpty;
 
@@ -72,6 +91,9 @@ class TransactionModel {
       createdAt: DateTime.parse(json['created_at'].toString()),
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
+      walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
+      transferId: json['transfer_id']?.toString(),
+      groupId: json['group_id'] != null ? int.tryParse(json['group_id'].toString()) : null,
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
       splits: (json['splits'] as List<dynamic>?)
               ?.map((e) => TransactionSplit.fromJson(e as Map<String, dynamic>))
@@ -79,6 +101,28 @@ class TransactionModel {
           const [],
     );
   }
+
+  /// Full round-trip serialization for the offline read cache — mirrors the
+  /// exact keys [fromJson] reads (unlike [toRequestJson], which is the API
+  /// request body and drops id/user_id).
+  Map<String, dynamic> toCacheJson() => {
+        'id': id,
+        'user_id': userId,
+        'title': title,
+        'amount': amount,
+        'currency': currency,
+        'category': category,
+        'created_at': createdAt.toIso8601String(),
+        'notes': notes,
+        'receipt_url': receiptUrl,
+        'wallet_id': walletId,
+        'group_id': groupId,
+        'tags': tags,
+        'splits': [
+          for (final s in splits)
+            {'id': s.id, 'category': s.category, 'amount': s.amount, 'percentage': s.percentage},
+        ],
+      };
 
   /// Body for POST /api/transaction and PUT /api/transaction/:id.
   Map<String, dynamic> toRequestJson() {
@@ -92,6 +136,10 @@ class TransactionModel {
       'currency': currency,
       if (receiptUrl != null) 'receipt_url': receiptUrl,
       if (notes != null) 'notes': notes,
+      // 0 = explicitly back to the default wallet; absent = untouched-on-create.
+      if (walletId != null) 'wallet_id': walletId,
+      if (groupId != null) 'group_id': groupId,
+      if (groupSplit != null) 'group_split': groupSplit,
       if (tags.isNotEmpty) 'tags': tags,
       if (splits.isNotEmpty) 'splits': splits.map((s) => s.toRequestJson()).toList(),
     };
@@ -105,6 +153,7 @@ class TransactionModel {
     DateTime? createdAt,
     String? notes,
     String? receiptUrl,
+    int? walletId,
     List<String>? tags,
     List<TransactionSplit>? splits,
   }) {
@@ -118,6 +167,7 @@ class TransactionModel {
       createdAt: createdAt ?? this.createdAt,
       notes: notes ?? this.notes,
       receiptUrl: receiptUrl ?? this.receiptUrl,
+      walletId: walletId ?? this.walletId,
       tags: tags ?? this.tags,
       splits: splits ?? this.splits,
     );

@@ -1,5 +1,6 @@
 import { UserModel } from '../models/UserModel';
 import bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../config/security';
 import { emitToUser } from '../socket';
 import { sendPushToUser } from '../services/pushService';
 import type { Response } from 'express';
@@ -10,10 +11,37 @@ import { BudgetModel } from '../models/BudgetModel';
 import { GoalModel } from '../models/GoalModel';
 import { ReminderModel } from '../models/ReminderModel';
 import { RecurringModel } from '../models/RecurringModel';
+import { csvCell } from '../utils/financeMath';
+import cloudinary from '../config/cloudinary';
 
 const DATA_EXPORT_LIMIT = 5000;
 
-/** JSON backup for the signed-in user (soft-deleted rows excluded). */
+/**
+ * Renders one entity list as a titled CSV section: a `## name` line, a header
+ * row from the given columns, then one row per record.
+ */
+function csvSection(name: string, rows: any[], columns: string[]): string {
+  const lines = [`## ${name}`, columns.map(csvCell).join(',')];
+  for (const row of rows) {
+    lines.push(
+      columns
+        .map((c) => {
+          const v = (row as any)[c];
+          if (v instanceof Date) return csvCell(v.toISOString());
+          if (Array.isArray(v)) return csvCell(v.join(' '));
+          return csvCell(v);
+        })
+        .join(','),
+    );
+  }
+  return lines.join('\r\n');
+}
+
+/**
+ * Full-account backup for the signed-in user (soft-deleted rows excluded).
+ * Default JSON; `?format=csv` returns a single CSV bundle with one titled
+ * section per entity (GDPR-portable, opens in any spreadsheet).
+ */
 export async function exportUserData(req: AuthedRequest, res: Response) {
   const userId = String(req.user!.id);
   const limit = DATA_EXPORT_LIMIT;
@@ -34,6 +62,23 @@ export async function exportUserData(req: AuthedRequest, res: Response) {
     ReminderModel.listByUser(userId, limit, offset),
     RecurringModel.listByUser(userId, limit, offset),
   ]);
+
+  if (String(req.query.format || '').toLowerCase() === 'csv') {
+    const sections = [
+      csvSection('Transactions', transactions, ['id', 'title', 'amount', 'category', 'currency', 'created_at', 'notes', 'tags']),
+      csvSection('Categories', categories, ['id', 'name', 'type']),
+      csvSection('Budgets', budgets, ['id', 'category', 'amount', 'currency', 'period']),
+      csvSection('Goals', goals, ['id', 'name', 'target_amount', 'current_amount', 'currency', 'deadline', 'is_completed']),
+      csvSection('Reminders', reminders, ['id', 'title', 'amount', 'currency', 'due_date', 'is_active']),
+      csvSection('Recurring', recurring, ['id', 'title', 'amount', 'currency', 'frequency', 'next_run']),
+    ];
+    // UTF-8 BOM so Excel opens non-ASCII (e.g. රු, ₹) correctly.
+    const csv = '﻿' + sections.join('\r\n\r\n');
+    const filename = `pulsespend_data_${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(csv);
+  }
 
   return res.status(200).json({
     exported_at: new Date().toISOString(),
@@ -62,8 +107,22 @@ export async function getProfile(req: AuthedRequest, res: Response) {
 }
 
 export async function updateProfile(req: AuthedRequest, res: Response) {
-  const { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled } = req.body;
+  let { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled } = req.body;
   const userId = String(req.user!.id);
+
+  try {
+    if (profile_photo && typeof profile_photo === 'string' && profile_photo.startsWith('data:image/')) {
+      const uploadResponse = await cloudinary.uploader.upload(profile_photo, {
+        folder: 'pulsespend/profiles',
+        public_id: `user_${userId}`,
+        overwrite: true,
+      });
+      profile_photo = uploadResponse.secure_url;
+    }
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    return res.status(500).json({ message: 'Failed to upload profile photo' });
+  }
 
   const user = await UserModel.updateProfile(userId, {
     name,
@@ -108,7 +167,7 @@ export async function updatePassword(req: AuthedRequest, res: Response) {
     return res.status(401).json({ message: 'Current password is incorrect' });
   }
 
-  const hashedPassword = await bcrypt.hash(String(newPassword), 12);
+  const hashedPassword = await bcrypt.hash(String(newPassword), BCRYPT_ROUNDS);
   await UserModel.updatePassword(userId, hashedPassword);
   await UserModel.incrementTokenVersion(userId);
 
@@ -116,6 +175,101 @@ export async function updatePassword(req: AuthedRequest, res: Response) {
   await sendPushToUser(userId, 'Password updated', 'Your password was changed successfully', { type: 'profile:password:updated' });
 
   return res.status(200).json({ message: 'Password updated successfully' });
+}
+
+/**
+ * PUT /api/profile/:user_id/roundup — configure round-up savings.
+ * Body: { goal_id, round_to, wallet_id } — nulls (or goal_id 0) turn it off.
+ * wallet_id is what the spare change is debited from (0 = default bucket);
+ * without it the round-up would grow the goal out of nothing, so it's required
+ * when enabling.
+ */
+export async function updateRoundup(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const { goal_id, round_to, wallet_id } = req.body ?? {};
+
+  const goalId = Number(goal_id);
+  const roundTo = Number(round_to);
+  const enabled = Number.isInteger(goalId) && goalId > 0 && Number.isInteger(roundTo) && roundTo > 0;
+
+  if (enabled && roundTo > 100000) {
+    return res.status(400).json({ message: 'round_to is too large' });
+  }
+
+  let walletId: number | null = null;
+  if (enabled) {
+    walletId = Number(wallet_id);
+    if (!Number.isInteger(walletId) || walletId < 0) {
+      return res.status(400).json({ message: 'Choose which wallet the spare change comes from' });
+    }
+    if (walletId > 0) {
+      const { WalletModel } = await import('../models/WalletModel');
+      const wallet = await WalletModel.findById(userId, walletId);
+      if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+      if (WalletModel.isLiabilityType(wallet.type)) {
+        return res.status(400).json({ message: 'Savings can\'t come out of a debt account' });
+      }
+    }
+  }
+
+  const { sql } = await import('../config/db');
+  await sql`
+    UPDATE users
+    SET roundup_goal_id = ${enabled ? goalId : null},
+        roundup_to = ${enabled ? roundTo : null},
+        roundup_wallet_id = ${enabled ? walletId : null}
+    WHERE id = ${userId}
+  `;
+  return res.json({
+    message: enabled ? 'Round-up savings enabled' : 'Round-up savings disabled',
+    roundup_goal_id: enabled ? goalId : null,
+    roundup_to: enabled ? roundTo : null,
+    roundup_wallet_id: enabled ? walletId : null,
+  });
+}
+
+/**
+ * GDPR deletion with a 7-day grace period: re-confirms the password, marks the
+ * account for deletion, and revokes every session (token_version bump). The
+ * daily purge job (accountPurgeScheduler) hard-deletes once the window lapses;
+ * signing back in before then offers a restore (see cancelDeletion).
+ */
+export async function deleteAccount(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  const { password } = req.body ?? {};
+
+  const user = await UserModel.findById(userId);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  if (!password) {
+    return res.status(400).json({ message: 'Password is required to delete your account' });
+  }
+
+  const isMatch = await bcrypt.compare(String(password), user.password);
+  if (!isMatch) {
+    return res.status(401).json({ message: 'Password is incorrect' });
+  }
+
+  await UserModel.requestDeletion(userId);
+  // Sign the account out everywhere. The user can still sign in with their
+  // password during the grace window — doing so surfaces the restore offer.
+  await UserModel.incrementTokenVersion(userId);
+
+  emitToUser(userId, 'account:deleted', { message: 'Account scheduled for deletion' });
+
+  return res.status(200).json({
+    message: 'Account scheduled for deletion in 7 days. Sign in again to cancel.',
+    deletion_grace_days: 7,
+  });
+}
+
+/** Cancels a pending deletion — offered when signing in during the grace window. */
+export async function cancelDeletion(req: AuthedRequest, res: Response) {
+  const userId = String(req.user!.id);
+  await UserModel.cancelDeletion(userId);
+  return res.status(200).json({ message: 'Account restored — deletion cancelled' });
 }
 
 export async function importUserData(req: AuthedRequest, res: Response) {

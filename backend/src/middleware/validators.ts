@@ -1,3 +1,4 @@
+import { MAX_AMOUNT } from '../utils/financeMath';
 import { Request, Response, NextFunction } from 'express';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -105,7 +106,7 @@ export function validateTransactionBody(req: Request, res: Response, next: NextF
   if (numAmount === 0) {
     return res.status(400).json({ message: 'Amount cannot be zero' });
   }
-  if (Math.abs(numAmount) > 1_000_000_000) {
+  if (Math.abs(numAmount) > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
@@ -228,10 +229,13 @@ export function validateTransactionBody(req: Request, res: Response, next: NextF
   next();
 }
 
+export const SUPPORTED_LANGUAGES = ['English', 'Sinhala', 'Tamil', 'Spanish', 'French', 'German', 'Hindi'];
+
 export function validateProfileUpdateBody(req: Request, res: Response, next: NextFunction) {
-  const { name, profile_photo, theme, currency, date_format, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no } = req.body ?? {};
+  const { name, profile_photo, theme, currency, date_format, language, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no } = req.body ?? {};
 
   const allowedDateFormats = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']);
+  const allowedLanguages = new Set(SUPPORTED_LANGUAGES);
 
   if (name !== undefined) {
     if (typeof name !== 'string' || name.trim().length < 1) {
@@ -257,8 +261,8 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
   }
 
   if (theme !== undefined) {
-    if (theme !== 'dark' && theme !== 'light') {
-      return res.status(400).json({ message: "theme must be either 'dark' or 'light'" });
+    if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
+      return res.status(400).json({ message: "theme must be 'dark', 'light' or 'system'" });
     }
   }
 
@@ -277,6 +281,14 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     if (typeof date_format !== 'string' || !allowedDateFormats.has(date_format)) {
       return res.status(400).json({
         message: 'date_format must be one of: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD',
+      });
+    }
+  }
+
+  if (language !== undefined) {
+    if (typeof language !== 'string' || !allowedLanguages.has(language)) {
+      return res.status(400).json({
+        message: `language must be one of: ${SUPPORTED_LANGUAGES.join(', ')}`,
       });
     }
   }
@@ -332,6 +344,7 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     theme === undefined &&
     currency === undefined &&
     date_format === undefined &&
+    language === undefined &&
     biometric_enabled === undefined &&
     first_name === undefined &&
     surname === undefined &&
@@ -361,13 +374,13 @@ export function validateBudgetBody(req: Request, res: Response, next: NextFuncti
   if (!Number.isFinite(numAmount) || numAmount <= 0) {
     return res.status(400).json({ message: 'Amount must be a positive number' });
   }
-  if (numAmount > 1_000_000_000) {
+  if (numAmount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
   const p = (period || 'monthly') as string;
-  if (!['monthly'].includes(p)) {
-    return res.status(400).json({ message: 'Period must be: monthly' });
+  if (!['weekly', 'monthly', 'yearly'].includes(p)) {
+    return res.status(400).json({ message: 'Period must be one of: weekly, monthly, yearly' });
   }
 
   const c = normalizeCurrency(currency, 'LKR');
@@ -388,7 +401,7 @@ export function validateBudgetUpdateBody(req: Request, res: Response, next: Next
   if (!Number.isFinite(numAmount) || numAmount <= 0) {
     return res.status(400).json({ message: 'Amount must be a positive number' });
   }
-  if (numAmount > 1_000_000_000) {
+  if (numAmount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
   (req.body as any).amount = numAmount;
@@ -428,7 +441,7 @@ export function validateGoalBody(req: Request, res: Response, next: NextFunction
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'target_amount must be a positive number' });
   }
-  if (amount > 1_000_000_000) {
+  if (amount > MAX_AMOUNT) {
     return res.status(400).json({ message: 'target_amount is too large' });
   }
 
@@ -467,12 +480,26 @@ export function validateGoalUpdateBody(req: Request, res: Response, next: NextFu
 export function validateGoalContributionBody(req: Request, res: Response, next: NextFunction) {
   const { amount, currency } = req.body ?? {};
   const numAmount = Number(amount);
-  if (!Number.isFinite(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ message: 'amount must be a positive number' });
+  // Negative = withdrawal (goal timeline supports both directions); zero is meaningless.
+  if (!Number.isFinite(numAmount) || numAmount === 0 || Math.abs(numAmount) > MAX_AMOUNT) {
+    return res.status(400).json({ message: 'amount must be a non-zero number' });
   }
   const cur = normalizeCurrency(currency, 'LKR');
   if (cur.length < 3 || cur.length > 10) {
     return res.status(400).json({ message: 'currency must be between 3 and 10 characters' });
+  }
+  const { wallet_id, spend, category } = req.body ?? {};
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+  if (spend !== undefined && typeof spend !== 'boolean') {
+    return res.status(400).json({ message: 'spend must be a boolean' });
+  }
+  if (category !== undefined && category !== null && typeof category !== 'string') {
+    return res.status(400).json({ message: 'category must be a string' });
   }
   (req.body as any).amount = numAmount;
   (req.body as any).currency = cur;
@@ -501,7 +528,7 @@ export function validateRecurringBody(req: Request, res: Response, next: NextFun
   if (!Number.isFinite(numAmount) || numAmount === 0) {
     return res.status(400).json({ message: 'Amount must be a non-zero number' });
   }
-  if (Math.abs(numAmount) > 1_000_000_000) {
+  if (Math.abs(numAmount) > MAX_AMOUNT) {
     return res.status(400).json({ message: 'Amount is too large' });
   }
 
@@ -518,6 +545,21 @@ export function validateRecurringBody(req: Request, res: Response, next: NextFun
     (req.body as any).startDate = s;
   } else {
     (req.body as any).startDate = undefined;
+  }
+
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
   }
 
   (req.body as any).title = title.trim();
@@ -556,7 +598,7 @@ export function validateRecurringUpdateBody(req: Request, res: Response, next: N
     if (!Number.isFinite(numAmount) || numAmount === 0) {
       return res.status(400).json({ message: 'Amount must be a non-zero number' });
     }
-    if (Math.abs(numAmount) > 1_000_000_000) {
+    if (Math.abs(numAmount) > MAX_AMOUNT) {
       return res.status(400).json({ message: 'Amount is too large' });
     }
     (req.body as any).amount = numAmount;
@@ -573,12 +615,29 @@ export function validateRecurringUpdateBody(req: Request, res: Response, next: N
     (req.body as any).is_active = Boolean(is_active);
   }
 
+  const { currency, wallet_id } = req.body ?? {};
+  if (currency !== undefined && currency !== null && String(currency).trim() !== '') {
+    const c = String(currency).trim();
+    if (c.length < 2 || c.length > 10) {
+      return res.status(400).json({ message: 'Currency must be 2–10 characters' });
+    }
+    (req.body as any).currency = c.toUpperCase();
+  }
+  if (wallet_id !== undefined && wallet_id !== null) {
+    const w = Number(wallet_id);
+    if (!Number.isInteger(w) || w < 0) {
+      return res.status(400).json({ message: 'wallet_id must be a non-negative integer' });
+    }
+  }
+
   if (
     title === undefined &&
     amount === undefined &&
     category === undefined &&
     frequency === undefined &&
-    is_active === undefined
+    is_active === undefined &&
+    currency === undefined &&
+    wallet_id === undefined
   ) {
     return res.status(400).json({ message: 'At least one field must be provided' });
   }
@@ -616,6 +675,44 @@ export function parsePagination(defaultLimit = 50, maxLimit = 200) {
     (req as any).pagination = { limit: normalizedLimit, offset: normalizedOffset };
     next();
   };
+}
+
+/**
+ * Reads the optional transaction filter params off the query string into a
+ * plain object suitable for TransactionModel's filtered queries. Lenient by
+ * design: anything malformed (e.g. a non-numeric amount) is simply dropped so
+ * the list still returns rather than 400-ing.
+ */
+export function parseTransactionFilters(req: Request) {
+  const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : null;
+  const category =
+    typeof req.query.category === 'string' && req.query.category.trim()
+      ? req.query.category.trim()
+      : null;
+
+  const isoDate = (v: unknown) =>
+    typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  const from = isoDate(req.query.from);
+  const to = isoDate(req.query.to);
+
+  const num = (v: unknown) => {
+    const n = Number(v);
+    return typeof v !== 'undefined' && v !== '' && Number.isFinite(n) ? n : null;
+  };
+  const minAmount = num(req.query.minAmount);
+  const maxAmount = num(req.query.maxAmount);
+
+  const rawType = typeof req.query.type === 'string' ? req.query.type.toLowerCase() : '';
+  const type = rawType === 'income' || rawType === 'expense' ? (rawType as 'income' | 'expense') : null;
+
+  // Wallet filter: a positive id, or 0 for "the default (unassigned) wallet".
+  const rawWallet = Number(req.query.wallet_id);
+  const walletId =
+    typeof req.query.wallet_id !== 'undefined' && Number.isInteger(rawWallet) && rawWallet >= 0
+      ? rawWallet
+      : null;
+
+  return { q, category, from, to, minAmount, maxAmount, type, walletId };
 }
 
 const MAX_BULK_IDS = 200;

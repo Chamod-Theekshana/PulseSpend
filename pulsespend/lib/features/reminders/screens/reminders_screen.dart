@@ -5,7 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/reminder_model.dart';
+import '../../../models/transaction_model.dart';
 import '../../../providers/reminders_provider.dart';
+import '../../../providers/transactions_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
@@ -35,7 +37,67 @@ class RemindersScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       final apiEx = DioClient.toApiException(e);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
+    }
+  }
+
+  /// "Paid ✓": logs the bill as an expense transaction (today) and deactivates
+  /// the reminder so it stops nagging — pure composition of existing endpoints.
+  Future<void> _markPaid(BuildContext context, WidgetRef ref, ReminderModel reminder) async {
+    final amountLabel = CurrencyFormatter.format(reminder.amount, reminder.currency);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark as paid?'),
+        content: Text(
+          'This logs a $amountLabel expense in "${reminder.category}" today and '
+          'stops reminders for "${reminder.title}".',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark Paid'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(transactionsControllerProvider.notifier).create(
+            TransactionModel(
+              id: 0,
+              userId: reminder.userId,
+              title: reminder.title,
+              amount: -reminder.amount.abs(),
+              currency: reminder.currency,
+              category: reminder.category,
+              createdAt: DateTime.now(),
+            ),
+          );
+      await ref.read(remindersControllerProvider.notifier).update(
+            reminder.id,
+            ReminderModel(
+              id: reminder.id,
+              userId: reminder.userId,
+              title: reminder.title,
+              amount: reminder.amount,
+              currency: reminder.currency,
+              category: reminder.category,
+              dueDate: reminder.dueDate,
+              remindDaysBefore: reminder.remindDaysBefore,
+              isActive: false,
+            ),
+          );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paid & logged ✓'), backgroundColor: AppColors.income),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      final apiEx = DioClient.toApiException(e);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiEx.localizedMessage(context))));
     }
   }
 
@@ -67,6 +129,7 @@ class RemindersScreen extends ConsumerWidget {
                         ...state.overdue.map((r) => _ReminderTile(
                               reminder: r,
                               onDelete: () => _confirmDelete(context, ref, r),
+                              onMarkPaid: () => _markPaid(context, ref, r),
                             )),
                         const SizedBox(height: 12),
                       ],
@@ -75,6 +138,7 @@ class RemindersScreen extends ConsumerWidget {
                         ...state.upcoming.map((r) => _ReminderTile(
                               reminder: r,
                               onDelete: () => _confirmDelete(context, ref, r),
+                              onMarkPaid: () => _markPaid(context, ref, r),
                             )),
                       ],
                     ],
@@ -107,8 +171,13 @@ class _SectionLabel extends StatelessWidget {
 class _ReminderTile extends StatelessWidget {
   final ReminderModel reminder;
   final VoidCallback onDelete;
+  final VoidCallback onMarkPaid;
 
-  const _ReminderTile({required this.reminder, required this.onDelete});
+  const _ReminderTile({
+    required this.reminder,
+    required this.onDelete,
+    required this.onMarkPaid,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -165,6 +234,20 @@ class _ReminderTile extends StatelessWidget {
             Text(
               CurrencyFormatter.format(reminder.amount, reminder.currency),
               style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(width: 6),
+            // "Paid ✓" — logs the expense and silences this reminder.
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onMarkPaid,
+              child: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.income.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.check_rounded, size: 18, color: AppColors.income),
+              ),
             ),
           ],
         ),
