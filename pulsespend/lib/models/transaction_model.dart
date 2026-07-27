@@ -41,7 +41,16 @@ class TransactionModel {
   final String? notes;
   final String? receiptUrl;
   final int? walletId;
+
+  /// Set on transfer legs, opening-balance seeds, goal movements and IOU legs.
+  /// These rows move wallet balances but are NOT income or spending — anything
+  /// aggregating amounts client-side must skip them via [isTransfer].
+  final String? transferId;
   final int? groupId; // shared with this group (Splitwise-lite) when set
+
+  /// How the shared expense is divided ({mode, participants}), sent to the
+  /// server which freezes the owed amounts. Request-only — not read back.
+  final Map<String, dynamic>? groupSplit;
   final List<String> tags;
   final List<TransactionSplit> splits;
 
@@ -56,12 +65,18 @@ class TransactionModel {
     this.notes,
     this.receiptUrl,
     this.walletId,
+    this.transferId,
     this.groupId,
+    this.groupSplit,
     this.tags = const [],
     this.splits = const [],
   });
 
   bool get isExpense => amount < 0;
+
+  /// True for money-movement rows (transfers, opening balances, goal/IOU legs)
+  /// that must never count as earning or spending.
+  bool get isTransfer => transferId != null;
   bool get isIncome => amount > 0;
   bool get isSplit => splits.isNotEmpty;
 
@@ -77,6 +92,7 @@ class TransactionModel {
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
       walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
+      transferId: json['transfer_id']?.toString(),
       groupId: json['group_id'] != null ? int.tryParse(json['group_id'].toString()) : null,
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
       splits: (json['splits'] as List<dynamic>?)
@@ -123,6 +139,7 @@ class TransactionModel {
       // 0 = explicitly back to the default wallet; absent = untouched-on-create.
       if (walletId != null) 'wallet_id': walletId,
       if (groupId != null) 'group_id': groupId,
+      if (groupSplit != null) 'group_split': groupSplit,
       if (tags.isNotEmpty) 'tags': tags,
       if (splits.isNotEmpty) 'splits': splits.map((s) => s.toRequestJson()).toList(),
     };

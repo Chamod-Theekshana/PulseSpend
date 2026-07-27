@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../repositories/analytics_repository.dart';
 import '../repositories/auth_repository.dart';
+import '../repositories/chat_repository.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
 import '../repositories/debt_repository.dart';
@@ -17,6 +18,7 @@ import '../repositories/wallet_repository.dart';
 
 final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) => AnalyticsRepository());
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
+final chatRepositoryProvider = Provider<ChatRepository>((ref) => ChatRepository());
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) => TransactionRepository());
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) => CategoryRepository());
 final budgetRepositoryProvider = Provider<BudgetRepository>((ref) => BudgetRepository());

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,6 +14,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
@@ -197,7 +199,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: AppLoader(size: 18),
                   )
                 : const Icon(Icons.ios_share_rounded),
             onSelected: (v) => v == 'pdf' ? _exportPdf() : _exportCsv(),
@@ -341,7 +343,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                                   const SliverToBoxAdapter(
                                     child: Padding(
                                       padding: EdgeInsets.all(20),
-                                      child: Center(child: CircularProgressIndicator()),
+                                      child: Center(child: AppLoader(size: 40)),
                                     ),
                                   ),
                                 const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -572,14 +574,21 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-class _TransactionTile extends StatelessWidget {
+class _TransactionTile extends ConsumerWidget {
   final TransactionModel transaction;
   final MoneyFormatter money;
 
   const _TransactionTile({required this.transaction, required this.money});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Which wallet this came out of. Only worth showing once the user actually
+    // has wallets — before that every row would read "Default".
+    final wallets = ref.watch(walletsControllerProvider).items;
+    final walletName = wallets.isEmpty
+        ? null
+        : (wallets.where((w) => w.id == transaction.walletId).firstOrNull?.name ?? 'Default');
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -623,10 +632,29 @@ class _TransactionTile extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        transaction.category,
-                        style: TextStyle(fontSize: 12, color: textSecondary),
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              transaction.category,
+                              style: TextStyle(fontSize: 12, color: textSecondary),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (walletName != null) ...[
+                            Text(' · ', style: TextStyle(fontSize: 12, color: textSecondary)),
+                            Icon(Icons.account_balance_wallet_outlined,
+                                size: 11, color: textSecondary),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                walletName,
+                                style: TextStyle(fontSize: 12, color: textSecondary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),

@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { UserModel } from '../models/UserModel';
-import { sendPasskeyEmail } from '../config/nodemailer';
+import { sendPasskeyEmail } from '../config/email';
 import { BCRYPT_ROUNDS } from '../config/security';
 import { sendPushToUser } from '../services/pushService';
 import {

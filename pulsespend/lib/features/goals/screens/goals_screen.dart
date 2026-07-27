@@ -8,6 +8,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../models/goal_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/goals_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/widgets/empty_state.dart';
@@ -284,6 +285,9 @@ class _RoundupSettingsSheet extends ConsumerStatefulWidget {
 class _RoundupSettingsSheetState extends ConsumerState<_RoundupSettingsSheet> {
   int? _goalId;
   int _roundTo = 100;
+  /// Wallet the spare change comes from (0 = default). Required to enable —
+  /// without a debit the goal would grow out of nothing.
+  int? _walletId;
   bool _enabled = false;
   bool _saving = false;
   bool _seeded = false;
@@ -299,6 +303,7 @@ class _RoundupSettingsSheetState extends ConsumerState<_RoundupSettingsSheet> {
       _seeded = true;
       _goalId = user.roundupGoalId;
       _roundTo = user.roundupTo ?? 100;
+      _walletId = user.roundupWalletId;
       _enabled = user.roundupGoalId != null;
     }
 
@@ -349,6 +354,34 @@ class _RoundupSettingsSheetState extends ConsumerState<_RoundupSettingsSheet> {
               ],
             ),
             const SizedBox(height: 12),
+            Text('Take the spare change from', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            Consumer(builder: (context, ref, _) {
+              // Spendable wallets only — savings can't come out of a debt.
+              final wallets = ref
+                  .watch(walletsControllerProvider)
+                  .items
+                  .where((w) => !w.isLiability)
+                  .toList();
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Default'),
+                    selected: _walletId == 0,
+                    onSelected: (_) => setState(() => _walletId = 0),
+                  ),
+                  for (final w in wallets)
+                    ChoiceChip(
+                      label: Text(w.name),
+                      selected: _walletId == w.id,
+                      onSelected: (_) => setState(() => _walletId = w.id),
+                    ),
+                ],
+              );
+            }),
+            const SizedBox(height: 12),
             Text('Round up to nearest', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
             Wrap(
@@ -374,6 +407,12 @@ class _RoundupSettingsSheetState extends ConsumerState<_RoundupSettingsSheet> {
                 );
                 return;
               }
+              if (_enabled && _walletId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pick which wallet the spare change comes from')),
+                );
+                return;
+              }
               setState(() => _saving = true);
               try {
                 final userId = ref.read(currentUserIdProvider);
@@ -381,6 +420,7 @@ class _RoundupSettingsSheetState extends ConsumerState<_RoundupSettingsSheet> {
                       userId,
                       goalId: _enabled ? _goalId : null,
                       roundTo: _enabled ? _roundTo : null,
+                      walletId: _enabled ? _walletId : null,
                     );
                 await ref.read(profileControllerProvider.notifier).refresh();
                 if (mounted) Navigator.pop(context);

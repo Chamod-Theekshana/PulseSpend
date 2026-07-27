@@ -7,6 +7,8 @@ import '../core/storage/outbox_service.dart';
 import '../models/debt_model.dart';
 import 'auth_provider.dart';
 import 'repository_providers.dart';
+import 'transactions_provider.dart';
+import 'wallets_provider.dart';
 
 class DebtsState {
   final List<DebtModel> items;
@@ -62,7 +64,12 @@ class DebtsController extends Notifier<DebtsState> {
     } catch (_) {}
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<DebtModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final items = await ref.read(debtRepositoryProvider).list();
@@ -97,6 +104,8 @@ class DebtsController extends Notifier<DebtsState> {
     try {
       final created = await ref.read(debtRepositoryProvider).createRaw(body);
       state = state.copyWith(items: [created, ...state.items]);
+      // An open IOU is a receivable/payable — net worth counts it immediately.
+      ref.invalidate(netWorthProvider);
     } on ApiException catch (e) {
       if (!e.isNetworkError) rethrow;
       await OutboxService.instance.add(OutboxOp(
@@ -121,7 +130,7 @@ class DebtsController extends Notifier<DebtsState> {
     }
   }
 
-  Future<void> settle(int id) async {
+  Future<void> settle(int id, {int? walletId}) async {
     if (id < 0) {
       // Not yet synced — just drop the optimistic row and its queued create.
       state = state.copyWith(items: state.items.where((d) => d.id != id).toList());
@@ -129,10 +138,18 @@ class DebtsController extends Notifier<DebtsState> {
     }
     final userId = _userId ?? '';
     try {
-      final settled = await ref.read(debtRepositoryProvider).settle(id);
+      final settled = await ref.read(debtRepositoryProvider).settle(id, walletId: walletId);
       state = state.copyWith(
         items: [for (final d in state.items) if (d.id == id) settled else d],
       );
+      // Settling moves real money (wallet leg) and always moves net worth (the
+      // open receivable/payable disappears). The headline is money on hand, so
+      // it moves too whenever a wallet was involved.
+      ref.invalidate(netWorthProvider);
+      if (walletId != null) {
+        ref.invalidate(walletBalancesProvider);
+        ref.invalidate(transactionSummaryProvider);
+      }
     } on ApiException catch (e) {
       if (!e.isNetworkError) rethrow;
       await OutboxService.instance.add(OutboxOp(
@@ -140,7 +157,7 @@ class DebtsController extends Notifier<DebtsState> {
         userId: userId,
         entity: 'debt',
         type: 'update', // settle — idempotent server-side
-        body: {'id': id},
+        body: {'id': id, if (walletId != null) 'wallet_id': walletId},
         createdAt: DateTime.now().millisecondsSinceEpoch,
       ));
       state = state.copyWith(

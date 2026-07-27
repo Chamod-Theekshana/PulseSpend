@@ -44,11 +44,23 @@ class GoalRepository {
     required int id,
     required double amount,
     required String currency,
+    int? walletId,
+    bool spend = false,
+    String? category,
   }) async {
     try {
       final res = await _dio.post(
         ApiConfig.goalContribute(id),
-        data: {'amount': amount, 'currency': currency},
+        data: {
+          'amount': amount,
+          'currency': currency,
+          // Only send wallet_id when funding from a wallet; omitting it keeps
+          // the contribution a pure counter (no money movement).
+          if (walletId != null) 'wallet_id': walletId,
+          // spend = withdraw and record as a real expense (not returned to a wallet).
+          if (spend) 'spend': true,
+          if (spend && category != null) 'category': category,
+        },
       );
       final goal = GoalModel.fromJson(res.data['goal'] as Map<String, dynamic>);
       return (goal: goal, warning: res.data['conversion_warning'] as String?);
@@ -58,11 +70,11 @@ class GoalRepository {
   }
 
   /// Sets (amount+day) or clears (nulls) the monthly auto-contribution rule.
-  Future<GoalModel> setAutoRule(int id, {double? amount, int? day}) async {
+  Future<GoalModel> setAutoRule(int id, {double? amount, int? day, int? walletId}) async {
     try {
       final res = await _dio.put(
         ApiConfig.goalAutoRule(id),
-        data: {'auto_amount': amount, 'auto_day': day},
+        data: {'auto_amount': amount, 'auto_day': day, 'auto_wallet_id': walletId},
       );
       return GoalModel.fromJson(res.data['goal'] as Map<String, dynamic>);
     } catch (e) {

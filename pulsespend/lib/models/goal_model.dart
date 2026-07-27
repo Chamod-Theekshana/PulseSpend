@@ -41,6 +41,8 @@ class GoalModel {
 
   /// Monthly auto-contribution rule (null = off).
   final double? autoAmount;
+  /// Wallet each auto-contribution debits (0 = default). Null pauses the rule.
+  final int? autoWalletId;
   final int? autoDay;
 
   /// Set when the goal is shared with a group (all members can contribute).
@@ -58,6 +60,7 @@ class GoalModel {
     this.createdAt,
     this.progressPercentage = 0,
     this.autoAmount,
+    this.autoWalletId,
     this.autoDay,
     this.groupId,
   });
@@ -97,6 +100,9 @@ class GoalModel {
       progressPercentage: double.parse((json['progress_percentage'] ?? 0).toString()),
       autoAmount:
           json['auto_amount'] != null ? double.tryParse(json['auto_amount'].toString()) : null,
+      autoWalletId: json['auto_wallet_id'] != null
+          ? int.tryParse(json['auto_wallet_id'].toString())
+          : null,
       autoDay: json['auto_day'] != null ? int.tryParse(json['auto_day'].toString()) : null,
       groupId: json['group_id'] != null ? int.tryParse(json['group_id'].toString()) : null,
     );

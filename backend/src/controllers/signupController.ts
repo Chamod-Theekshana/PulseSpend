@@ -1,5 +1,5 @@
 import { UserModel } from '../models/UserModel';
-import { sendPasskeyEmail } from '../config/nodemailer';
+import { sendPasskeyEmail } from '../config/email';
 import {
   generateOTP,
   storeOTP,

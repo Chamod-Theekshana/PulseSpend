@@ -6,6 +6,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
@@ -43,6 +44,7 @@ class TransactionDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final wallets = ref.watch(walletsControllerProvider).items;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transaction Details'),
@@ -99,6 +101,18 @@ class TransactionDetailScreen extends ConsumerWidget {
                   label: 'Currency',
                   value: transaction.currency,
                 ),
+                // Which wallet this came out of — only once wallets exist, since
+                // before that everything is implicitly the default bucket.
+                if (wallets.isNotEmpty)
+                  _DetailRow(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'Wallet',
+                    value: wallets
+                            .where((w) => w.id == transaction.walletId)
+                            .firstOrNull
+                            ?.name ??
+                        'Default',
+                  ),
               ],
             ),
             if (transaction.isSplit) ...[

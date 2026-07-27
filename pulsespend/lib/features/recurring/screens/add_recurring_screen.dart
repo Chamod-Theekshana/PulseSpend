@@ -24,11 +24,21 @@ class AddRecurringScreen extends ConsumerStatefulWidget {
   ConsumerState<AddRecurringScreen> createState() => _AddRecurringScreenState();
 }
 
+/// What the rule materializes each run. Transfer moves |amount| between two
+/// wallets as a transfer-tagged pair — the only correct shape for an EMI or
+/// scheduled saving; an expense rule aimed at a loan wallet GROWS the debt.
+enum _RuleKind { expense, income, transfer }
+
 class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _titleController;
   late final TextEditingController _amountController;
-  late bool _isExpense;
+  late _RuleKind _kind;
+  bool get _isExpense => _kind == _RuleKind.expense;
+  bool get _isTransfer => _kind == _RuleKind.transfer;
+
+  /// Transfer destination: 0 = the default bucket. Null only while unpicked.
+  int? _toWalletId;
   String? _selectedCategory;
   late String _frequency;
   late DateTime _startDate;
@@ -51,7 +61,12 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
           ? e.amount.abs().toStringAsFixed(2)
           : (widget.initialAmount != null ? widget.initialAmount!.toStringAsFixed(2) : ''),
     );
-    _isExpense = e != null ? e.isExpense : true;
+    _kind = e == null
+        ? _RuleKind.expense
+        : (e.toWalletId != null
+            ? _RuleKind.transfer
+            : (e.isExpense ? _RuleKind.expense : _RuleKind.income));
+    _toWalletId = e?.toWalletId;
     _selectedCategory = e?.category;
     _frequency = e?.frequency ?? 'monthly';
     _startDate = e?.nextRun ?? DateTime.now();
@@ -78,9 +93,21 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedCategory == null) {
+    if (!_isTransfer && _selectedCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a category')));
       return;
+    }
+    if (_isTransfer) {
+      if (_toWalletId == null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Pick where the money goes')));
+        return;
+      }
+      if ((_walletId ?? 0) == _toWalletId) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Pick two different wallets')));
+        return;
+      }
     }
     setState(() => _isLoading = true);
     try {
@@ -89,12 +116,15 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
         id: widget.existing?.id ?? 0,
         userId: '',
         title: _titleController.text.trim(),
-        amount: _isExpense ? -amountAbs : amountAbs,
-        category: _selectedCategory!,
+        // A transfer's amount is a magnitude; the pair's signs come from the
+        // legs the backend writes.
+        amount: _isTransfer ? amountAbs : (_isExpense ? -amountAbs : amountAbs),
+        category: _isTransfer ? 'Transfer' : _selectedCategory!,
         frequency: _frequency,
         nextRun: _startDate,
         currency: _currency,
         walletId: _walletId,
+        toWalletId: _isTransfer ? _toWalletId : null,
       );
       final notifier = ref.read(recurringControllerProvider.notifier);
       if (_isEditing) {
@@ -142,10 +172,10 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                     Expanded(
                       child: _ToggleBtn(
                         label: 'Expense',
-                        selected: _isExpense,
+                        selected: _kind == _RuleKind.expense,
                         color: AppColors.expense,
                         onTap: () => setState(() {
-                          _isExpense = true;
+                          _kind = _RuleKind.expense;
                           _selectedCategory = null;
                         }),
                       ),
@@ -153,10 +183,21 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                     Expanded(
                       child: _ToggleBtn(
                         label: 'Income',
-                        selected: !_isExpense,
+                        selected: _kind == _RuleKind.income,
                         color: AppColors.income,
                         onTap: () => setState(() {
-                          _isExpense = false;
+                          _kind = _RuleKind.income;
+                          _selectedCategory = null;
+                        }),
+                      ),
+                    ),
+                    Expanded(
+                      child: _ToggleBtn(
+                        label: 'Transfer',
+                        selected: _kind == _RuleKind.transfer,
+                        color: AppColors.primary,
+                        onTap: () => setState(() {
+                          _kind = _RuleKind.transfer;
                           _selectedCategory = null;
                         }),
                       ),
@@ -184,37 +225,41 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              Text('Category', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: categories
-                    .map((c) => GestureDetector(
-                          onTap: () => setState(() => _selectedCategory = c.name),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: _selectedCategory == c.name ? AppColors.primary : surfaceAlt,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: _selectedCategory == c.name ? AppColors.primary : border,
+              // Transfers carry no category — they're money changing pockets,
+              // not spending to classify.
+              if (!_isTransfer) ...[
+                const SizedBox(height: 16),
+                Text('Category', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: categories
+                      .map((c) => GestureDetector(
+                            onTap: () => setState(() => _selectedCategory = c.name),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _selectedCategory == c.name ? AppColors.primary : surfaceAlt,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _selectedCategory == c.name ? AppColors.primary : border,
+                                ),
+                              ),
+                              child: Text(
+                                c.name,
+                                style: TextStyle(
+                                  color: _selectedCategory == c.name ? Colors.white : textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              c.name,
-                              style: TextStyle(
-                                color: _selectedCategory == c.name ? Colors.white : textPrimary,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ))
-                    .toList(),
-              ),
+                          ))
+                      .toList(),
+                ),
+              ],
               const SizedBox(height: 16),
               Text('Frequency', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),
@@ -256,7 +301,7 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: _PickerBox(
-                      label: 'Wallet',
+                      label: _isTransfer ? 'From wallet' : 'Wallet',
                       surfaceAlt: surfaceAlt,
                       border: border,
                       child: DropdownButton<int?>(
@@ -274,6 +319,59 @@ class _AddRecurringScreenState extends ConsumerState<AddRecurringScreen> {
                   ),
                 ],
               ),
+              if (_isTransfer) ...[
+                const SizedBox(height: 16),
+                _PickerBox(
+                  label: 'To wallet',
+                  surfaceAlt: surfaceAlt,
+                  border: border,
+                  child: DropdownButton<int?>(
+                    // 0 = the default bucket; null = not picked yet.
+                    value: _toWalletId == 0 || wallets.any((w) => w.id == _toWalletId)
+                        ? _toWalletId
+                        : null,
+                    isExpanded: true,
+                    hint: const Text('Where the money goes'),
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      const DropdownMenuItem<int?>(value: 0, child: Text('Default')),
+                      for (final w in wallets)
+                        if (w.id != (_walletId ?? 0))
+                          DropdownMenuItem<int?>(
+                              value: w.id, child: Text(w.name, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (v) => setState(() => _toWalletId = v),
+                  ),
+                ),
+                if (_toWalletId != null &&
+                    wallets.any((w) => w.id == _toWalletId && w.isLiability)) ...[
+                  const SizedBox(height: 8),
+                  _RuleHint(
+                    text: 'Each run repays '
+                        '${wallets.firstWhere((w) => w.id == _toWalletId).name} — the debt '
+                        'falls and nothing counts as income or spending. The right shape '
+                        'for an EMI.',
+                  ),
+                ],
+              ],
+              // A liability wallet on a non-transfer rule is almost always a
+              // mistake the backend will reject (income = repayment) or warn
+              // about (expense on a loan grows the principal). Say so up front.
+              if (!_isTransfer &&
+                  _walletId != null &&
+                  wallets.any((w) => w.id == _walletId && w.isLiability)) ...[
+                const SizedBox(height: 8),
+                _RuleHint(
+                  text: _isExpense
+                      ? (wallets.firstWhere((w) => w.id == _walletId).type == 'loan'
+                          ? 'This grows what you owe every run — a loan normally only '
+                              'grows by interest. For an EMI, use a Transfer rule into it.'
+                          : 'Each run charges the card — correct for a subscription '
+                              'billed to it.')
+                      : 'A repayment isn\'t income — this will be rejected. '
+                          'Use a Transfer rule into the debt account instead.',
+                ),
+              ],
               const SizedBox(height: 16),
               InkWell(
                 onTap: _pickStartDate,
@@ -372,6 +470,42 @@ class _ToggleBtn extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Small amber note explaining what a rule aimed at a debt account will do.
+class _RuleHint extends StatelessWidget {
+  final String text;
+  const _RuleHint({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.warning.withValues(alpha: 0.12) : AppColors.warningBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

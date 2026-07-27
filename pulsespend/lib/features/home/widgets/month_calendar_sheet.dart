@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
@@ -122,7 +123,7 @@ class _MonthCalendarSheetState extends ConsumerState<MonthCalendarSheet> {
             data: (days) => _buildGrid(days, currency, textColor, secondary),
             loading: () => const SizedBox(
               height: 200,
-              child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+              child: Center(child: AppLoader(size: 40)),
             ),
             error: (e, _) => SizedBox(
               height: 100,

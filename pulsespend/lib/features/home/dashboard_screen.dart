@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import '../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/network/dio_client.dart';
@@ -35,6 +36,7 @@ import '../notifications/screens/notifications_screen.dart';
 import '../transactions/screens/transaction_detail_screen.dart';
 import '../transactions/screens/transactions_screen.dart';
 import 'widgets/month_calendar_sheet.dart';
+import 'widgets/net_worth_breakdown_sheet.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -119,7 +121,9 @@ class DashboardScreen extends ConsumerWidget {
                 child: summaryAsync.when(
                   data: (summary) => _BalanceOverviewSection(
                     summary: summary,
-                    transactions: txItems,
+                    // Empty until it arrives — the headline stands alone and the
+                    // chart fills in, rather than drawing a fabricated line.
+                    history: ref.watch(balanceHistoryProvider).asData?.value ?? const [],
                     money: money,
                   ),
                   loading: () => const _BalanceSectionSkeleton(),
@@ -135,8 +139,12 @@ class DashboardScreen extends ConsumerWidget {
                     data: (summary) => _EarningsSpendingsRow(
                       summary: summary,
                       money: money,
-                      incomeCount: txItems.where((t) => t.amount > 0).length,
-                      expenseCount: txItems.where((t) => t.amount < 0).length,
+                      // Skip transfer legs: the amounts beside these counts are
+                      // transfer-excluded (summary), so counting a loan
+                      // repayment here would make "N transactions" not
+                      // reconcile with the totals.
+                      incomeCount: txItems.where((t) => !t.isTransfer && t.amount > 0).length,
+                      expenseCount: txItems.where((t) => !t.isTransfer && t.amount < 0).length,
                     ),
                     loading: () => const _EarningsRowSkeleton(),
                     error: (_, __) => const _EarningsRowSkeleton(),
@@ -425,12 +433,14 @@ class _ChartPoint {
 
 class _BalanceOverviewSection extends StatefulWidget {
   final TransactionSummary summary;
-  final List<TransactionModel> transactions;
+
+  /// Month-end money on hand, server-computed (see balanceHistoryProvider).
+  final List<BalanceHistoryPoint> history;
   final MoneyFormatter money;
 
   const _BalanceOverviewSection({
     required this.summary,
-    required this.transactions,
+    required this.history,
     required this.money,
   });
 
@@ -444,30 +454,27 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
   late AnimationController _tooltipAnim;
   late Animation<double> _tooltipFade;
 
-  // Build last-6-months running balance from transaction list
-  List<_ChartPoint> _buildChartPoints() {
-    final now = DateTime.now();
-    final points = <_ChartPoint>[];
-    const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  static const _monthLabels =
+      ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-    // Running balance: start from 0, accumulate all transactions up to end of each month
-    for (int i = 5; i >= 0; i--) {
-      final targetMonth = DateTime(now.year, now.month - i, 1);
-      final endOfMonth = DateTime(targetMonth.year, targetMonth.month + 1, 1)
-          .subtract(const Duration(milliseconds: 1));
-
-      double balance = widget.transactions
-          .where((tx) => tx.createdAt.isBefore(endOfMonth) ||
-              tx.createdAt.isAtSameMomentAs(endOfMonth))
-          .fold(0.0, (sum, tx) => sum + widget.money.convert(tx.amount, tx.currency));
-
-      points.add(_ChartPoint(
-        label: monthLabels[targetMonth.month - 1],
-        month: targetMonth,
-        balance: balance,
-      ));
-    }
-    return points;
+  /// Month-end money on hand, straight from the server.
+  ///
+  /// This used to be folded on the client from the loaded transaction list,
+  /// starting at zero — which meant it ignored opening balances, counted both
+  /// legs of a transfer, treated debt as if it were cash, and (past the first
+  /// page of transactions) started from a balance that had never existed. The
+  /// last point then had to be special-cased back to the server's figure to hide
+  /// the disagreement. The server has the whole ledger and the wallet types, so
+  /// it computes every point on the headline's basis.
+  List<_ChartPoint> _pointsFrom(List<BalanceHistoryPoint> history) {
+    return [
+      for (final p in history)
+        _ChartPoint(
+          label: _monthLabels[p.month.month - 1],
+          month: p.month,
+          balance: p.balance,
+        ),
+    ];
   }
 
   @override
@@ -478,9 +485,23 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
       duration: const Duration(milliseconds: 220),
     );
     _tooltipFade = CurvedAnimation(parent: _tooltipAnim, curve: Curves.easeOut);
-    // Default: select the last (most recent) point
-    _selectedIndex = 5;
+    // Default: select the last (most recent) point. Null until the history
+    // arrives — the headline already shows that same figure meanwhile.
+    _selectedIndex = widget.history.isEmpty ? null : widget.history.length - 1;
     _tooltipAnim.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BalanceOverviewSection old) {
+    super.didUpdateWidget(old);
+    // The history is fetched, so it usually lands after the first build. Once it
+    // does, fall back to highlighting the latest point — but never override a
+    // month the user has picked.
+    if (_selectedIndex == null && widget.history.isNotEmpty) {
+      _selectedIndex = widget.history.length - 1;
+    } else if (_selectedIndex != null && _selectedIndex! >= widget.history.length) {
+      _selectedIndex = widget.history.isEmpty ? null : widget.history.length - 1;
+    }
   }
 
   @override
@@ -490,7 +511,10 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
   }
 
   void _onChartTap(Offset localPos, Size chartSize, List<_ChartPoint> points) {
-    const n = 6;
+    // Driven by the points actually present: the history arrives from the
+    // server, so before it lands there's nothing to select.
+    final n = points.length;
+    if (n < 2) return;
     // Find nearest x index
     int nearest = 0;
     double minDist = double.infinity;
@@ -511,20 +535,21 @@ class _BalanceOverviewSectionState extends State<_BalanceOverviewSection>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final chartPoints = _buildChartPoints();
-    final selectedPoint = _selectedIndex != null ? chartPoints[_selectedIndex!] : null;
+    final chartPoints = _pointsFrom(widget.history);
+    final selectedPoint =
+        (_selectedIndex != null && _selectedIndex! < chartPoints.length)
+            ? chartPoints[_selectedIndex!]
+            : null;
     final now = DateTime.now();
     final dateStr = selectedPoint != null
-        ? '${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][selectedPoint.month.month - 1]} ${selectedPoint.month.year}'
+        ? '${_monthLabels[selectedPoint.month.month - 1]} ${selectedPoint.month.year}'
         : DateFormat('MMM dd, yyyy').format(now);
 
-    // Balances are converted into the display currency (chart points already
-    // are; convert the summary too so index 5 matches).
+    // Both are money on hand in the display currency now, so the last point and
+    // the headline agree by construction — no special case needed.
     final convertedSummaryBalance =
         widget.money.convert(widget.summary.balance, widget.summary.currency);
-    final displayBalance = _selectedIndex == 5
-        ? convertedSummaryBalance
-        : (selectedPoint?.balance ?? convertedSummaryBalance);
+    final displayBalance = selectedPoint?.balance ?? convertedSummaryBalance;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -938,7 +963,7 @@ class _BalanceSectionSkeleton extends StatelessWidget {
       height: 300,
       child: error != null
           ? Center(child: Text(error!, textAlign: TextAlign.center))
-          : const Center(child: CircularProgressIndicator()),
+          : const Center(child: AppLoader(size: 40)),
     );
   }
 }
@@ -1242,36 +1267,51 @@ class _WalletBalancesSection extends ConsumerWidget {
             if (nw == null) return const SizedBox.shrink();
             return Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkSurface : Colors.white,
+              child: Material(
+                color: isDark ? AppColors.darkSurface : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Net worth', style: TextStyle(fontSize: 11, color: textSecondary)),
-                          const SizedBox(height: 2),
-                          Text(
-                            CurrencyFormatter.formatCompact(nw.netWorth, nw.currency),
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                              color: nw.netWorth < 0 ? AppColors.expense : textPrimary,
-                            ),
-                          ),
-                        ],
-                      ),
+                  onTap: () => NetWorthBreakdownSheet.show(context, nw),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border:
+                          Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
                     ),
-                    _NetWorthStat(label: 'Assets', value: CurrencyFormatter.formatCompact(nw.assets, nw.currency), color: AppColors.income),
-                    const SizedBox(width: 16),
-                    _NetWorthStat(label: 'Liabilities', value: CurrencyFormatter.formatCompact(nw.liabilities, nw.currency), color: AppColors.expense),
-                  ],
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text('Net worth',
+                                      style: TextStyle(fontSize: 11, color: textSecondary)),
+                                  const SizedBox(width: 3),
+                                  Icon(Icons.chevron_right_rounded, size: 13, color: textSecondary),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                CurrencyFormatter.formatCompact(nw.netWorth, nw.currency),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  color: nw.netWorth < 0 ? AppColors.expense : textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _NetWorthStat(label: 'Assets', value: CurrencyFormatter.formatCompact(nw.assets, nw.currency), color: AppColors.income),
+                        const SizedBox(width: 16),
+                        _NetWorthStat(label: 'Liabilities', value: CurrencyFormatter.formatCompact(nw.liabilities, nw.currency), color: AppColors.expense),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             );
@@ -1560,6 +1600,10 @@ class _TopSpendingSection extends StatelessWidget {
     // mixed-currency spending is compared on a level playing field.
     final Map<String, double> catMap = {};
     for (final tx in transactions) {
+      // Transfer legs (goal funding, IOU/opening/repayment rows) move wallets,
+      // not spending — counting them here inflated categories like
+      // 'Goal Savings' as if saving were spending.
+      if (tx.isTransfer) continue;
       if (tx.amount < 0) {
         final converted = money.convert(tx.amount, tx.currency).abs();
         catMap[tx.category] = (catMap[tx.category] ?? 0) + converted;
@@ -1778,7 +1822,7 @@ class _BudgetOverviewSection extends StatelessWidget {
         if (state.isLoading && state.items.isEmpty)
           const SizedBox(
             height: 180,
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AppLoader(size: 40)),
           )
         else if (state.items.isEmpty)
           Padding(
@@ -1985,7 +2029,7 @@ class _SavingsGoalsSection extends StatelessWidget {
         if (state.isLoading && state.items.isEmpty)
           const SizedBox(
             height: 180,
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AppLoader(size: 40)),
           )
         else if (activeGoals.isEmpty)
           Padding(

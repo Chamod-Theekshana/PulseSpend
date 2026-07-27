@@ -21,6 +21,9 @@ class UserModel {
   /// the spare change auto-contributes to goal [roundupGoalId].
   final int? roundupGoalId;
   final int? roundupTo;
+  /// Wallet the spare change is debited from (0 = default bucket). Null pauses
+  /// round-ups — a contribution has to come from somewhere.
+  final int? roundupWalletId;
 
   /// Set while the account is inside its 7-day deletion grace window; the app
   /// offers a "Restore account" banner until it is cancelled or purged.
@@ -44,6 +47,7 @@ class UserModel {
     this.createdAt,
     this.roundupGoalId,
     this.roundupTo,
+    this.roundupWalletId,
     this.deletionRequestedAt,
   });
 
@@ -67,6 +71,9 @@ class UserModel {
       roundupGoalId:
           json['roundup_goal_id'] != null ? int.tryParse(json['roundup_goal_id'].toString()) : null,
       roundupTo: json['roundup_to'] != null ? int.tryParse(json['roundup_to'].toString()) : null,
+      roundupWalletId: json['roundup_wallet_id'] != null
+          ? int.tryParse(json['roundup_wallet_id'].toString())
+          : null,
       deletionRequestedAt: json['deletion_requested_at'] != null
           ? DateTime.tryParse(json['deletion_requested_at'].toString())
           : null,
@@ -117,6 +124,7 @@ class UserModel {
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
       createdAt: createdAt,
       roundupGoalId: roundupGoalId,
+      roundupWalletId: roundupWalletId,
       roundupTo: roundupTo,
       deletionRequestedAt: deletionRequestedAt,
     );

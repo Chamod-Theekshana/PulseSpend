@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/socket_service.dart';
 import '../../core/theme/app_colors.dart';
@@ -78,10 +79,7 @@ class _ConnectivityBannerState extends ConsumerState<ConnectivityBanner> {
                             const SizedBox(
                               width: 13,
                               height: 13,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation(Colors.white),
-                              ),
+                              child: AppLoader(size: 13, color: Colors.white),
                             )
                           else
                             const Icon(Icons.check_circle, color: Colors.white, size: 15),

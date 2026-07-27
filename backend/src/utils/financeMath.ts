@@ -4,6 +4,16 @@
  * All amounts arriving here are already converted to the display currency.
  */
 
+/**
+ * Largest value the money columns can hold: every amount in the schema is
+ * `DECIMAL(10,2)`. Validators MUST reject above this — Postgres raises a numeric
+ * overflow on insert, which surfaces as a 500 *after* earlier statements in the
+ * request have already committed (e.g. a wallet row with no opening-balance
+ * seed, which then renders as "100% paid off"). A clean 400 is the only safe
+ * outcome.
+ */
+export const MAX_AMOUNT = 99_999_999.99;
+
 // ── CSV escaping ─────────────────────────────────────────────────────────────
 
 /** Escapes a single CSV cell per RFC 4180 (quote if it contains "," '"' or newline). */
@@ -48,7 +58,7 @@ export function sanitizeImportRows(rows: unknown[]): { valid: SanitizedImportRow
       typeof row?.client_op_id === 'string' && row.client_op_id.trim() ? row.client_op_id.trim().slice(0, 64) : null;
 
     const validDate = /^\d{4}-\d{2}-\d{2}$/.test(created_at);
-    if (!title || !Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000_000 || !validDate) {
+    if (!title || !Number.isFinite(amount) || amount === 0 || Math.abs(amount) > MAX_AMOUNT || !validDate) {
       skipped++;
       continue;
     }
@@ -66,6 +76,82 @@ export function sanitizeImportRows(rows: unknown[]): { valid: SanitizedImportRow
   return { valid, skipped };
 }
 
+// ── Net worth ────────────────────────────────────────────────────────────────
+
+/**
+ * Splits one wallet's balance into what it contributes to assets vs liabilities.
+ *
+ * Liability wallets (credit/card/loan) hold debt: charges drive the balance
+ * negative and that negative IS what's owed. But a liability can also go
+ * POSITIVE — an overpaid card, an extra loan payment, a refund larger than the
+ * charges. That credit is money in the user's favour, so it counts as an asset.
+ * Treating it as zero instead makes an overpayment silently shrink net worth:
+ * the paying wallet drops and nothing offsets it, so a net-worth-neutral
+ * transfer would appear to destroy money.
+ *
+ * Asset wallets pass their balance through as-is, negative included — an
+ * overdrawn account genuinely lowers net worth.
+ */
+export function netWorthContribution(
+  isLiability: boolean,
+  balance: number,
+): { asset: number; liability: number } {
+  if (!isLiability) return { asset: balance, liability: 0 };
+  if (balance > 0) return { asset: balance, liability: 0 };
+  // Math.abs rather than -balance: negating a 0 balance yields -0, which leaks
+  // into JSON and formatting as "-0".
+  return { asset: 0, liability: Math.abs(balance) };
+}
+
+/**
+ * Money the user actually has: every asset wallet's balance, plus any credit
+ * sitting on an overpaid debt account. Debt itself is excluded — you can't
+ * spend what you owe — and so are savings goals, whose money has already left
+ * the wallet it was funded from.
+ *
+ * This is deliberately NOT net worth: net worth subtracts debt and adds goals.
+ * "How much can I spend" and "what am I worth" are different questions.
+ *
+ * Balances must already be in one currency.
+ */
+export function moneyOnHand(wallets: Array<{ isLiability: boolean; balance: number }>): number {
+  let total = 0;
+  for (const w of wallets) {
+    total += netWorthContribution(w.isLiability, w.balance).asset;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/**
+ * Splits a liability wallet's totals into the three flows a debt actually has,
+ * so "owe 105,000" is traceable: `borrowed + charged − repaid = owed`.
+ *
+ * `expense` lumps the opening seed in with real charges, because `balances()`
+ * classifies by sign alone and the seed is negative — so a loan opened at
+ * 100,000 and spent on once reads "charged 105,000", which is not what the user
+ * did. Subtracting the seed back out separates the two.
+ *
+ * `repaid` is `income` rather than non-transfer income: repayments arrive as the
+ * `+` leg of a transfer, and `balances()` deliberately counts transfer legs.
+ *
+ * All three arguments must already be in the SAME currency — mixing a converted
+ * `expense` with a raw `opening` silently scales the result by the FX rate.
+ */
+export function liabilityBreakdown(
+  opening: number | null,
+  income: number,
+  expense: number,
+): { borrowed: number; charged: number; repaid: number } {
+  const borrowed = opening && opening > 0 ? opening : 0;
+  return {
+    borrowed,
+    // Clamped: rounding on a fully-seeded, never-charged wallet otherwise
+    // surfaces as "charged -0".
+    charged: Math.max(0, expense - borrowed),
+    repaid: income,
+  };
+}
+
 // ── Group balance math (Splitwise-lite) ──────────────────────────────────────
 
 export interface BalanceMember {
@@ -73,10 +159,16 @@ export interface BalanceMember {
   name: string;
 }
 
-/** One shared expense, amount already positive and currency-converted. */
-export interface BalanceExpense {
+/** What a member fronted — one shared expense they paid, converted, positive. */
+export interface BalancePayment {
   user_id: string;
   amount: number;
+}
+
+/** One frozen split row — what a participant owes on one expense, converted. */
+export interface BalanceOwed {
+  user_id: string;
+  owed: number;
 }
 
 /** One recorded settlement ("from paid to"), amount already converted. */
@@ -90,6 +182,8 @@ export interface MemberBalance {
   user_id: string;
   name: string;
   paid: number;
+  /** Total this member owes across all shared expenses (their frozen shares). */
+  owed: number;
   net: number; // > 0 → gets money back; < 0 → owes
 }
 
@@ -101,45 +195,134 @@ export interface SettleSuggestion {
   amount: number;
 }
 
+export type GroupSplitMode = 'equal' | 'shares' | 'percent' | 'exact';
+
+export interface GroupSplitParticipant {
+  user_id: string;
+  /** Weight (shares), percentage (percent), or exact owed amount (exact).
+   *  Ignored for equal. */
+  value?: number;
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Equal-split balances over shared expenses, adjusted by settlements, plus a
- * greedy minimal-transfer suggestion list ("biggest debtor pays biggest
- * creditor"). Nets always sum to ~0 and suggestions fully cover the debts.
+ * Freezes how one shared expense is split into per-participant owed amounts.
+ * The single rounding authority for create, edit, and backfill.
+ *
+ * Works in integer cents with **largest-remainder (Hamming) apportionment** so
+ * the rows sum to `totalAbs` EXACTLY — never a cent off. A naive
+ * `round(total*weight/Σweight)` leaves dust that breaks the nets-sum-to-zero
+ * invariant (a 3-way split of 100 would be 33.33×3 = 99.99). Leftover cents go
+ * to the largest fractional remainders, payer first, so it's deterministic.
+ *
+ * - equal   → every participant weight 1
+ * - shares  → weight = value
+ * - percent → weight = value; validated to ≈100 but owed is ALWAYS re-derived
+ *             from the real total (client percentages are never the final word)
+ * - exact   → validated to sum to totalAbs (±0.01); returned as-is
+ *
+ * Throws on an invalid spec (empty, non-positive weights, exact mismatch) so a
+ * bad split can never silently produce wrong balances.
+ */
+export function deriveGroupSplit(
+  mode: GroupSplitMode,
+  participants: GroupSplitParticipant[],
+  totalAbs: number,
+  payerId: string,
+): Array<{ user_id: string; owed: number }> {
+  if (participants.length === 0) throw new Error('A split needs at least one participant');
+  const totalCents = Math.round(totalAbs * 100);
+  if (totalCents <= 0) throw new Error('Split total must be positive');
+
+  if (mode === 'exact') {
+    const cents = participants.map((p) => Math.round((p.value ?? 0) * 100));
+    if (cents.some((c) => c < 0)) throw new Error('Exact amounts must be non-negative');
+    const sum = cents.reduce((a, c) => a + c, 0);
+    if (Math.abs(sum - totalCents) > 1) {
+      throw new Error(`Exact splits must add up to ${totalAbs.toFixed(2)}`);
+    }
+    // Absorb a 1-cent rounding gap onto the payer (or the first participant).
+    if (sum !== totalCents) {
+      const idx = Math.max(0, participants.findIndex((p) => p.user_id === payerId));
+      cents[idx] += totalCents - sum;
+    }
+    return participants.map((p, i) => ({ user_id: p.user_id, owed: cents[i] / 100 }));
+  }
+
+  const weights = participants.map((p) => (mode === 'equal' ? 1 : Number(p.value ?? 0)));
+  if (weights.some((w) => !(w > 0))) throw new Error('Split weights must be positive');
+  if (mode === 'percent' && Math.abs(weights.reduce((a, w) => a + w, 0) - 100) > 0.1) {
+    throw new Error('Percentages must add up to 100');
+  }
+  const weightSum = weights.reduce((a, w) => a + w, 0);
+
+  // Floor each to whole cents, then hand out the remaining cents to the largest
+  // fractional parts (payer-first on ties) so the total is exact.
+  const raw = weights.map((w) => (totalCents * w) / weightSum);
+  const floors = raw.map((r) => Math.floor(r));
+  let remaining = totalCents - floors.reduce((a, f) => a + f, 0);
+  const order = participants
+    .map((p, i) => ({ i, frac: raw[i] - floors[i], isPayer: p.user_id === payerId }))
+    .sort((a, b) => b.frac - a.frac || (b.isPayer ? 1 : 0) - (a.isPayer ? 1 : 0) || a.i - b.i);
+  for (let k = 0; k < order.length && remaining > 0; k++) {
+    floors[order[k].i] += 1;
+    remaining--;
+  }
+  return participants.map((p, i) => ({ user_id: p.user_id, owed: floors[i] / 100 }));
+}
+
+/**
+ * Per-member balances from what each fronted vs what each owes (their frozen
+ * split shares), adjusted by settlements, plus a greedy minimal-transfer
+ * suggestion list ("biggest debtor pays biggest creditor").
+ *
+ * `net = paid − owed`. There is NO `members.length` divisor anywhere — owed
+ * comes from frozen per-expense rows — so adding or removing a member can never
+ * retroactively re-split past expenses (the bug the old `total/members` had).
+ * Nets sum to ~0 because each expense's owed rows sum to what its payer fronted.
  */
 export function computeBalances(
   members: BalanceMember[],
-  expenses: BalanceExpense[],
+  payments: BalancePayment[],
+  owed: BalanceOwed[],
   settlements: BalanceSettlement[],
 ): { members: MemberBalance[]; suggestions: SettleSuggestion[]; total: number } {
-  if (members.length === 0) return { members: [], suggestions: [], total: 0 };
-
   const paidBy = new Map<string, number>();
   let total = 0;
-  for (const e of expenses) {
-    paidBy.set(e.user_id, (paidBy.get(e.user_id) ?? 0) + e.amount);
-    total += e.amount;
+  for (const p of payments) {
+    paidBy.set(p.user_id, (paidBy.get(p.user_id) ?? 0) + p.amount);
+    total += p.amount;
+  }
+  const owedBy = new Map<string, number>();
+  for (const o of owed) {
+    owedBy.set(o.user_id, (owedBy.get(o.user_id) ?? 0) + o.owed);
   }
 
-  const fairShare = total / members.length;
+  // The books include everyone who is a member OR who still paid/owes — so an
+  // ex-member with an outstanding share doesn't silently vanish.
+  const names = new Map(members.map((m) => [m.user_id, m.name]));
+  const ids = new Set<string>([...names.keys(), ...paidBy.keys(), ...owedBy.keys()]);
+  if (ids.size === 0) return { members: [], suggestions: [], total: 0 };
+
   const net = new Map<string, number>();
-  for (const m of members) {
-    net.set(m.user_id, (paidBy.get(m.user_id) ?? 0) - fairShare);
+  for (const id of ids) {
+    net.set(id, (paidBy.get(id) ?? 0) - (owedBy.get(id) ?? 0));
   }
 
   // Settlements: the payer's debt shrinks (net up), the receiver's credit
-  // shrinks (net down). Amounts to/from non-members are ignored.
+  // shrinks (net down). Amounts to/from non-participants are ignored.
   for (const s of settlements) {
     if (net.has(s.from)) net.set(s.from, net.get(s.from)! + s.amount);
     if (net.has(s.to)) net.set(s.to, net.get(s.to)! - s.amount);
   }
 
-  const result: MemberBalance[] = members.map((m) => ({
-    user_id: m.user_id,
-    name: m.name,
-    paid: round2(paidBy.get(m.user_id) ?? 0),
-    net: round2(net.get(m.user_id) ?? 0),
+  const result: MemberBalance[] = [...ids].map((id) => ({
+    user_id: id,
+    name: names.get(id) ?? id,
+    paid: round2(paidBy.get(id) ?? 0),
+    owed: round2(owedBy.get(id) ?? 0),
+    net: round2(net.get(id) ?? 0),
   }));
 
   // Greedy transfer suggestions: biggest debtor pays biggest creditor.

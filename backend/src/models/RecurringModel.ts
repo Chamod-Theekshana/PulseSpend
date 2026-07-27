@@ -11,6 +11,9 @@ export type RecurringRow = {
   next_run: string;
   is_active: boolean;
   wallet_id?: number | null;
+  /** Set = this rule is a transfer of |amount| from wallet_id into this wallet
+   *  (0 = default bucket). NULL = plain income/expense rule. */
+  to_wallet_id?: number | null;
   created_at: string;
 };
 
@@ -19,7 +22,7 @@ export type RecurringRow = {
 export class RecurringModel {
   static async listByUser(userId: string, limit: number, offset: number): Promise<RecurringRow[]> {
     const rows = await sql`
-      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
       FROM recurring_transactions
       WHERE user_id = ${userId} AND deleted_at IS NULL
       ORDER BY next_run ASC
@@ -39,7 +42,7 @@ export class RecurringModel {
 
   static async findById(userId: string, id: number): Promise<RecurringRow | null> {
     const rows = await sql`
-      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
       FROM recurring_transactions
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
     `;
@@ -55,12 +58,16 @@ export class RecurringModel {
     nextRun: string,
     currency: string = 'LKR',
     walletId: number | null = null,
+    toWalletId: number | null = null,
   ): Promise<RecurringRow> {
     const wallet = walletId && walletId > 0 ? walletId : null;
+    // 0 is meaningful for the transfer destination (= default bucket), so only
+    // NULL/undefined collapse to "not a transfer".
+    const toWallet = toWalletId !== null && toWalletId !== undefined ? toWalletId : null;
     const rows = await sql`
-      INSERT INTO recurring_transactions (user_id, title, amount, currency, category, frequency, next_run, wallet_id)
-      VALUES (${userId}, ${title}, ${amount}, ${currency}, ${category}, ${frequency}, ${nextRun}::date, ${wallet})
-      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      INSERT INTO recurring_transactions (user_id, title, amount, currency, category, frequency, next_run, wallet_id, to_wallet_id)
+      VALUES (${userId}, ${title}, ${amount}, ${currency}, ${category}, ${frequency}, ${nextRun}::date, ${wallet}, ${toWallet})
+      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
     `;
     return rows[0] as RecurringRow;
   }
@@ -95,7 +102,7 @@ export class RecurringModel {
         next_run = COALESCE(${fields.next_run ?? null}::date, next_run),
         wallet_id = CASE WHEN ${walletProvided} THEN ${wallet} ELSE wallet_id END
       WHERE id = ${id} AND user_id = ${userId} AND deleted_at IS NULL
-      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      RETURNING id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
     `;
     return (rows[0] as RecurringRow) || null;
   }
@@ -133,7 +140,7 @@ export class RecurringModel {
     console.log('[Recurring] Checking due recurrences for local date:', today);
     // Use AT TIME ZONE 'UTC' to strip Neon's timezone offset on DATE columns
     const rows = await sql`
-      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
       FROM recurring_transactions
       WHERE is_active = true
         AND deleted_at IS NULL
@@ -149,7 +156,7 @@ export class RecurringModel {
    */
   static async listDueForReminder(tomorrowISO: string, todayISO: string): Promise<RecurringRow[]> {
     const rows = await sql`
-      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, created_at
+      SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
       FROM recurring_transactions
       WHERE is_active = true
         AND deleted_at IS NULL

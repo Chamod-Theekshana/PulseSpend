@@ -5,9 +5,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/recurring_model.dart';
+import '../../../models/wallet_model.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/recurring_provider.dart';
 import '../../../providers/repository_providers.dart';
+import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
@@ -158,14 +160,18 @@ class _RecurringCommitmentCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 10),
+          // Headline = monthly bills when there are any; otherwise fall back to
+          // recurring income so an income-only setup doesn't read as "$0".
           Text(
-            CurrencyFormatter.format(monthlyExpense, currency),
+            CurrencyFormatter.format(monthlyExpense > 0 ? monthlyExpense : monthlyIncome, currency),
             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, color: textPrimary),
           ),
           const SizedBox(height: 2),
           Text(
-            'in recurring bills per month'
-            '${monthlyIncome > 0 ? ' · +${CurrencyFormatter.format(monthlyIncome, currency)} income' : ''}',
+            monthlyExpense > 0
+                ? 'in recurring bills per month'
+                  '${monthlyIncome > 0 ? ' · +${CurrencyFormatter.format(monthlyIncome, currency)} income' : ''}'
+                : 'in recurring income per month',
             style: TextStyle(fontSize: 12, color: textSecondary),
           ),
         ],
@@ -203,6 +209,20 @@ class _UpcomingChargesSection extends ConsumerWidget {
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
+    // Solvency forecast: upcoming expense charges vs money on hand.
+    final upcomingExpense = upcoming
+        .where((r) => r.isExpense)
+        .fold<double>(0, (sum, r) => sum + r.amount.abs());
+    // Money on hand = spendable money only. Summing raw balances dragged a
+    // −500,000 loan into "available" and the chip cried wolf forever; debt
+    // isn't negative cash, and an overpaid card's credit IS spendable.
+    final available = (ref.watch(walletBalancesProvider).asData?.value ?? const <WalletBalance>[])
+        .fold<double>(
+            0,
+            (sum, b) => sum +
+                (b.wallet.isLiability ? (b.balance > 0 ? b.balance : 0) : b.balance));
+    final short = upcomingExpense > 0 && available + 0.01 < upcomingExpense;
+
     String whenLabel(DateTime d) {
       final day = DateTime(d.year, d.month, d.day);
       final diff = day.difference(today).inDays;
@@ -216,6 +236,35 @@ class _UpcomingChargesSection extends ConsumerWidget {
       children: [
         Text('Next 7 days',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: textPrimary)),
+        if (upcomingExpense > 0) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: (short ? AppColors.warning : AppColors.income).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(short ? Icons.warning_amber_rounded : Icons.check_circle_outline,
+                    size: 16, color: short ? AppColors.warning : AppColors.income),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${CurrencyFormatter.format(upcomingExpense, profileCurrency)} due · '
+                    '${CurrencyFormatter.format(available, profileCurrency)} available'
+                    '${short ? ' — may not cover' : ''}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: short ? AppColors.warning : textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         for (final r in upcoming)
           Container(

@@ -30,7 +30,12 @@ class CategoriesController extends Notifier<CategoriesState> {
     return const CategoriesState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<CategoryModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(categoryRepositoryProvider).list();

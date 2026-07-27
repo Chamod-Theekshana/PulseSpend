@@ -48,7 +48,12 @@ class ProfileController extends Notifier<ProfileState> {
     return const ProfileState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(UserModel data) {
+    state = state.copyWith(user: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final userId = ref.read(currentUserIdProvider);

@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/socket_service.dart';
 import '../models/goal_model.dart';
+import 'analytics_provider.dart';
 import 'repository_providers.dart';
+import 'transactions_provider.dart';
+import 'wallets_provider.dart';
 
 class GoalsState {
   final List<GoalModel> items;
@@ -40,7 +43,12 @@ class GoalsController extends Notifier<GoalsState> {
     return const GoalsState();
   }
 
-  Future<void> refresh() async {
+  
+  void seed(List<GoalModel> data) {
+    state = state.copyWith(items: data, isLoading: false, error: null);
+  }
+
+Future<void> refresh() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final result = await ref.read(goalRepositoryProvider).list();
@@ -61,15 +69,47 @@ class GoalsController extends Notifier<GoalsState> {
   }
 
   /// Returns a non-null warning string if FX conversion failed server-side.
-  Future<String?> contribute({required int id, required double amount, required String currency}) async {
-    final result = await ref.read(goalRepositoryProvider).contribute(id: id, amount: amount, currency: currency);
+  Future<String?> contribute({
+    required int id,
+    required double amount,
+    required String currency,
+    int? walletId,
+    bool spend = false,
+    String? category,
+  }) async {
+    final result = await ref.read(goalRepositoryProvider).contribute(
+          id: id,
+          amount: amount,
+          currency: currency,
+          walletId: walletId,
+          spend: spend,
+          category: category,
+        );
     state = state.copyWith(items: [for (final g in state.items) if (g.id == id) result.goal else g]);
+    // Real money moved → refresh wallet balances + net worth (which counts goal
+    // savings as an asset) + the money-on-hand headline (the wallet just lost
+    // or regained cash, tx event or not).
+    if (walletId != null || spend) {
+      ref.invalidate(walletBalancesProvider);
+      ref.invalidate(netWorthProvider);
+      ref.invalidate(transactionSummaryProvider);
+    }
+    // A "spend" withdrawal records a real expense → refresh spending reports.
+    if (spend) {
+      ref.invalidate(transactionSummaryProvider);
+      ref.invalidate(dashboardTransactionsProvider);
+      ref.invalidate(analyticsSummaryProvider);
+      ref.invalidate(dailyTotalsProvider);
+      ref.invalidate(insightsProvider);
+    }
     return result.warning;
   }
 
   /// Set or clear (amount == null) the monthly auto-contribution rule.
-  Future<void> setAutoRule(int id, {double? amount, int? day}) async {
-    final goal = await ref.read(goalRepositoryProvider).setAutoRule(id, amount: amount, day: day);
+  Future<void> setAutoRule(int id, {double? amount, int? day, int? walletId}) async {
+    final goal = await ref
+        .read(goalRepositoryProvider)
+        .setAutoRule(id, amount: amount, day: day, walletId: walletId);
     state = state.copyWith(items: [for (final g in state.items) if (g.id == id) goal else g]);
   }
 

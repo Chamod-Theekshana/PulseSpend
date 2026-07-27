@@ -1,4 +1,5 @@
 import { sql } from '../config/db';
+import { TokenVersionCache } from '../config/tokenVersionCache';
 
 export interface User {
   id: number;
@@ -204,6 +205,7 @@ export class UserModel {
       RETURNING token_version
     `;
     const row = result[0] as any;
+    TokenVersionCache.invalidate(userId);
     return Number(row?.token_version || 0);
   }
 
