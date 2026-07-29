@@ -9,6 +9,7 @@ import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/primary_button.dart';
 import '../../../shared/widgets/shimmer_list.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class CategoriesScreen extends ConsumerWidget {
   const CategoriesScreen({super.key});
@@ -28,7 +29,7 @@ class CategoriesScreen extends ConsumerWidget {
         title: const Text('Delete category?'),
         content: Text('"${category.name}" will be removed. Existing transactions keep this label as text.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

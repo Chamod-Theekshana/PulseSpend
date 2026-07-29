@@ -5,6 +5,7 @@ import { UserModel } from '../models/UserModel';
 import { WalletModel } from '../models/WalletModel';
 import { sendPushToUser } from '../services/pushService';
 import { emitToUser } from '../socket';
+import { GroupMembershipCache } from '../config/groupMembershipCache';
 import { sql } from '../config/db';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../middleware/requireAuth';
@@ -507,6 +508,9 @@ export async function leaveGroup(req: AuthedRequest, res: Response) {
       txn`UPDATE goals SET group_id = NULL WHERE group_id = ${groupId}`,
       txn`DELETE FROM groups WHERE id = ${groupId}`,
     ]);
+    // The group no longer exists — drop every cached membership for it so no
+    // socket keeps a stale "yes, you're a member" answer.
+    GroupMembershipCache.invalidate(groupId);
     for (const memberId of memberIds) emitToUser(memberId, 'group:changed', { groupId: Number(groupId) });
     return res.status(200).json({ message: 'Group disbanded' });
   }

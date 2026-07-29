@@ -10,6 +10,7 @@ import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/wallet_dropdown.dart';
 import 'wallet_detail_screen.dart';
+import '../../../l10n/l10n_ext.dart';
 
 /// Manage cash/bank/card wallets. Transactions can be assigned to a wallet in
 /// Add/Edit Transaction; deleting a wallet moves its transactions back to the
@@ -27,7 +28,7 @@ class WalletsScreen extends ConsumerWidget {
           'to the default wallet.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

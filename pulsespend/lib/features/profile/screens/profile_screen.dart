@@ -17,6 +17,7 @@ import '../../../providers/repository_providers.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../auth/screens/splash_gate.dart';
 import '../widgets/settings_widgets.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -302,7 +303,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => ref.read(profileControllerProvider.notifier).refresh(),
-                          child: const Text('Retry'),
+                          child: Text(context.l10n.actionRetry),
                         ),
                       ],
                     )
@@ -821,7 +822,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.l10n.actionCancel)),
         TextButton(
           onPressed: () => Navigator.pop(context, _controller.text),
           child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

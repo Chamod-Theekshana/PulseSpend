@@ -17,6 +17,7 @@ import '../../../shared/widgets/shimmer_list.dart';
 import 'add_goal_screen.dart';
 import 'contribute_goal_sheet.dart';
 import 'goal_detail_sheet.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class GoalsScreen extends ConsumerWidget {
   const GoalsScreen({super.key});
@@ -28,7 +29,7 @@ class GoalsScreen extends ConsumerWidget {
         title: const Text('Delete goal?'),
         content: Text('"${goal.name}" will be removed permanently.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

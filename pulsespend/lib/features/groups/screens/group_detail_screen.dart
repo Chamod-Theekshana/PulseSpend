@@ -8,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../widgets/group_settle_sheet.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/goal_model.dart';
 import '../../../models/group_model.dart';
@@ -15,13 +17,13 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/currency_provider.dart';
 import '../../../providers/groups_provider.dart';
 import '../../../providers/repository_providers.dart';
-import '../../../providers/wallets_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../goals/screens/contribute_goal_sheet.dart';
 import 'group_transaction_detail_sheet.dart';
 import 'group_analytics_section.dart';
 import 'group_chat_screen.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class _IsExportingNotifier extends Notifier<bool> {
   @override
@@ -48,7 +50,7 @@ class GroupDetailScreen extends ConsumerWidget {
               : 'You\'ll stop seeing this group\'s shared activity.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(group.isOwner ? 'Disband' : 'Leave', style: const TextStyle(color: AppColors.expense)),
@@ -88,7 +90,7 @@ class GroupDetailScreen extends ConsumerWidget {
         content: const Text('They\'ll lose access to the group. Their share of past '
             'expenses stays on the books so balances don\'t change.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove', style: TextStyle(color: AppColors.expense)),
@@ -108,7 +110,7 @@ class GroupDetailScreen extends ConsumerWidget {
         title: Text('Make ${m.displayName} the owner?'),
         content: const Text('They\'ll be able to manage members and the group. You\'ll become a regular member.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Transfer')),
         ],
       ),
@@ -131,8 +133,8 @@ class GroupDetailScreen extends ConsumerWidget {
           decoration: const InputDecoration(labelText: 'Group name'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Save')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(ctx.l10n.actionCancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: Text(ctx.l10n.actionSave)),
         ],
       ),
     );
@@ -284,13 +286,16 @@ class GroupDetailScreen extends ConsumerWidget {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
-                          CircleAvatar(
+                          // Real photo when the member has one, initials on a
+                          // per-user colour otherwise. The owner gets a ring so
+                          // they're identifiable at a glance, not only via the
+                          // badge at the end of the row.
+                          UserAvatar(
+                            name: m.displayName,
+                            photoUrl: m.profilePhoto,
+                            userId: m.userId,
                             radius: 16,
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                            child: Text(
-                              m.displayName.isNotEmpty ? m.displayName[0].toUpperCase() : '?',
-                              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 13),
-                            ),
+                            ringColor: m.isOwner ? AppColors.primary : null,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -440,7 +445,7 @@ class _SettlementsSection extends ConsumerWidget {
           'Both wallets and the group balance snap back.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Undo')),
         ],
       ),
@@ -487,10 +492,10 @@ class _BalancesSection extends ConsumerWidget {
     // Ask which wallet the cash left from, then settle immediately: the balance
     // moves now and real money changes hands (payer's wallet out, payee's default
     // bucket in). Net worth stays flat — the open group position moves the other way.
-    final choice = await showModalBottomSheet<_GroupSettleResult>(
+    final choice = await showModalBottomSheet<GroupSettleResult>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _GroupSettleSheet(toName: s.toName, amount: s.amount, currency: currency),
+      builder: (_) => GroupSettleSheet(toName: s.toName, amount: s.amount, currency: currency),
     );
     if (choice == null) return;
     try {
@@ -989,126 +994,6 @@ class _ErrorCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(message, style: const TextStyle(color: AppColors.expense)),
-    );
-  }
-}
-
-class _GroupSettleResult {
-  /// null = the default cash bucket; >0 = a specific wallet the cash left from.
-  final int? walletId;
-  const _GroupSettleResult(this.walletId);
-}
-
-/// Asks which wallet the payer's settle-up cash came from, then settles. The
-/// chosen wallet moves by the amount via a transfer-excluded leg (not counted as
-/// spending); "Default" uses the untracked cash bucket. The payee's side always
-/// lands in their own default bucket, since we can't know their wallets.
-class _GroupSettleSheet extends ConsumerStatefulWidget {
-  final String toName;
-  final double amount;
-  final String currency;
-  const _GroupSettleSheet({required this.toName, required this.amount, required this.currency});
-
-  @override
-  ConsumerState<_GroupSettleSheet> createState() => _GroupSettleSheetState();
-}
-
-class _GroupSettleSheetState extends ConsumerState<_GroupSettleSheet> {
-  /// 0 = the default bucket; >0 = a specific wallet id.
-  int _selection = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-    final money = ref.watch(moneyFormatterProvider);
-    // The cash has to sit somewhere spendable, so debt accounts are excluded.
-    final wallets = ref
-        .watch(walletsControllerProvider)
-        .items
-        .where((w) => !w.isLiability)
-        .toList();
-
-    Widget chip(String label, int value) {
-      final selected = _selection == value;
-      return GestureDetector(
-        onTap: () => setState(() => _selection = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.primary
-                : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 12.5,
-              color: selected ? Colors.white : textSecondary,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Settle up?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 6),
-          Text(
-            'You paid ${widget.toName} ${money.format(widget.amount, widget.currency)}. '
-            'This settles the balance right away.',
-            style: TextStyle(fontSize: 13, color: textSecondary),
-          ),
-          const SizedBox(height: 16),
-          const Text('Which wallet did it come from?',
-              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              chip('Default', 0),
-              for (final w in wallets) chip(w.name, w.id),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'The wallet drops by the amount — without counting as spending, because '
-            'settling a shared debt is money changing hands, not an expense.',
-            style: TextStyle(
-              fontSize: 11.5,
-              height: 1.35,
-              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () =>
-                  Navigator.pop(context, _GroupSettleResult(_selection == 0 ? null : _selection)),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text('Settle up'),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

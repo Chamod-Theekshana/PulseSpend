@@ -14,6 +14,7 @@ import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_recurring_screen.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class RecurringScreen extends ConsumerWidget {
   const RecurringScreen({super.key});
@@ -25,7 +26,7 @@ class RecurringScreen extends ConsumerWidget {
         title: const Text('Delete recurring rule?'),
         content: Text('"${rule.title}" will no longer auto-generate transactions.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

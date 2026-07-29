@@ -14,6 +14,7 @@ import '../../features/profile/screens/profile_screen.dart';
 import '../../features/recurring/screens/recurring_screen.dart';
 import '../../features/wallets/screens/wallets_screen.dart';
 import '../utils/image_utils.dart';
+import '../../l10n/l10n_ext.dart';
 
 // ──────────────────────────────────────────────────────────
 // Controller – exposes a ValueNotifier so any child widget can
@@ -365,7 +366,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(ctx.l10n.actionCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),

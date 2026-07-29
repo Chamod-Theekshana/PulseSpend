@@ -229,4 +229,64 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get errUnknown => 'Une erreur s\'est produite. Veuillez réessayer.';
+
+  @override
+  String get fieldAmount => 'Montant';
+
+  @override
+  String get fieldCategory => 'Catégorie';
+
+  @override
+  String get fieldWallet => 'Portefeuille';
+
+  @override
+  String get fieldCurrency => 'Devise';
+
+  @override
+  String get fieldTitle => 'Titre';
+
+  @override
+  String get fieldNotes => 'Notes';
+
+  @override
+  String get fieldTags => 'Étiquettes';
+
+  @override
+  String get fieldDefault => 'Par défaut';
+
+  @override
+  String get actionVerify => 'Vérifier';
+
+  @override
+  String get actionUndo => 'Annuler';
+
+  @override
+  String get actionTransfer => 'Transférer';
+
+  @override
+  String get actionExportCsv => 'Exporter le CSV';
+
+  @override
+  String get actionShareImage => 'Partager en image';
+
+  @override
+  String get typeIncome => 'Revenus';
+
+  @override
+  String get typeExpense => 'Dépenses';
+
+  @override
+  String get walletFrom => 'Depuis le portefeuille';
+
+  @override
+  String get walletTo => 'Vers le portefeuille';
+
+  @override
+  String get pickCategory => 'Choisir une catégorie';
+
+  @override
+  String get allCategories => 'Toutes les catégories';
+
+  @override
+  String get allWallets => 'Tous les portefeuilles';
 }

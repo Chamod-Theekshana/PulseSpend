@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 import '../errors/api_exception.dart';
@@ -52,8 +53,25 @@ class DioClient {
   bool _isTransient(DioException error) {
     final status = error.response?.statusCode;
     if (status == 503) return true;
+    // 429 is transient by definition — the server told us to come back. It was
+    // previously surfaced to the UI as a hard failure, which is what made a
+    // shared-Wi-Fi rate-limit trip look like "the connection dropped".
+    if (status == 429) return true;
     return error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.connectionError;
+  }
+
+  /// Honour the server's `Retry-After` when it sends one, otherwise back off
+  /// gently. Jitter keeps several devices that were throttled together from
+  /// retrying in the same instant and tripping the limit all over again.
+  Duration _retryDelay(DioException error, int attempt) {
+    final header = error.response?.headers.value('retry-after');
+    final seconds = header == null ? null : int.tryParse(header.trim());
+    if (seconds != null && seconds > 0) {
+      return Duration(milliseconds: (seconds * 1000).clamp(0, 10000));
+    }
+    final base = 400 * (attempt + 1);
+    return Duration(milliseconds: base + Random().nextInt(300));
   }
 
   InterceptorsWrapper _authInterceptor() {
@@ -90,7 +108,7 @@ class DioClient {
         if (_isTransient(error)) {
           final attempts = (error.requestOptions.extra['retryAttempts'] as int?) ?? 0;
           if (attempts < _maxTransientRetries) {
-            await Future.delayed(Duration(milliseconds: 400 * (attempts + 1)));
+            await Future.delayed(_retryDelay(error, attempts));
             try {
               final opts = error.requestOptions
                 ..extra['retryAttempts'] = attempts + 1;
@@ -104,6 +122,21 @@ class DioClient {
         handler.next(error);
       },
     );
+  }
+
+  /// Public entry point for anything outside Dio that needs a fresh access
+  /// token — notably [SocketService], whose handshake fails once the 15-minute
+  /// access token ages out. Reuses the same single-flight refresh as the HTTP
+  /// interceptor so a socket reconnect and an in-flight request can't race each
+  /// other into two competing refreshes (which would invalidate one another's
+  /// rotated refresh token and log the user out).
+  Future<bool> refreshSession() async {
+    try {
+      await _refreshAccessToken();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Ensures only one refresh call is in-flight at a time. Any request that

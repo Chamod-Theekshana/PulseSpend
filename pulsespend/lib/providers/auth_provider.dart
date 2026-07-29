@@ -3,6 +3,7 @@ import '../core/errors/api_exception.dart';
 import '../core/network/dio_client.dart';
 import '../core/network/socket_service.dart';
 import '../core/notifications/firebase_messaging_service.dart';
+import '../core/storage/outbox_service.dart';
 import '../core/storage/secure_storage.dart';
 import 'repository_providers.dart';
 
@@ -33,6 +34,13 @@ class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
     DioClient.instance.onSessionExpired = _handleSessionExpired;
+    // The socket handshake carries the same 15-minute access token as HTTP
+    // does, so it needs the same refresh path. Without these two hooks an
+    // expired token permanently killed realtime: Socket.IO does not retry
+    // after a middleware rejection, so the client sat in "reconnecting" until
+    // the app was restarted.
+    SocketService.instance.refreshAccessToken = DioClient.instance.refreshSession;
+    SocketService.instance.onSessionExpired = _handleSessionExpired;
     Future.microtask(_bootstrap);
     return const AuthState();
   }
@@ -113,6 +121,10 @@ class AuthController extends Notifier<AuthState> {
   Future<void> logout() async {
     final currentId = state.userId ?? await SecureStorageService.instance.userId;
     SocketService.instance.disconnect();
+    // Queued offline writes are scoped to the account that made them. Now that
+    // the queue survives restarts, it must be dropped here or a pending write
+    // could replay under whichever account signs in next.
+    await OutboxService.instance.clear();
     await ref.read(authRepositoryProvider).logout();
     if (currentId != null) {
       await SecureStorageService.instance.removeAccount(currentId);

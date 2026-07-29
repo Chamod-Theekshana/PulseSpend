@@ -10,6 +10,7 @@ import '../../../shared/widgets/app_text_field.dart';
 import '../widgets/settings_widgets.dart';
 import '../widgets/two_factor_enroll_sheet.dart';
 import 'change_password_screen.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class SecurityScreen extends ConsumerWidget {
   const SecurityScreen({super.key});
@@ -206,7 +207,7 @@ class _DisableTwoFactorDialogState extends ConsumerState<_DisableTwoFactorDialog
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.actionCancel),
         ),
         FilledButton(
           onPressed: _isLoading ? null : _disable,

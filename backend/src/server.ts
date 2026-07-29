@@ -90,12 +90,15 @@ app.use(
   }),
 );
 
+// Health check FIRST — before the logger and the limiter. The platform probes
+// this every few seconds; running it through the shared rate-limit bucket meant
+// health traffic could consume a user's allowance (and, on a bad day, the probe
+// itself could be 429'd and the instance recycled while perfectly healthy).
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
 app.use(requestLogger);
 app.use(rateLimiter);
 app.use(express.json({ limit: '2mb' }));
-
-// Health check (no auth, no rate limit logging noise)
-app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', signupRoutes);
@@ -122,7 +125,7 @@ app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 app.use(errorHandler);
 
 const server = http.createServer(app);
-initSocket(server);
+const io = initSocket(server);
 
 initDB()
   .then(async () => {
@@ -146,11 +149,39 @@ initDB()
     process.exit(1);
   });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received, shutting down gracefully...');
-  server.close(() => {
-    console.log('[Server] Closed.');
-    process.exit(0);
-  });
+// ── Crash guards ──────────────────────────────────────────────────────────────
+// A rejected promise in any fire-and-forget path (`void sendPushToUser(...)`,
+// a scheduler tick, a Redis blip) would otherwise terminate the process on
+// modern Node. Restarting drops every open socket at once, which is precisely
+// the "everyone loses connection together" symptom. Log and stay up.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled promise rejection:', reason);
 });
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught exception:', err);
+});
+
+// Graceful shutdown. Closing Socket.IO first sends every client a clean
+// disconnect, so they reconnect on their own schedule instead of all detecting
+// a dead TCP connection at the same moment and stampeding the new instance.
+let shuttingDown = false;
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Server] ${signal} received, shutting down gracefully...`);
+  const forceExit = setTimeout(() => {
+    console.warn('[Server] Forced exit after shutdown timeout.');
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+
+  io.close(() => {
+    server.close(() => {
+      console.log('[Server] Closed.');
+      process.exit(0);
+    });
+  });
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
