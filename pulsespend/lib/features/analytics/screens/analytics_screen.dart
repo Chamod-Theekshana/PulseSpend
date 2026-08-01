@@ -454,7 +454,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
         boxShadow: [
           if (!isDark)
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
@@ -509,7 +509,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   horizontalInterval: maxY > 0 ? maxY / 4 : 25,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
-                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.withOpacity(0.15),
+                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.15),
                       strokeWidth: 1,
                       dashArray: [5, 5],
                     );
@@ -582,7 +582,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(show: true, color: AppColors.income.withOpacity(0.1)),
+                    belowBarData: BarAreaData(show: true, color: AppColors.income.withValues(alpha: 0.1)),
                   ),
                   LineChartBarData(
                     spots: trend.expenseData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
@@ -602,7 +602,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(show: true, color: AppColors.expense.withOpacity(0.1)),
+                    belowBarData: BarAreaData(show: true, color: AppColors.expense.withValues(alpha: 0.1)),
                   ),
                 ],
               ),
@@ -917,7 +917,7 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
         boxShadow: [
           if (!isDark)
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
@@ -954,7 +954,7 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
                       child: CircularProgressIndicator(
                         value: savingsRate > 0 ? savingsRate / 100 : 0,
                         strokeWidth: 10,
-                        backgroundColor: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF0F2F8),
+                        backgroundColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
                         valueColor: AlwaysStoppedAnimation<Color>(savingsRate >= 20 ? AppColors.income : (savingsRate > 0 ? AppColors.primary : AppColors.expense)),
                         strokeCap: StrokeCap.round,
                       ),
@@ -1093,7 +1093,7 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
         boxShadow: [
           if (!isDark)
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
@@ -1159,7 +1159,7 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                           backDrawRodData: BackgroundBarChartRodData(
                             show: true,
                             toY: 100,
-                            color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF0F2F8),
+                            color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
                           ),
                         ),
                       ],

@@ -8,6 +8,8 @@ import '../../../models/group_model.dart';
 import '../../../providers/groups_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
 import 'group_detail_screen.dart';
+import '../../../l10n/l10n_ext.dart';
+import '../../../shared/widgets/user_avatar.dart';
 
 /// Lists the shared "family" groups the user belongs to, with actions to create
 /// a new group or join one via an invite code.
@@ -182,7 +184,7 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.l10n.actionCancel)),
         FilledButton(onPressed: _submit, child: Text(widget.actionLabel)),
       ],
     );
@@ -215,15 +217,28 @@ class _GroupTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
+              // Faces rather than a generic icon: you recognise your flatmates
+              // group by who is in it, not by a groups glyph repeated on every
+              // row. Falls back to the icon for a group of one.
+              if (group.membersPreview.isNotEmpty)
+                AvatarStack(
+                  backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+                  radius: 15,
+                  people: [
+                    for (final m in group.membersPreview)
+                      (name: m.name, photoUrl: m.profilePhoto, userId: m.userId),
+                  ],
+                )
+              else
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.groups_rounded, color: AppColors.primary),
                 ),
-                child: const Icon(Icons.groups_rounded, color: AppColors.primary),
-              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

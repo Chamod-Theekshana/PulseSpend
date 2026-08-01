@@ -1,5 +1,27 @@
 /// A shared "family" group (backend GroupModel). Members see a combined,
 /// read-only view of everyone's transactions plus a merged summary.
+/// A member as shown in the groups-list avatar stack. Deliberately minimal —
+/// the full [GroupMember] is only fetched when a group is opened.
+class GroupMemberPreview {
+  final String userId;
+  final String name;
+  final String? profilePhoto;
+
+  const GroupMemberPreview({
+    required this.userId,
+    required this.name,
+    this.profilePhoto,
+  });
+
+  factory GroupMemberPreview.fromJson(Map<String, dynamic> json) {
+    return GroupMemberPreview(
+      userId: json['user_id'].toString(),
+      name: (json['name'] as String?) ?? 'Member',
+      profilePhoto: json['profile_photo'] as String?,
+    );
+  }
+}
+
 class GroupModel {
   final int id;
   final String name;
@@ -8,6 +30,9 @@ class GroupModel {
   final int memberCount;
   final String role; // 'owner' | 'member'
 
+  /// Up to 4 members, supplied by the list endpoint for the avatar stack.
+  final List<GroupMemberPreview> membersPreview;
+
   const GroupModel({
     required this.id,
     required this.name,
@@ -15,6 +40,7 @@ class GroupModel {
     required this.inviteCode,
     this.memberCount = 1,
     this.role = 'member',
+    this.membersPreview = const [],
   });
 
   bool get isOwner => role == 'owner';
@@ -26,6 +52,10 @@ class GroupModel {
       ownerId: json['owner_id'].toString(),
       inviteCode: (json['invite_code'] as String?) ?? '',
       memberCount: int.tryParse(json['member_count']?.toString() ?? '') ?? 1,
+      membersPreview: (json['members_preview'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((e) => GroupMemberPreview.fromJson(e.cast<String, dynamic>()))
+          .toList(),
       role: (json['role'] as String?) ?? 'member',
     );
   }
@@ -37,7 +67,16 @@ class GroupMember {
   final String email;
   final String role;
 
-  const GroupMember({required this.userId, required this.name, required this.email, required this.role});
+  /// Avatar URL (Cloudinary) or data URI; null when the member has no photo.
+  final String? profilePhoto;
+
+  const GroupMember({
+    required this.userId,
+    required this.name,
+    required this.email,
+    required this.role,
+    this.profilePhoto,
+  });
 
   String get displayName =>
       (name != null && name!.trim().isNotEmpty) ? name!.trim() : email.split('@').first;
@@ -48,8 +87,11 @@ class GroupMember {
       name: json['name'] as String?,
       email: (json['email'] as String?) ?? '',
       role: (json['role'] as String?) ?? 'member',
+      profilePhoto: json['profile_photo'] as String?,
     );
   }
+
+  bool get isOwner => role == 'owner';
 }
 
 class GroupSummary {

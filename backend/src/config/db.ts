@@ -4,7 +4,39 @@ import 'dotenv/config';
 
 neonConfig.webSocketConstructor = ws;
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+/**
+ * Pool sizing.
+ *
+ * The pool was previously created with only a connection string, so it ran on
+ * the driver default of 10 clients with no timeouts. Under a burst — several
+ * devices reconnecting at once, each firing a socket `join_group` membership
+ * check plus a full REST fan-out — all 10 are checked out, every further query
+ * queues *forever* (no acquire timeout), the request stalls past the client's
+ * 30 s receive timeout, and the app reports a lost connection. Meanwhile an
+ * unhandled `error` event on an idle client would take the whole process down.
+ *
+ * `DB_POOL_MAX` is overridable because the right number depends on the Neon
+ * plan's connection ceiling divided by the number of app instances.
+ */
+const POOL_MAX = Number(process.env.DB_POOL_MAX) || 20;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL!,
+  max: POOL_MAX,
+  // Give idle clients back to Neon rather than holding them open.
+  idleTimeoutMillis: 30_000,
+  // Fail fast with a clear, retryable error instead of queueing indefinitely.
+  connectionTimeoutMillis: 10_000,
+});
+
+// A dropped idle connection emits `error` on the pool. Without a listener,
+// Node treats it as an unhandled 'error' event and terminates the process —
+// which is exactly the sort of thing that shows up as the backend "randomly
+// dying" under load. The pool discards the bad client on its own; we only
+// need to observe it.
+pool.on('error', (err: any) => {
+  console.error('[DB] Idle client error (connection will be recycled):', err?.message);
+});
 
 const DB_QUERY_RETRIES = 1;          // one extra attempt after the first
 const DB_RETRY_BASE_DELAY_MS = 400;
@@ -604,6 +636,11 @@ async function _runMigrations() {
         await sql`ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS metadata JSONB`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id, created_at DESC)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_user ON group_messages(user_id)`;
+        // ChatModel paginates on `id` (`ORDER BY m.id DESC`, `WHERE m.id < $cursor`),
+        // not on created_at — so the created_at index above could not serve it and
+        // every history page fell back to scanning the group's whole message set.
+        // This one matches the query exactly.
+        await sql`CREATE INDEX IF NOT EXISTS idx_group_messages_group_id_desc ON group_messages(group_id, id DESC)`;
 
         await backfillGroupSplits();
 }
@@ -616,13 +653,29 @@ async function _runMigrations() {
  * Idempotent: the NOT EXISTS guard skips anything already backfilled.
  */
 async function backfillGroupSplits(): Promise<void> {
+  // This is a one-time data migration, but it ran a full scan of every shared
+  // transaction on EVERY boot — including every redeploy and every restart —
+  // just to discover there was nothing to do. Record completion in a marker
+  // table so the steady state costs a single indexed lookup.
+  await sql`CREATE TABLE IF NOT EXISTS schema_migrations(
+      name VARCHAR(255) PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`;
+  const MARKER = 'backfill_group_splits_v1';
+  const done = await sql`SELECT 1 FROM schema_migrations WHERE name = ${MARKER}`;
+  if (done.length > 0) return;
+
   const pending = await sql`
     SELECT t.id, t.user_id, t.amount, t.currency, t.group_id
     FROM transactions t
     WHERE t.group_id IS NOT NULL AND t.deleted_at IS NULL AND t.amount < 0
       AND NOT EXISTS (SELECT 1 FROM group_expense_splits s WHERE s.transaction_id = t.id)
   `;
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    await sql`INSERT INTO schema_migrations (name) VALUES (${MARKER})
+              ON CONFLICT (name) DO NOTHING`;
+    return;
+  }
 
   const { deriveGroupSplit } = await import('../utils/financeMath');
   let filled = 0;
@@ -646,4 +699,11 @@ async function backfillGroupSplits(): Promise<void> {
     filled++;
   }
   if (filled > 0) console.log(`[DB] Backfilled group splits for ${filled} shared expense(s).`);
+
+  // Only mark complete once a pass finished without leaving work behind. A row
+  // skipped because its group was disbanded is not an error — those can never
+  // be filled — so the marker is written regardless of `filled`, and the
+  // NOT EXISTS guard inside the loop keeps the whole thing idempotent anyway.
+  await sql`INSERT INTO schema_migrations (name) VALUES (${MARKER})
+            ON CONFLICT (name) DO NOTHING`;
 }

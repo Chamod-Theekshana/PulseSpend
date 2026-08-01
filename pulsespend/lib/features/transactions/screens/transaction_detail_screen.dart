@@ -10,6 +10,7 @@ import '../../../providers/wallets_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class TransactionDetailScreen extends ConsumerWidget {
   final TransactionModel transaction;
@@ -23,7 +24,7 @@ class TransactionDetailScreen extends ConsumerWidget {
         title: const Text('Delete transaction?'),
         content: const Text('This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

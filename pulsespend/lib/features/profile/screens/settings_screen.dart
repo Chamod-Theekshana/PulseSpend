@@ -151,7 +151,7 @@ class SettingsScreen extends ConsumerWidget {
         title: const Text('Sign out?'),
         content: const Text('You can sign back in anytime.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Sign Out', style: TextStyle(color: AppColors.expense)),

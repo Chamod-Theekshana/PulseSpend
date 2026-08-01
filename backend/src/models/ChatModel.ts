@@ -7,7 +7,9 @@ export interface ChatMessage {
   content: string;
   metadata: Record<string, any> | null;
   created_at: Date;
-  sender_name?: string; // from users table join
+  sender_name?: string;  // from users table join
+  sender_photo?: string | null;
+  sender_email?: string | null;
 }
 
 /** Public, camelCase shape the Flutter app's `ChatMessage.fromJson` expects. */
@@ -16,6 +18,8 @@ export interface ChatMessageApi {
   groupId: string;
   senderId: string;
   senderName?: string;
+  /// Cloudinary URL (or data URI) for the sender's avatar; null when unset.
+  senderPhoto?: string | null;
   content: string;
   timestamp: string;
   metadata: Record<string, any> | null;
@@ -29,7 +33,13 @@ export class ChatModel {
       id: String(row.id),
       groupId: String(row.group_id),
       senderId: row.user_id,
-      senderName: row.sender_name,
+      // Fall back to the email's local part so a member who never set a name
+      // still shows something human next to their message rather than a blank.
+      senderName:
+        row.sender_name && row.sender_name.trim()
+          ? row.sender_name
+          : (row.sender_email ? String(row.sender_email).split('@')[0] : undefined),
+      senderPhoto: row.sender_photo ?? null,
       content: row.content,
       timestamp: new Date(row.created_at).toISOString(),
       metadata: row.metadata ?? null,
@@ -54,7 +64,7 @@ export class ChatModel {
         VALUES (${Number(groupId)}, ${userId}, ${content}, ${metadataJson}::jsonb)
         RETURNING *
       )
-      SELECT i.*, u.name as sender_name
+      SELECT i.*, u.name AS sender_name, u.profile_photo AS sender_photo, u.email AS sender_email
       FROM inserted i
       LEFT JOIN users u ON u.id::text = i.user_id
     `;
@@ -69,7 +79,8 @@ export class ChatModel {
   static async getMessages(groupId: number | string, limit: number = 30, beforeId?: number): Promise<ChatMessage[]> {
     if (beforeId) {
       const rows = await sql`
-        SELECT m.*, u.name as sender_name
+        SELECT m.*, u.name AS sender_name, u.profile_photo AS sender_photo,
+               u.email AS sender_email
         FROM group_messages m
         LEFT JOIN users u ON u.id::text = m.user_id
         WHERE m.group_id = ${Number(groupId)} AND m.id < ${beforeId}
@@ -79,7 +90,8 @@ export class ChatModel {
       return rows as ChatMessage[];
     } else {
       const rows = await sql`
-        SELECT m.*, u.name as sender_name
+        SELECT m.*, u.name AS sender_name, u.profile_photo AS sender_photo,
+               u.email AS sender_email
         FROM group_messages m
         LEFT JOIN users u ON u.id::text = m.user_id
         WHERE m.group_id = ${Number(groupId)}

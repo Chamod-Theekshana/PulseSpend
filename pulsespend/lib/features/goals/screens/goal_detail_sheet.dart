@@ -9,6 +9,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../models/goal_model.dart';
 import '../../../providers/goals_provider.dart';
 import '../../../providers/wallets_provider.dart';
+import '../../../l10n/l10n_ext.dart';
 
 /// Contribution timeline for a goal (deposits, auto-contributions, round-ups,
 /// withdrawals) + a Withdraw action. Opened by tapping a goal card.
@@ -110,7 +111,7 @@ class GoalDetailSheet extends ConsumerWidget {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(ctx.l10n.actionCancel)),
             FilledButton(
               onPressed: () {
                 final amt = double.tryParse(controller.text.trim());
@@ -234,7 +235,7 @@ class GoalDetailSheet extends ConsumerWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(ctx.l10n.actionCancel)),
             FilledButton(
               onPressed: () => Navigator.pop(
                 ctx,
@@ -244,7 +245,7 @@ class GoalDetailSheet extends ConsumerWidget {
                   walletId: walletId,
                 ),
               ),
-              child: const Text('Save'),
+              child: Text(ctx.l10n.actionSave),
             ),
           ],
         ),
