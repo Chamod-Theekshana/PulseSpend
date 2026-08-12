@@ -107,7 +107,7 @@ export async function getProfile(req: AuthedRequest, res: Response) {
 }
 
 export async function updateProfile(req: AuthedRequest, res: Response) {
-  let { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled } = req.body;
+  let { name, profile_photo, theme, currency, date_format, language, first_name, surname, date_of_birth, gender, contact_no, biometric_enabled, timezone, tz_offset_minutes } = req.body;
   const userId = String(req.user!.id);
 
   try {
@@ -137,6 +137,8 @@ export async function updateProfile(req: AuthedRequest, res: Response) {
     gender,
     contact_no,
     biometric_enabled,
+    timezone,
+    tz_offset_minutes,
   });
   const { password, ...profile } = user;
 

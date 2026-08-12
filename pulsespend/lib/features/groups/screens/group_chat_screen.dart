@@ -19,6 +19,7 @@ import '../../../providers/transactions_provider.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../widgets/expense_bubble_widget.dart';
 import '../widgets/group_settle_sheet.dart';
+import '../../../core/utils/date_formatter.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   final GroupModel group;
@@ -730,13 +731,11 @@ class _TextBubble extends StatelessWidget {
     this.onRetry,
   });
 
-  String _formatTime(DateTime time) {
-    final h = time.hour;
-    final m = time.minute.toString().padLeft(2, '0');
-    final period = h >= 12 ? 'PM' : 'AM';
-    final hour12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
-    return '$hour12:$m $period';
-  }
+  /// Delegates to [DateFormatter.time], which converts the UTC instant the API
+  /// sends into the device's zone and honours the device's 12h/24h setting.
+  /// The old inline version read `.hour` straight off the parsed UTC value, so
+  /// a message sent at 09:50 in Colombo rendered as 4:20 AM.
+  String _formatTime(DateTime time) => DateFormatter.time(time);
 
   @override
   Widget build(BuildContext context) {

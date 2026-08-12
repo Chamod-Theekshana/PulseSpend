@@ -1,4 +1,3 @@
-import cron from 'node-cron';
 import { RecurringModel } from '../models/RecurringModel';
 import { WalletModel } from '../models/WalletModel';
 import { sql } from '../config/db';
@@ -6,11 +5,14 @@ import { convert } from './exchangeRateService';
 import { sendPushToUser } from './pushService';
 import { emitToUser } from '../socket';
 import { withRetries } from './retry';
+import { scheduleDailyPerUser } from './zonedScheduler';
 
 let isRunning = false;
 
-function toISODate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function toISODate(d: Date, utcFields = false): string {
+  return utcFields
+    ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -20,26 +22,33 @@ function toISODate(d: Date): string {
  * user's `recurring_alerts` preference (see NotificationPreferenceModel).
  */
 export class RecurringReminderScheduler {
+  /** 08:00 in each user's own timezone. */
   static start(): void {
-    console.log('[Recurring Reminder] Scheduling daily upcoming-charge reminders (08:00)');
-    cron.schedule('0 8 * * *', () => {
-      void RecurringReminderScheduler.run();
+    scheduleDailyPerUser('Recurring Reminder', 8, async (user, localDate) => {
+      await RecurringReminderScheduler.run(user.id, localDate);
     });
   }
 
-  static async run(): Promise<void> {
-    if (isRunning) return;
-    isRunning = true;
+  /**
+   * @param onlyUserId Scope to one user (the per-timezone path).
+   * @param localDate  That user's local `YYYY-MM-DD`. "Tomorrow" has to be the
+   *                   user's tomorrow, or the day-before warning arrives on the
+   *                   day of the charge (or two days early) depending on zone.
+   */
+  static async run(onlyUserId?: string, localDate?: string): Promise<void> {
+    if (!onlyUserId) {
+      if (isRunning) return;
+      isRunning = true;
+    }
     try {
-      const now = new Date();
-      const today = toISODate(now);
-      const tmr = new Date(now);
-      tmr.setDate(tmr.getDate() + 1);
-      const tomorrow = toISODate(tmr);
+      const today = localDate ?? toISODate(new Date());
+      const tmr = new Date(`${today}T00:00:00Z`);
+      tmr.setUTCDate(tmr.getUTCDate() + 1);
+      const tomorrow = toISODate(tmr, true);
 
-      const due = await RecurringModel.listDueForReminder(tomorrow, today);
+      const due = await RecurringModel.listDueForReminder(tomorrow, today, onlyUserId);
       if (!due.length) return;
-      console.log(`[Recurring Reminder] Sending ${due.length} upcoming-charge reminder(s)`);
+      if (!onlyUserId) console.log(`[Recurring Reminder] Sending ${due.length} upcoming-charge reminder(s)`);
 
       // Preferred currency per user, memoized across the loop.
       const currencyCache = new Map<string, string>();
@@ -98,7 +107,7 @@ export class RecurringReminderScheduler {
     } catch (err) {
       console.error('[Recurring Reminder] run failed:', err);
     } finally {
-      isRunning = false;
+      if (!onlyUserId) isRunning = false;
     }
   }
 }

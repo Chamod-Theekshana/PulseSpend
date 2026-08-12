@@ -11,6 +11,7 @@ import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
 import '../../../l10n/l10n_ext.dart';
+import '../../../providers/date_format_provider.dart';
 
 class TransactionDetailScreen extends ConsumerWidget {
   final TransactionModel transaction;
@@ -95,7 +96,7 @@ class TransactionDetailScreen extends ConsumerWidget {
                 _DetailRow(
                   icon: Icons.calendar_today_outlined,
                   label: 'Date',
-                  value: DateFormatter.display(transaction.createdAt),
+                  value: DateFormatter.display(transaction.createdAt, pattern: ref.watch(dateFormatProvider)),
                 ),
                 _DetailRow(
                   icon: Icons.payments_outlined,

@@ -15,6 +15,7 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_recurring_screen.dart';
 import '../../../l10n/l10n_ext.dart';
+import '../../../providers/date_format_provider.dart';
 
 class RecurringScreen extends ConsumerWidget {
   const RecurringScreen({super.key});
@@ -287,7 +288,7 @@ class _UpcomingChargesSection extends ConsumerWidget {
                       Text(r.title,
                           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: textPrimary),
                           overflow: TextOverflow.ellipsis),
-                      Text('${whenLabel(r.nextRun)} · ${DateFormatter.display(r.nextRun)}',
+                      Text('${whenLabel(r.nextRun)} · ${DateFormatter.display(r.nextRun, pattern: ref.watch(dateFormatProvider))}',
                           style: TextStyle(fontSize: 11.5, color: textSecondary)),
                     ],
                   ),
@@ -309,7 +310,7 @@ class _UpcomingChargesSection extends ConsumerWidget {
   }
 }
 
-class _RecurringTile extends StatelessWidget {
+class _RecurringTile extends ConsumerWidget {
   final RecurringModel rule;
   final String currency;
   final ValueChanged<bool> onToggle;
@@ -339,7 +340,8 @@ class _RecurringTile extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final datePattern = ref.watch(dateFormatProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -379,7 +381,7 @@ class _RecurringTile extends StatelessWidget {
                       Text(rule.title, style: const TextStyle(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 2),
                       Text(
-                        '${_frequencyLabel(rule.frequency)} · Next: ${DateFormatter.display(rule.nextRun)}',
+                        '${_frequencyLabel(rule.frequency)} · Next: ${DateFormatter.display(rule.nextRun, pattern: datePattern)}',
                         style: TextStyle(fontSize: 12, color: textSecondary),
                       ),
                     ],

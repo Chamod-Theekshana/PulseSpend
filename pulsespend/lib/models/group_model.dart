@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// A shared "family" group (backend GroupModel). Members see a combined,
 /// read-only view of everyone's transactions plus a merged summary.
 /// A member as shown in the groups-list avatar stack. Deliberately minimal —
@@ -162,7 +164,7 @@ class GroupTransaction {
       amount: double.parse(json['amount'].toString()),
       currency: (json['currency'] as String?) ?? 'LKR',
       category: (json['category'] as String?) ?? '',
-      createdAt: DateTime.parse(json['created_at'].toString()),
+      createdAt: AppTime.instant(json['created_at']),
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
       viewerOwed: owed == null ? null : double.tryParse(owed.toString()),
@@ -222,7 +224,7 @@ class GroupTransactionDetail extends GroupTransaction {
       amount: double.parse(json['amount'].toString()),
       currency: (json['currency'] as String?) ?? 'LKR',
       category: (json['category'] as String?) ?? '',
-      createdAt: DateTime.parse(json['created_at'].toString()),
+      createdAt: AppTime.instant(json['created_at']),
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
       viewerOwed: owed == null ? null : double.tryParse(owed.toString()),
@@ -306,7 +308,7 @@ class GroupSettlement {
       amount: double.tryParse(json['amount']?.toString() ?? '') ?? 0,
       currency: (json['currency'] as String?) ?? 'LKR',
       status: (json['status'] as String?) ?? 'confirmed',
-      createdAt: DateTime.parse(json['created_at'].toString()),
+      createdAt: AppTime.instant(json['created_at']),
     );
   }
 }

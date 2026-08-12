@@ -97,6 +97,23 @@ Future<void> refresh() async {
     state = state.copyWith(user: updated);
   }
 
+  /// Pushes the device timezone without touching any user-chosen field.
+  ///
+  /// Kept separate from [update] so a background resume-sync can never race a
+  /// settings change and overwrite it.
+  Future<void> updateTimeZone({
+    required String? timeZone,
+    required int offsetMinutes,
+  }) async {
+    final userId = ref.read(currentUserIdProvider);
+    final updated = await ref.read(profileRepositoryProvider).updateProfile(
+          userId,
+          timeZone: timeZone,
+          tzOffsetMinutes: offsetMinutes,
+        );
+    state = state.copyWith(user: updated);
+  }
+
   Future<void> importData(Map<String, dynamic> data) async {
     final userId = ref.read(currentUserIdProvider);
     await ref.read(profileRepositoryProvider).importData(userId, data);

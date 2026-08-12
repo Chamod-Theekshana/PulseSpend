@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 enum MessageStatus { pending, sent, failed }
 
 class ChatMessage {
@@ -41,9 +43,10 @@ class ChatMessage {
       senderPhoto: json['senderPhoto'] as String?,
       content: json['content'] ?? '',
       status: _statusFromString(json['status']),
-      timestamp: json['timestamp'] != null 
-          ? DateTime.parse(json['timestamp']) 
-          : DateTime.now(),
+      // TIMESTAMP instant from `group_messages.created_at`, serialised as UTC.
+      // Reading `.hour` off the un-converted UTC value is exactly what made
+      // every chat bubble show the wrong time.
+      timestamp: AppTime.instant(json['timestamp']),
       metadata: json['metadata'] != null 
           ? Map<String, dynamic>.from(json['metadata']) 
           : null,

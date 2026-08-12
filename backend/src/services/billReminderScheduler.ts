@@ -1,14 +1,14 @@
-import cron from 'node-cron';
 import { ReminderModel } from '../models/ReminderModel';
 import { sendPushToUser } from './pushService';
 import { emitToUser } from '../socket';
 import { withRetries } from './retry';
+import { scheduleDailyPerUser } from './zonedScheduler';
+import { toISODateHost } from '../utils/time';
 
 let isRunning = false;
 
-function toISODate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/** @deprecated Host-zone date. Kept only for the manual `checkAndSendReminders()` path. */
+const toISODate = toISODateHost;
 
 function formatDueDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
@@ -39,32 +39,48 @@ function buildReminderBody(item: {
 }
 
 export class BillReminderScheduler {
+  /**
+   * Fires at 09:00 **in each user's own timezone**.
+   *
+   * Previously this was a single `cron.schedule('0 9 * * *')`, i.e. 09:00 in the
+   * server's zone — 14:30 for a Colombo user and 04:00 for a New York one. The
+   * zoned scheduler runs hourly instead and hands each user their own local
+   * date, so the `due_date - today = remind_days_before` arithmetic below is
+   * evaluated against the day the user is actually living in.
+   */
   static startDailyReminders(): void {
-    console.log('[Bill Reminder] Starting daily bill reminder cron job (09:00 AM)...');
-
-    // 9:00 AM every day (server local time)
-    cron.schedule('0 9 * * *', async () => {
-      console.log('[Bill Reminder] Running daily reminder check...');
-      await BillReminderScheduler.checkAndSendReminders();
+    scheduleDailyPerUser('Bill Reminder', 9, async (user, localDate) => {
+      await BillReminderScheduler.checkAndSendReminders(localDate, user.id);
     });
   }
 
-  static async checkAndSendReminders(): Promise<void> {
-    if (isRunning) {
-      console.warn('[Bill Reminder] Previous run still in progress, skipping.');
-      return;
-    }
-    isRunning = true;
-    try {
-      const today = toISODate(new Date());
-      const dueRows = await ReminderModel.listDueForReminderDate(today);
-
-      if (!dueRows.length) {
-        console.log('[Bill Reminder] No due reminders for', today);
+  /**
+   * @param forDate  The user's local `YYYY-MM-DD`. Defaults to the host date,
+   *                 which is only correct for a manual/ops invocation.
+   * @param userId   Scope to one user. Omitted means every user (ops path).
+   */
+  static async checkAndSendReminders(forDate?: string, userId?: string): Promise<void> {
+    // The re-entrancy guard only applies to the un-scoped ops path; per-user
+    // runs are already serialised one user at a time by the zoned scheduler,
+    // and blocking them here would drop every user after the first each hour.
+    if (!userId) {
+      if (isRunning) {
+        console.warn('[Bill Reminder] Previous run still in progress, skipping.');
         return;
       }
+      isRunning = true;
+    }
+    try {
+      const today = forDate ?? toISODate(new Date());
+      const dueRows = await ReminderModel.listDueForReminderDate(today, userId);
 
-      console.log(`[Bill Reminder] Sending ${dueRows.length} reminder notification(s) for ${today}`);
+      // NOTE: this used to `return` early when there were no upcoming reminders,
+      // which meant the overdue sweep further down only ran on days that also
+      // happened to have a lead-time reminder. Most days have neither, so
+      // overdue bills went unnotified. Now the two passes are independent.
+      if (dueRows.length) {
+        console.log(`[Bill Reminder] Sending ${dueRows.length} reminder notification(s) for ${today}`);
+      }
 
       for (const item of dueRows) {
         const title = item.remind_days_before === 0 ? 'Bill Due Today' : 'Upcoming Bill Reminder';
@@ -93,7 +109,7 @@ export class BillReminderScheduler {
       }
 
       // ── Overdue bills: fire once when a due date has passed unpaid ──
-      const overdueRows = await ReminderModel.listOverdue(today);
+      const overdueRows = await ReminderModel.listOverdue(today, userId);
       if (overdueRows.length) {
         console.log(`[Bill Reminder] Sending ${overdueRows.length} overdue notification(s) for ${today}`);
         for (const item of overdueRows) {
@@ -121,7 +137,7 @@ export class BillReminderScheduler {
     } catch (err) {
       console.error('[Bill Reminder] Error while checking reminders:', err);
     } finally {
-      isRunning = false;
+      if (!userId) isRunning = false;
     }
   }
 }

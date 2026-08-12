@@ -1,5 +1,6 @@
 import { MAX_AMOUNT } from '../utils/financeMath';
 import { Request, Response, NextFunction } from 'express';
+import { isValidTimeZone, sanitizeOffsetMinutes } from '../utils/time';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -232,7 +233,7 @@ export function validateTransactionBody(req: Request, res: Response, next: NextF
 export const SUPPORTED_LANGUAGES = ['English', 'Sinhala', 'Tamil', 'Spanish', 'French', 'German', 'Hindi'];
 
 export function validateProfileUpdateBody(req: Request, res: Response, next: NextFunction) {
-  const { name, profile_photo, theme, currency, date_format, language, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no } = req.body ?? {};
+  const { name, profile_photo, theme, currency, date_format, language, biometric_enabled, first_name, surname, date_of_birth, gender, contact_no, timezone, tz_offset_minutes } = req.body ?? {};
 
   const allowedDateFormats = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']);
   const allowedLanguages = new Set(SUPPORTED_LANGUAGES);
@@ -299,6 +300,36 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     }
   }
 
+  // Timezone. The client reports these on launch and on resume rather than the
+  // user picking them, so both are accepted as null to mean "clear it" and both
+  // are validated defensively — `timezone` reaches Intl, and a bad offset would
+  // silently skew every scheduled notification for that account.
+  if (timezone !== undefined && timezone !== null) {
+    if (typeof timezone !== 'string' || timezone.trim().length === 0) {
+      return res.status(400).json({ message: 'timezone must be a non-empty IANA identifier' });
+    }
+    const cleaned = timezone.trim();
+    if (cleaned.length > 64) {
+      return res.status(400).json({ message: 'timezone must be 64 characters or fewer' });
+    }
+    if (!isValidTimeZone(cleaned)) {
+      return res.status(400).json({
+        message: 'timezone must be a valid IANA identifier, e.g. Asia/Colombo',
+      });
+    }
+    (req.body as any).timezone = cleaned;
+  }
+
+  if (tz_offset_minutes !== undefined && tz_offset_minutes !== null) {
+    const cleaned = sanitizeOffsetMinutes(tz_offset_minutes);
+    if (cleaned === null) {
+      return res.status(400).json({
+        message: 'tz_offset_minutes must be a whole number of minutes between -900 and 900',
+      });
+    }
+    (req.body as any).tz_offset_minutes = cleaned;
+  }
+
   if (first_name !== undefined) {
     if (typeof first_name !== 'string' || first_name.trim().length > 100) {
       return res.status(400).json({ message: 'first_name must be 100 characters or fewer' });
@@ -350,7 +381,9 @@ export function validateProfileUpdateBody(req: Request, res: Response, next: Nex
     surname === undefined &&
     date_of_birth === undefined &&
     gender === undefined &&
-    contact_no === undefined
+    contact_no === undefined &&
+    timezone === undefined &&
+    tz_offset_minutes === undefined
   ) {
     return res.status(400).json({
       message: 'At least one field is required to update',

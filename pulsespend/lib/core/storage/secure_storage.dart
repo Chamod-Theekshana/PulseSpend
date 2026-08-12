@@ -31,6 +31,7 @@ class SecureStorageService {
   static const _kUserEmail = 'pulsespend_user_email';
   static const _kAccounts = 'pulsespend_accounts';
   static const _kTheme = 'pulsespend_theme';
+  static const _kDateFormat = 'pulsespend_date_format';
   static const _kBiometric = 'pulsespend_biometric_enabled';
   static const _kOnboardingSeen = 'pulsespend_onboarding_seen';
 
@@ -77,6 +78,14 @@ class SecureStorageService {
   /// wrong colour. Kept in sync whenever the profile theme changes.
   Future<String?> get themePref => _storage.read(key: _kTheme);
   Future<void> setThemePref(String value) => _storage.write(key: _kTheme, value: value);
+
+  /// Cached `date_format` preference, read synchronously at bootstrap so dates
+  /// render in the user's chosen order on the very first frame rather than
+  /// briefly showing the `DD/MM/YYYY` default while the profile request is in
+  /// flight. Kept in sync by `dateFormatProvider`.
+  Future<String?> get dateFormatPref => _storage.read(key: _kDateFormat);
+  Future<void> setDateFormatPref(String value) =>
+      _storage.write(key: _kDateFormat, value: value);
 
   /// Device-level app-lock preference. Stored locally (not just on the profile)
   /// so the lock gate can decide whether to challenge on launch/resume without

@@ -28,6 +28,8 @@ class ProfileRepository {
     String? dateFormat,
     String? language,
     bool? biometricEnabled,
+    String? timeZone,
+    int? tzOffsetMinutes,
   }) async {
     try {
       final body = <String, dynamic>{};
@@ -43,6 +45,9 @@ class ProfileRepository {
       if (dateFormat != null) body['date_format'] = dateFormat;
       if (language != null) body['language'] = language;
       if (biometricEnabled != null) body['biometric_enabled'] = biometricEnabled;
+      // Reported by the device, not chosen by the user — see TimeZoneSync.
+      if (timeZone != null) body['timezone'] = timeZone;
+      if (tzOffsetMinutes != null) body['tz_offset_minutes'] = tzOffsetMinutes;
 
       final res = await _dio.put(ApiConfig.profile(userId), data: body);
       return UserModel.fromJson(res.data['profile'] as Map<String, dynamic>);

@@ -18,6 +18,7 @@ import 'add_goal_screen.dart';
 import 'contribute_goal_sheet.dart';
 import 'goal_detail_sheet.dart';
 import '../../../l10n/l10n_ext.dart';
+import '../../../providers/date_format_provider.dart';
 
 class GoalsScreen extends ConsumerWidget {
   const GoalsScreen({super.key});
@@ -140,7 +141,7 @@ class GoalsScreen extends ConsumerWidget {
   }
 }
 
-class _GoalCard extends StatelessWidget {
+class _GoalCard extends ConsumerWidget {
   final GoalModel goal;
   final VoidCallback onContribute;
   final VoidCallback onDelete;
@@ -154,7 +155,8 @@ class _GoalCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final datePattern = ref.watch(dateFormatProvider);
     final pct = (goal.progressPercentage.clamp(0, 100)) / 100;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
@@ -216,7 +218,7 @@ class _GoalCard extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      'Due ${DateFormatter.display(goal.deadline!)}',
+                      'Due ${DateFormatter.display(goal.deadline!, pattern: datePattern)}',
                       style: TextStyle(fontSize: 12, color: textTertiary),
                     ),
                   ),

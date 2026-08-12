@@ -13,6 +13,7 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_reminder_screen.dart';
 import '../../../l10n/l10n_ext.dart';
+import '../../../providers/date_format_provider.dart';
 
 class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});
@@ -169,7 +170,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _ReminderTile extends StatelessWidget {
+class _ReminderTile extends ConsumerWidget {
   final ReminderModel reminder;
   final VoidCallback onDelete;
   final VoidCallback onMarkPaid;
@@ -181,7 +182,10 @@ class _ReminderTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Watching the provider is what makes the tile re-render when the user
+    // changes Settings > Date Format; reading the static alone would not.
+    final datePattern = ref.watch(dateFormatProvider);
     final daysLeft = reminder.daysUntilDue;
     final dueLabel = reminder.isOverdue
         ? '${daysLeft.abs()} day${daysLeft.abs() == 1 ? '' : 's'} overdue'
@@ -222,7 +226,7 @@ class _ReminderTile extends StatelessWidget {
                   Text(reminder.title, style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 2),
                   Text(
-                    '$dueLabel · ${DateFormatter.display(reminder.dueDate)}',
+                    '$dueLabel · ${DateFormatter.display(reminder.dueDate, pattern: datePattern)}',
                     style: TextStyle(
                       fontSize: 12,
                       color: reminder.isOverdue ? AppColors.expense : AppColors.lightTextSecondary,

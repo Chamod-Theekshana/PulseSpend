@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors `UserModel.ts`'s `User` interface (minus `password`, which the
 /// backend always strips before returning via `getProfile`/`updateProfile`).
 class UserModel {
@@ -63,11 +65,12 @@ class UserModel {
       language: (json['language'] as String?) ?? 'English',
       firstName: json['first_name'] as String?,
       surname: json['surname'] as String?,
-      dob: json['date_of_birth'] != null ? DateTime.tryParse(json['date_of_birth'].toString()) : null,
+      // `users.date_of_birth` is a DATE — a birthday does not move with zones.
+      dob: AppTime.calendarDateOrNull(json['date_of_birth']),
       gender: json['gender'] as String?,
       contactNo: json['contact_no'] as String?,
       biometricEnabled: json['biometric_enabled'] == true,
-      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+      createdAt: AppTime.instantOrNull(json['created_at']),
       roundupGoalId:
           json['roundup_goal_id'] != null ? int.tryParse(json['roundup_goal_id'].toString()) : null,
       roundupTo: json['roundup_to'] != null ? int.tryParse(json['roundup_to'].toString()) : null,
@@ -75,7 +78,7 @@ class UserModel {
           ? int.tryParse(json['roundup_wallet_id'].toString())
           : null,
       deletionRequestedAt: json['deletion_requested_at'] != null
-          ? DateTime.tryParse(json['deletion_requested_at'].toString())
+          ? AppTime.instantOrNull(json['deletion_requested_at'])
           : null,
     );
   }

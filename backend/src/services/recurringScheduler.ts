@@ -8,6 +8,7 @@ import { checkBudgetAlert } from '../controllers/transactionsController';
 import { sendPushToUser } from './pushService';
 import { emitToUser } from '../socket';
 import { withRetries } from './retry';
+import { localISODate } from '../utils/time';
 
 /**
  * Materializes a recurring TRANSFER rule (to_wallet_id set): one −/+ pair,
@@ -176,6 +177,23 @@ async function processRecurringTransactions(): Promise<void> {
 
     console.log(`[Recurring] Processing ${dueItems.length} due recurrence(s)...`);
 
+    // The generated transaction is dated with the *user's* local day. The old
+    // `new Date().toISOString().slice(0, 10)` was the UTC date, so a charge
+    // materialised at 02:00 in Colombo was filed under the previous day and
+    // landed in the wrong month's budget at a month boundary.
+    const zoneCache = new Map<string, { timezone: string | null; tz_offset_minutes: number | null }>();
+    const localDateFor = async (userId: string): Promise<string> => {
+      let zone = zoneCache.get(userId);
+      if (!zone) {
+        const rows = await sql`
+          SELECT timezone, tz_offset_minutes FROM users WHERE id = ${userId}
+        `;
+        zone = (rows[0] as any) ?? { timezone: null, tz_offset_minutes: null };
+        zoneCache.set(userId, zone!);
+      }
+      return localISODate(zone!);
+    };
+
     for (const item of dueItems) {
       try {
         // Transfer-shaped rules move money between wallets instead of posting
@@ -186,13 +204,17 @@ async function processRecurringTransactions(): Promise<void> {
           continue;
         }
 
+        // Resolved once, outside the retry closure — a retry that straddled
+        // local midnight would otherwise file the two attempts on different days.
+        const postingDate = await localDateFor(String(item.user_id));
+
         const tx = await withRetries(
           () => TransactionModel.create(
             item.user_id,
             item.title,
             Number(item.amount),
             item.category,
-            new Date().toISOString().slice(0, 10),
+            postingDate,
             item.currency || 'LKR',
             null,        // receiptUrl
             undefined,   // splits
