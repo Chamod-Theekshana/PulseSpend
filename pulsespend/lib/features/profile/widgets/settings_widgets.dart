@@ -220,7 +220,7 @@ class SettingsSwitchTile extends StatelessWidget {
           const SizedBox(width: 8),
           Switch.adaptive(
             value: value,
-            activeThumbColor: AppColors.primary,
+            activeThumbColor: const Color.fromARGB(255, 252, 252, 252),
             onChanged: onChanged,
           ),
         ],

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../design_system/ds.dart';
 import '../../../providers/categories_provider.dart';
 import '../../../providers/transactions_provider.dart';
 import '../../../providers/wallets_provider.dart';
@@ -21,7 +21,7 @@ Future<TransactionFilters?> showTransactionFilterSheet(
     isScrollControlled: true,
     backgroundColor: Theme.of(context).scaffoldBackgroundColor,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppTokens.radiusHero)),
     ),
     builder: (_) => _TransactionFilterSheet(current: current),
   );
@@ -99,47 +99,35 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    final textPrimary = t.textPrimary;
     final categories = ref.watch(categoriesControllerProvider).items;
     final names = {for (final c in categories) c.name}.toList()..sort();
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 8,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppTokens.screenPadding,
+        right: AppTokens.screenPadding,
+        top: AppTokens.space8,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.space24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Text(
-            'Filters',
-            style: TextStyle(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 20),
+          // The sheet's grab handle comes from bottomSheetTheme (showDragHandle),
+          // so this no longer draws a second one of its own.
+          Text('Filters', style: theme.textTheme.titleLarge),
+          const SizedBox(height: AppTokens.space20),
 
           _label('Category', textPrimary),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-              borderRadius: BorderRadius.circular(8),
-            ),
+          const SizedBox(height: AppTokens.space8),
+          DsCard(
+            emphasis: DsCardEmphasis.nested,
+            borderColor: t.border,
+            radius: AppTokens.radiusButton,
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.space16),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String?>(
                 value: (_category != null && names.contains(_category)) ? _category : null,
@@ -153,7 +141,7 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppTokens.space16),
 
           // Wallet filter — only offered once wallets exist.
           Consumer(builder: (context, ref, _) {
@@ -163,13 +151,12 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _label('Wallet', textPrimary),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                const SizedBox(height: AppTokens.space8),
+                DsCard(
+                  emphasis: DsCardEmphasis.nested,
+                  borderColor: t.border,
+                  radius: AppTokens.radiusButton,
+                  padding: const EdgeInsets.symmetric(horizontal: AppTokens.space16),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<int?>(
                       value: _walletId == null || _walletId == 0 || wallets.any((w) => w.id == _walletId)
@@ -187,61 +174,52 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: AppTokens.space16),
               ],
             );
           }),
 
           _label('Date range', textPrimary),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space8),
           Row(
             children: [
               Expanded(child: _dateField(label: 'From', value: _from, onTap: () => _pickDate(isFrom: true))),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppTokens.space12),
               Expanded(child: _dateField(label: 'To', value: _to, onTap: () => _pickDate(isFrom: false))),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppTokens.space16),
 
           _label('Amount range', textPrimary),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space8),
           Row(
             children: [
               Expanded(child: _amountField(_minController, 'Min')),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppTokens.space12),
               Expanded(child: _amountField(_maxController, 'Max')),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppTokens.space8),
           Text(
             'Amounts are signed — use negative values for expenses (e.g. -1000).',
-            style: TextStyle(
-              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-              fontSize: 11.5,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: t.textTertiary),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppTokens.space24),
 
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: DsPrimaryButton(
+                  label: 'Clear',
                   onPressed: _clear,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Clear'),
+                  variant: DsButtonVariant.ghost,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppTokens.space12),
               Expanded(
-                child: FilledButton(
+                child: DsPrimaryButton(
+                  label: 'Apply',
                   onPressed: _apply,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Apply'),
                 ),
               ),
             ],
@@ -253,23 +231,22 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
 
   Widget _label(String text, Color color) => Text(
         text,
-        style: TextStyle(color: color, fontSize: 13.5, fontWeight: FontWeight.w700),
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(color: color),
       );
 
+  // Both field builders below drop their local border / padding overrides: the
+  // global inputDecorationTheme already fills, rounds and outlines every field,
+  // so the date pickers and the amount inputs now match each other and the
+  // search field on the list screen.
   Widget _dateField({required String label, required DateTime? value, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppTokens.radiusButton),
       child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        ),
+        decoration: InputDecoration(labelText: label),
         child: Text(
           value != null ? DateFormat('yyyy-MM-dd').format(value) : 'Any',
-          style: const TextStyle(fontSize: 14),
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
     );
@@ -280,12 +257,7 @@ class _TransactionFilterSheetState extends ConsumerState<_TransactionFilterSheet
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]'))],
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
+      decoration: InputDecoration(labelText: label),
     );
   }
 }

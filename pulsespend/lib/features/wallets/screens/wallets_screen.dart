@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/wallet_model.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../providers/wallets_provider.dart';
@@ -60,16 +60,18 @@ class WalletsScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Wallets'),
+      // Same header treatment as every other non-dashboard screen.
+      appBar: DsTitleAppBar(
+        title: 'Wallets',
         actions: [
           // Move money between wallets (recorded as a −/+ transfer pair that
           // stays out of income/expense analytics).
           if (state.items.isNotEmpty)
-            IconButton(
+            DsHeaderIconButton(
               tooltip: 'Transfer between wallets',
-              icon: const Icon(Icons.swap_horiz_rounded),
-              onPressed: () => showModalBottomSheet<void>(
+              icon: Icons.swap_horiz_rounded,
+              filled: true,
+              onTap: () => showModalBottomSheet<void>(
                 context: context,
                 isScrollControlled: true,
                 builder: (_) => const _TransferSheet(),
@@ -83,7 +85,7 @@ class WalletsScreen extends ConsumerWidget {
         label: const Text('New wallet'),
       ),
       body: state.isLoading && state.items.isEmpty
-          ? const Center(child: AppLoader(size: 40))
+          ? const _WalletsSkeleton()
           : state.items.isEmpty
               ? const EmptyState(
                   icon: Icons.account_balance_wallet_outlined,
@@ -96,9 +98,14 @@ class WalletsScreen extends ConsumerWidget {
                   color: AppColors.primary,
                   onRefresh: () => ref.read(walletsControllerProvider.notifier).refresh(),
                   child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppTokens.screenPadding,
+                      AppTokens.space12,
+                      AppTokens.screenPadding,
+                      100,
+                    ),
                     itemCount: state.items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: AppTokens.space12),
                     itemBuilder: (context, i) {
                       final w = state.items[i];
                       return _WalletCard(
@@ -113,6 +120,27 @@ class WalletsScreen extends ConsumerWidget {
                     },
                   ),
                 ),
+    );
+  }
+}
+
+/// Placeholder shaped like the wallet list it stands in for, so the page keeps
+/// its geometry instead of collapsing around a spinner.
+class _WalletsSkeleton extends StatelessWidget {
+  const _WalletsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(
+        AppTokens.screenPadding,
+        AppTokens.space12,
+        AppTokens.screenPadding,
+        100,
+      ),
+      itemCount: 4,
+      separatorBuilder: (_, _) => const SizedBox(height: AppTokens.space12),
+      itemBuilder: (_, _) => const DsCardRowSkeleton(height: 86, count: 1),
     );
   }
 }
@@ -135,139 +163,132 @@ class _WalletCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     final b = balance;
     final isLiability = wallet.isLiability;
     final owed = b?.amountOwed ?? 0;
     final progress = b?.payoffProgress;
     final cur = b?.displayCurrency ?? wallet.currency;
+    // Debt wears the danger accent, an asset the brand accent — the same rule
+    // the headline figure below follows.
+    final accent = isLiability ? tk.danger : AppColors.primary;
 
     String money(double v) => v.toStringAsFixed(0);
 
-    return Material(
-      color: isDark ? AppColors.darkSurface : Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-          ),
-          child: Column(
+    return DsCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(AppTokens.space16),
+      child: Column(
+        // Stretch so the payoff bar and the badge wrap below get the card's full
+        // width rather than shrinking to their own content.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: (isLiability ? AppColors.expense : AppColors.primary)
-                          .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(wallet.icon,
-                        color: isLiability ? AppColors.expense : AppColors.primary, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(wallet.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${wallet.type[0].toUpperCase()}${wallet.type.substring(1)} · ${wallet.currency}',
-                          style: TextStyle(fontSize: 12, color: textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (b != null)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          // An overpaid debt reads as credit; a cleared one as
-                          // finished (loan) or settled (card) — never "owe 0".
-                          b.isOverpaid
-                              ? 'credit ${money(b.creditBalance)}'
-                              : b.isPaidOff
-                                  ? (wallet.type == 'loan' ? 'PAID OFF 🎉' : 'All clear ✓')
-                                  : (isLiability ? 'owe ${money(owed)}' : money(b.balance)),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                            color: b.isOverpaid || b.isPaidOff
-                                ? AppColors.income
-                                : (isLiability
-                                    ? AppColors.expense
-                                    : (b.balance < 0 ? AppColors.expense : null)),
-                          ),
-                        ),
-                        Text(cur, style: TextStyle(fontSize: 10.5, color: textSecondary)),
-                      ],
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded,
-                        size: 20, color: AppColors.expense),
-                    onPressed: onDelete,
-                  ),
-                ],
-              ),
-              // Debt is the net of opposite flows; naming them makes the number
-              // self-explanatory. What was borrowed is kept apart from what was
-              // charged since — lumping them reads as "you spent 105,000" when
-              // 100,000 of it was the loan itself.
-              if (isLiability && b != null) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 2,
+              DsIconChip(icon: wallet.icon, color: accent),
+              const SizedBox(width: AppTokens.space12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (b.borrowed > 0)
-                      _Flow(label: 'borrowed', value: money(b.borrowed), color: textSecondary),
-                    if (b.charged > 0)
-                      _Flow(label: 'charged', value: money(b.charged), color: textSecondary),
-                    if (b.repaid > 0)
-                      _Flow(label: 'repaid', value: money(b.repaid), color: textSecondary),
-                    if (b.availableCredit != null)
-                      _Flow(
-                        label: 'available',
-                        value: '${money(b.availableCredit!)} of ${money(b.wallet.creditLimit ?? 0)}',
-                        color: textSecondary,
-                      ),
+                    Text(
+                      wallet.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${wallet.type[0].toUpperCase()}${wallet.type.substring(1)} · ${wallet.currency}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(color: tk.textSecondary),
+                    ),
                   ],
                 ),
-                if (progress != null) ...[
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 5,
-                      backgroundColor: AppColors.expense.withValues(alpha: 0.15),
-                      valueColor: const AlwaysStoppedAnimation(AppColors.income),
+              ),
+              if (b != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      // An overpaid debt reads as credit; a cleared one as
+                      // finished (loan) or settled (card) — never "owe 0".
+                      b.isOverpaid
+                          ? 'credit ${money(b.creditBalance)}'
+                          : b.isPaidOff
+                              ? (wallet.type == 'loan' ? 'PAID OFF 🎉' : 'All clear ✓')
+                              : (isLiability ? 'owe ${money(owed)}' : money(b.balance)),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: b.isOverpaid || b.isPaidOff
+                            ? tk.success
+                            : (isLiability
+                                ? tk.danger
+                                : (b.balance < 0 ? tk.danger : null)),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${(progress * 100).toStringAsFixed(0)}% paid off · '
-                      '${money(b.borrowed)} $cur borrowed'
-                      '${b.charged > 0 ? ' · ${money(b.charged)} in charges' : ''}',
-                      style: TextStyle(fontSize: 11, color: textSecondary),
+                    const SizedBox(height: 1),
+                    Text(
+                      cur,
+                      style: theme.textTheme.labelSmall?.copyWith(color: tk.textTertiary),
                     ),
-                  ),
-                ],
-              ],
+                  ],
+                ),
+              DsHeaderIconButton(
+                icon: Icons.delete_outline_rounded,
+                color: tk.danger,
+                onTap: onDelete,
+              ),
             ],
           ),
-        ),
+          // Debt is the net of opposite flows; naming them makes the number
+          // self-explanatory. What was borrowed is kept apart from what was
+          // charged since — lumping them reads as "you spent 105,000" when
+          // 100,000 of it was the loan itself.
+          if (isLiability && b != null) ...[
+            const SizedBox(height: AppTokens.space12),
+            Wrap(
+              spacing: AppTokens.space8,
+              runSpacing: 6,
+              children: [
+                if (b.borrowed > 0)
+                  _Flow(label: 'borrowed', value: money(b.borrowed), color: tk.textSecondary),
+                if (b.charged > 0)
+                  _Flow(label: 'charged', value: money(b.charged), color: tk.danger),
+                if (b.repaid > 0)
+                  _Flow(label: 'repaid', value: money(b.repaid), color: tk.success),
+                if (b.availableCredit != null)
+                  _Flow(
+                    label: 'available',
+                    value: '${money(b.availableCredit!)} of ${money(b.wallet.creditLimit ?? 0)}',
+                    color: AppColors.primary,
+                  ),
+              ],
+            ),
+            if (progress != null) ...[
+              const SizedBox(height: AppTokens.space12),
+              DsProgressBar(
+                value: progress,
+                // Paying a debt down is progress, so it stays green all the way
+                // up rather than running the budget warning ramp.
+                color: tk.success,
+                trackColor: tk.dangerBg,
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${(progress * 100).toStringAsFixed(0)}% paid off · '
+                  '${money(b.borrowed)} $cur borrowed'
+                  '${b.charged > 0 ? ' · ${money(b.charged)} in charges' : ''}',
+                  style: theme.textTheme.labelSmall?.copyWith(color: tk.textSecondary),
+                ),
+              ),
+            ],
+          ],
+        ],
       ),
     );
   }
@@ -283,7 +304,7 @@ class _Flow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text('$label $value', style: TextStyle(fontSize: 11.5, color: color));
+    return DsBadge(label: '$label $value', color: color, dense: true);
   }
 }
 
@@ -304,8 +325,8 @@ class _DrawdownChoice extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     final balances = ref.watch(walletBalancesProvider).asData?.value ?? const <WalletBalance>[];
     // The money can only land somewhere it can be spent from.
     final destinations = balances.where((b) => !b.wallet.isLiability).toList();
@@ -314,8 +335,8 @@ class _DrawdownChoice extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: AppTokens.space8,
+          runSpacing: AppTokens.space8,
           children: [
             _DrawdownOption(
               label: 'Already spent it',
@@ -330,19 +351,19 @@ class _DrawdownChoice extends ConsumerWidget {
               ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: AppTokens.space8),
         Text(
           selected == null
               ? 'This is debt you already owe — the money\'s gone. Your net worth drops by it.'
               : 'The cash lands there and the debt is recorded here. Your net worth doesn\'t '
                   'change — spend it from that wallet, and this one tracks what\'s left to repay.',
-          style: TextStyle(fontSize: 11.5, height: 1.35, color: textTertiary),
+          style: theme.textTheme.bodySmall?.copyWith(color: tk.textTertiary),
         ),
         if (destinations.isEmpty) ...[
           const SizedBox(height: 6),
           Text(
             'Create a cash or bank wallet first if the money landed somewhere.',
-            style: TextStyle(fontSize: 11.5, color: textTertiary),
+            style: theme.textTheme.bodySmall?.copyWith(color: tk.textTertiary),
           ),
         ],
       ],
@@ -359,29 +380,11 @@ class _DrawdownOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
+    return DsFilterChip(
+      label: label,
+      selected: selected,
+      showChevron: false,
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primary
-              : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 12.5,
-            color: selected
-                ? Colors.white
-                : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -441,50 +444,54 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppTokens.screenPadding,
+        right: AppTokens.screenPadding,
+        top: AppTokens.space16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.space24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.swap_horiz_rounded, color: AppColors.primary),
-              SizedBox(width: 10),
-              Text('Transfer between wallets',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const DsIconChip(
+                icon: Icons.swap_horiz_rounded,
+                color: AppColors.primary,
+                size: 38,
+                iconSize: 19,
+              ),
+              const SizedBox(width: AppTokens.space12),
+              Expanded(
+                child: Text('Transfer between wallets', style: theme.textTheme.titleLarge),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppTokens.space8),
           Text(
             'Moves money without counting as income or spending.',
-            style: TextStyle(
-              fontSize: 12.5,
-              color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: tk.textSecondary),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTokens.space16),
           WalletDropdown(
             label: 'From wallet',
             value: _fromId,
             excludeId: _toId,
             onChanged: (v) => setState(() => _fromId = v),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppTokens.space12),
           WalletDropdown(
             label: 'To wallet',
             value: _toId,
             excludeId: _fromId,
             onChanged: (v) => setState(() => _toId = v),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppTokens.space12),
           TextField(
             controller: _amountController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -505,34 +512,39 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
               return const SizedBox.shrink();
             }
             return Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, size: 13, color: AppColors.warning),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      '${from.wallet.name} only has ${from.balance.toStringAsFixed(0)} '
-                      '${from.displayCurrency} — this transfer will overdraw it.',
-                      style: const TextStyle(
-                          fontSize: 11.5, color: AppColors.warning, fontWeight: FontWeight.w700),
+              padding: const EdgeInsets.only(top: AppTokens.space8),
+              child: DsCard(
+                emphasis: DsCardEmphasis.outlined,
+                color: tk.warningBg,
+                borderColor: tk.warningAccent.withValues(alpha: 0.35),
+                radius: AppTokens.radiusCardSm,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.space12,
+                  vertical: AppTokens.space8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, size: 15, color: tk.warningAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${from.wallet.name} only has ${from.balance.toStringAsFixed(0)} '
+                        '${from.displayCurrency} — this transfer will overdraw it.',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: tk.warningAccent,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             );
           }),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving ? null : _submit,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: Text(_saving ? 'Transferring…' : 'Transfer'),
-            ),
+          const SizedBox(height: AppTokens.space20),
+          DsPrimaryButton(
+            label: _saving ? 'Transferring…' : 'Transfer',
+            onPressed: _saving ? null : _submit,
           ),
         ],
       ),
@@ -656,13 +668,14 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppTokens.screenPadding,
+        right: AppTokens.screenPadding,
+        top: AppTokens.space16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.space24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -670,19 +683,19 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
         children: [
           Text(
             widget.existing == null ? 'New wallet' : 'Edit wallet',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            style: theme.textTheme.titleLarge,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTokens.space16),
           TextField(
             controller: _nameController,
             autofocus: widget.existing == null,
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(labelText: 'Name', hintText: 'e.g. BOC Savings'),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTokens.space16),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: AppTokens.space8,
+            runSpacing: AppTokens.space8,
             children: [
               for (final t in const [
                 ('cash', 'Cash'),
@@ -692,47 +705,26 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
                 ('investment', 'Investment'),
                 ('loan', 'Loan'),
               ])
-                GestureDetector(
+                DsFilterChip(
+                  label: t.$2,
+                  selected: _type == t.$1,
+                  showChevron: false,
                   onTap: () => setState(() => _type = t.$1),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _type == t.$1
-                          ? AppColors.primary
-                          : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      t.$2,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: _type == t.$1
-                            ? Colors.white
-                            : (isDark
-                                ? AppColors.darkTextSecondary
-                                : AppColors.lightTextSecondary),
-                      ),
-                    ),
-                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppTokens.space8),
           Text(
             'Credit, card & loan wallets count as liabilities in your net worth.',
-            style: TextStyle(
-              fontSize: 11.5,
-              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: tk.textTertiary),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTokens.space16),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.space16),
             decoration: BoxDecoration(
-              border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-              borderRadius: BorderRadius.circular(12),
+              color: tk.surfaceAlt,
+              border: Border.all(color: tk.border),
+              borderRadius: BorderRadius.circular(AppTokens.radiusButton),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
@@ -748,7 +740,7 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
           // Credit/card wallets can carry a spending ceiling; the backend
           // refuses a charge that would push the amount owed past it.
           if (_takesLimit) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: AppTokens.space16),
             TextField(
               controller: _limitController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -765,7 +757,7 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
           // zero. Create-only — re-seeding on edit would double-count; the
           // wallet detail screen corrects it afterwards instead.
           if (widget.existing == null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: AppTokens.space16),
             TextField(
               controller: _openingController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -776,25 +768,22 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
                 prefixText: '$_currency ',
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppTokens.space8),
             Text(
               _isLiability
                   ? "Starts this wallet as a debt you owe. It lowers your net worth without counting as spending."
                   : "Money already in this wallet. It raises your net worth without counting as income.",
-              style: TextStyle(
-                fontSize: 11.5,
-                color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: tk.textTertiary),
             ),
             // Borrowing puts real cash somewhere. Saying where records the debt
             // and the money together, so net worth doesn't move and the user
             // spends from the wallet it landed in — the loan just tracks what's
             // owed. Without this the debt exists and the cash never does.
             if (_canDrawDown && (double.tryParse(_openingController.text.trim()) ?? 0) > 0) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: AppTokens.space16),
               Text('Where did the money go?',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
-              const SizedBox(height: 8),
+                  style: theme.textTheme.labelMedium?.copyWith(color: tk.textSecondary)),
+              const SizedBox(height: AppTokens.space8),
               _DrawdownChoice(
                 selected: _drawdownWalletId,
                 currency: _currency,
@@ -802,17 +791,10 @@ class _WalletEditorSheetState extends ConsumerState<WalletEditorSheet> {
               ),
             ],
           ],
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: Text(_saving ? 'Saving…' : (widget.existing == null ? 'Create' : 'Save')),
-            ),
+          const SizedBox(height: AppTokens.space20),
+          DsPrimaryButton(
+            label: _saving ? 'Saving…' : (widget.existing == null ? 'Create' : 'Save'),
+            onPressed: _saving ? null : _save,
           ),
         ],
       ),

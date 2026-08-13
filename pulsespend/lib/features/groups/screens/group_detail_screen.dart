@@ -663,7 +663,7 @@ class _GroupGoalsSection extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: isDark ? AppColors.darkSurface : Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                 ),
                 child: Row(
                   children: [
@@ -678,7 +678,7 @@ class _GroupGoalsSection extends ConsumerWidget {
                             value: progress,
                             strokeWidth: 4,
                             backgroundColor:
-                                (isDark ? AppColors.darkBorder : const Color(0xFFEDEDED)),
+                                (isDark ? AppColors.darkBorder : AppColors.lightBorder),
                             valueColor: AlwaysStoppedAnimation(
                               g.isCompleted ? AppColors.income : AppColors.primary,
                             ),
@@ -861,7 +861,7 @@ class _InviteCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkSurface : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFF1F1F1)),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
       ),
       child: Row(
         children: [

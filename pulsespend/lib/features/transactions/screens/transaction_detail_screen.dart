@@ -4,6 +4,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/transactions_provider.dart';
 import '../../../providers/wallets_provider.dart';
@@ -47,6 +48,8 @@ class TransactionDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final wallets = ref.watch(walletsControllerProvider).items;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transaction Details'),
@@ -65,31 +68,41 @@ class TransactionDetailScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(AppTokens.screenPadding),
           children: [
-            Center(
-              child: Column(
-                children: [
-                  CategoryIcon(category: transaction.category, size: 64),
-                  const SizedBox(height: 16),
-                  Text(
-                    transaction.title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    CurrencyFormatter.format(transaction.amount, transaction.currency, showSign: true),
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: transaction.isExpense ? AppColors.expense : AppColors.income,
+            // Hero: the one figure this screen exists for. It carries the
+            // shadow, the padding and the weight — everything below it is
+            // deliberately flatter and quieter.
+            DsCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppTokens.space20,
+                vertical: AppTokens.space24,
+              ),
+              child: Center(
+                child: Column(
+                  children: [
+                    CategoryIcon(category: transaction.category, size: 64),
+                    const SizedBox(height: AppTokens.space16),
+                    Text(
+                      transaction.title,
+                      style: theme.textTheme.titleLarge,
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: AppTokens.space12),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: DsAmountText(
+                        text: CurrencyFormatter.format(transaction.amount, transaction.currency, showSign: true),
+                        amount: transaction.amount,
+                        fontSize: 34,
+                        showArrow: false,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: AppTokens.space24),
             _DetailCard(
               children: [
                 _DetailRow(icon: Icons.category_outlined, label: 'Category', value: transaction.category),
@@ -118,9 +131,9 @@ class TransactionDetailScreen extends ConsumerWidget {
               ],
             ),
             if (transaction.isSplit) ...[
-              const SizedBox(height: 16),
-              Text('Split breakdown', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTokens.space24),
+              const DsSectionHeader(title: 'Split breakdown', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
               _DetailCard(
                 children: transaction.splits
                     .map((s) => _DetailRow(
@@ -132,44 +145,42 @@ class TransactionDetailScreen extends ConsumerWidget {
               ),
             ],
             if (transaction.notes != null && transaction.notes!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Notes', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              Container(
+              const SizedBox(height: AppTokens.space24),
+              const DsSectionHeader(title: 'Notes', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
+              DsCard(
                 width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.darkSurfaceAlt
-                      : AppColors.lightSurfaceAlt,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(transaction.notes!),
+                emphasis: DsCardEmphasis.nested,
+                radius: AppTokens.radiusCardSm,
+                padding: const EdgeInsets.all(AppTokens.space16),
+                child: Text(transaction.notes!, style: theme.textTheme.bodyMedium),
               ),
             ],
             if (transaction.tags.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Tags', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTokens.space24),
+              const DsSectionHeader(title: 'Tags', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: transaction.tags.map((t) => Chip(label: Text('#$t'))).toList(),
+                spacing: AppTokens.space8,
+                runSpacing: AppTokens.space8,
+                children: transaction.tags
+                    .map((t) => DsBadge(label: '#$t', color: AppColors.primary))
+                    .toList(),
               ),
             ],
             if (transaction.receiptUrl != null && transaction.receiptUrl!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Receipt', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTokens.space24),
+              const DsSectionHeader(title: 'Receipt', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
               InkWell(
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => _ReceiptViewer(url: transaction.receiptUrl!),
                   ),
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppTokens.radiusCard),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(AppTokens.radiusCard),
                   child: Image(
                     image: getProfileImageProvider(transaction.receiptUrl!),
                     height: 180,
@@ -178,10 +189,11 @@ class TransactionDetailScreen extends ConsumerWidget {
                     errorBuilder: (_, _, _) => Container(
                       height: 80,
                       alignment: Alignment.center,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.darkSurfaceAlt
-                          : AppColors.lightSurfaceAlt,
-                      child: const Text('Receipt unavailable'),
+                      color: tk.surfaceAlt,
+                      child: Text(
+                        'Receipt unavailable',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                   ),
                 ),
@@ -220,14 +232,15 @@ class _DetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+    // Nested emphasis: flat, no shadow. The metadata is reference material, not
+    // the point of the screen — the amount above it is.
+    return DsCard(
+      emphasis: DsCardEmphasis.nested,
+      radius: AppTokens.radiusCardSm,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.space16,
+        vertical: AppTokens.space4,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(children: children),
     );
   }
@@ -242,17 +255,24 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-    final primary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: AppTokens.space8),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: secondary),
-          const SizedBox(width: 12),
-          Expanded(child: Text(label, style: TextStyle(color: secondary))),
-          Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: primary)),
+          DsIconChip(icon: icon, color: AppColors.primary, size: 32, iconSize: 16),
+          const SizedBox(width: AppTokens.space12),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(color: tk.textSecondary),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
         ],
       ),
     );

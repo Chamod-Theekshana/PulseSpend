@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/analytics_model.dart';
 import '../../../providers/analytics_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -29,18 +30,16 @@ class AnalyticsScreen extends ConsumerWidget {
     final analyticsAsync = ref.watch(analyticsSummaryProvider(period));
 
     return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+      // Ground colour from the theme so light and dark stay in step with the
+      // rest of the app rather than pinning two hexes here.
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
         title: Text(
           'Analytics',
-          style: TextStyle(
-            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
+          style: Theme.of(context).textTheme.titleLarge,
         ),
       ),
       body: RefreshIndicator(
@@ -63,13 +62,16 @@ class AnalyticsScreen extends ConsumerWidget {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTokens.screenPadding,
+              vertical: AppTokens.space16,
+            ),
             sliver: SliverToBoxAdapter(
               child: analyticsAsync.when(
                 data: (data) => Column(
                   children: [
                     _IncomeExpenseCard(trend: data.trend, isDark: isDark, currency: data.currency, period: period),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppTokens.space16),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -82,20 +84,19 @@ class AnalyticsScreen extends ConsumerWidget {
                             isDark: isDark,
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: AppTokens.space16),
                         Expanded(child: _CategorySpendingCard(categories: data.topCategories, isDark: isDark, currency: data.currency)),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppTokens.space16),
                     _SpendingHeatmapCard(isDark: isDark),
                     const SizedBox(height: 100), // Padding for bottom nav
                   ],
                 ),
-                loading: () => const Center(child: Padding(
-                  padding: EdgeInsets.all(40.0),
-                  child: AppLoader(size: 40),
-                )),
-                error: (e, _) => Center(child: Text(DioClient.toApiException(e).localizedMessage(context))),
+                // A skeleton shaped like the page it replaces, so nothing jumps
+                // when the data lands.
+                loading: () => const _AnalyticsSkeleton(),
+                error: (e, _) => DsInlineError(message: DioClient.toApiException(e).localizedMessage(context)),
               ),
             ),
           ),
@@ -115,42 +116,39 @@ class _PeriodTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final periods = ['day', 'week', 'month', 'year'];
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // The house pill toggle: same four periods, same callback, one sliding
+    // thumb instead of four hand-drawn underlines.
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: periods.map((p) {
-          final isSelected = selectedPeriod == p;
-          return GestureDetector(
-            onTap: () => onSelect(p),
-            child: Column(
-              children: [
-                Text(
-                  p.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                    color: isSelected
-                        ? (isDark ? Colors.white : AppColors.primary)
-                        : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  height: 3,
-                  width: 16,
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.primary : Colors.transparent,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.screenPadding,
+        vertical: AppTokens.space8,
       ),
+      child: DsSegmentedToggle(
+        segments: [for (final p in periods) p.toUpperCase()],
+        selectedIndex: periods.indexOf(selectedPeriod),
+        onChanged: (i) => onSelect(periods[i]),
+        expand: true,
+      ),
+    );
+  }
+}
+
+/// Page-shaped loading placeholder: the chart card, the paired stat cards and
+/// the heatmap, in their real proportions.
+class _AnalyticsSkeleton extends StatelessWidget {
+  const _AnalyticsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        DsSkeletonBox(height: 330, radius: AppTokens.radiusHero),
+        SizedBox(height: AppTokens.space16),
+        DsCardRowSkeleton(height: 186),
+        SizedBox(height: AppTokens.space16),
+        DsSkeletonBox(height: 300, radius: AppTokens.radiusCard),
+      ],
     );
   }
 }
@@ -223,16 +221,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: widget.isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppTokens.space12),
+          
             ListTile(
               leading: const Icon(Icons.file_download_outlined, color: AppColors.primary),
               title: const Text('Export CSV'),
@@ -354,7 +344,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
   /// chart, toggled from the ⋮ menu. Axes mirror the line chart's config.
   Widget _buildBarChart(double maxY, Color textColor, Color secondaryTextColor) {
     final trend = widget.trend;
-    final isDark = widget.isDark;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
@@ -365,9 +356,32 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
           drawVerticalLine: false,
           horizontalInterval: maxY > 0 ? maxY / 4 : 25,
           getDrawingHorizontalLine: (value) => FlLine(
-            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.15),
+            color: t.border,
             strokeWidth: 1,
             dashArray: [5, 5],
+          ),
+        ),
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => theme.colorScheme.surface,
+            tooltipBorderRadius: BorderRadius.circular(AppTokens.radiusBadge),
+            tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            tooltipMargin: 10,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
+              // Label small on top, figure bold beneath — the house bubble.
+              '${group.x >= 0 && group.x < trend.labels.length ? trend.labels[group.x] : ''}\n',
+              theme.textTheme.labelSmall!.copyWith(color: t.textSecondary),
+              children: [
+                TextSpan(
+                  text: _formatAmount(rod.toY),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: rod.color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
         titlesData: FlTitlesData(
@@ -386,10 +400,9 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   meta: meta,
                   child: Text(
                     trend.labels[index],
-                    style: TextStyle(
+                    style: theme.textTheme.labelSmall?.copyWith(
                       color: isHighlighted ? textColor : secondaryTextColor,
                       fontWeight: isHighlighted ? FontWeight.w800 : FontWeight.w500,
-                      fontSize: 11,
                     ),
                   ),
                 );
@@ -405,7 +418,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                 if (value == 0) return const SizedBox.shrink();
                 return Text(
                   _formatAmount(value),
-                  style: TextStyle(color: secondaryTextColor, fontSize: 11, fontWeight: FontWeight.w500),
+                  style: theme.textTheme.labelSmall?.copyWith(color: t.textTertiary),
                 );
               },
             ),
@@ -419,8 +432,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
             x: i,
             barsSpace: 3,
             barRods: [
-              BarChartRodData(toY: income, color: AppColors.income, width: 6, borderRadius: BorderRadius.circular(3)),
-              BarChartRodData(toY: expense, color: AppColors.expense, width: 6, borderRadius: BorderRadius.circular(3)),
+              BarChartRodData(toY: income, color: t.success, width: 7, borderRadius: BorderRadius.circular(4)),
+              BarChartRodData(toY: expense, color: t.danger, width: 7, borderRadius: BorderRadius.circular(4)),
             ],
           );
         }),
@@ -431,12 +444,12 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
   @override
   Widget build(BuildContext context) {
     final trend = widget.trend;
-    final isDark = widget.isDark;
     final currency = widget.currency;
     final chartType = ref.watch(analyticsChartTypeProvider);
-    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    final textColor = t.textPrimary;
+    final secondaryTextColor = t.textSecondary;
 
     // Find max value to set maxY appropriately
     double maxY = 0;
@@ -446,20 +459,11 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
 
     return RepaintBoundary(
       key: _captureKey,
-      child: Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-        ],
-      ),
+      // The screen's hero object: the widest radius and the only card that
+      // carries this much padding, so nothing below competes with it.
+      child: DsCard(
+      padding: const EdgeInsets.all(AppTokens.space20),
+      radius: AppTokens.radiusHero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -471,33 +475,24 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                 children: [
                   Text(
                     'Income vs Expenses',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
+                    style: theme.textTheme.titleLarge,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     _getPeriodLabel(),
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: secondaryTextColor),
+                    style: theme.textTheme.bodySmall?.copyWith(color: secondaryTextColor),
                   ),
                 ],
               ),
-              if (!_capturing)
-                _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: AppLoader(size: 18),
-                      )
-                    : InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: _openMenu,
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: Icon(Icons.more_vert, color: secondaryTextColor, size: 20),
-                        ),
-                      ),
+              _CardMenuButton(
+                capturing: _capturing,
+                busy: _busy,
+                onTap: _openMenu,
+                color: t.textTertiary,
+              ),
             ],
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: AppTokens.space24),
           SizedBox(
             height: 180,
             child: chartType == AnalyticsChartType.line
@@ -509,11 +504,63 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   horizontalInterval: maxY > 0 ? maxY / 4 : 25,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
-                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.15),
+                      color: t.border,
                       strokeWidth: 1,
                       dashArray: [5, 5],
                     );
                   },
+                ),
+                lineTouchData: LineTouchData(
+                  getTouchedSpotIndicator: (barData, indexes) {
+                    return indexes.map((i) {
+                      return TouchedSpotIndicatorData(
+                        FlLine(color: t.border, strokeWidth: 1, dashArray: [4, 4]),
+                        FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, bar, index) =>
+                              FlDotCirclePainter(
+                            radius: 5,
+                            color: theme.colorScheme.surface,
+                            strokeWidth: 3,
+                            strokeColor: bar.color ?? AppColors.primary,
+                          ),
+                        ),
+                      );
+                    }).toList();
+                  },
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) => theme.colorScheme.surface,
+                    tooltipBorderRadius: BorderRadius.circular(AppTokens.radiusBadge),
+                    tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    tooltipMargin: 12,
+                    fitInsideHorizontally: true,
+                    fitInsideVertically: true,
+                    getTooltipItems: (touchedSpots) {
+                      // One bubble: the period label once at the top, then each
+                      // series' figure in its own colour.
+                      return touchedSpots.asMap().entries.map((entry) {
+                        final spot = entry.value;
+                        final index = spot.x.toInt();
+                        final label = index >= 0 && index < trend.labels.length
+                            ? trend.labels[index]
+                            : '';
+                        return LineTooltipItem(
+                          entry.key == 0 ? '$label\n' : '',
+                          theme.textTheme.labelSmall!.copyWith(color: t.textSecondary),
+                          children: [
+                            TextSpan(
+                              text: _formatAmount(spot.y),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: spot.bar.color,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                          textAlign: TextAlign.center,
+                        );
+                      }).toList();
+                    },
+                  ),
                 ),
                 titlesData: FlTitlesData(
                   show: true,
@@ -533,10 +580,9 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                           meta: meta,
                           child: Text(
                             trend.labels[index],
-                            style: TextStyle(
+                            style: theme.textTheme.labelSmall?.copyWith(
                               color: isHighlighted ? textColor : secondaryTextColor,
                               fontWeight: isHighlighted ? FontWeight.w800 : FontWeight.w500,
-                              fontSize: 11,
                             ),
                           ),
                         );
@@ -552,7 +598,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                         if (value == 0) return const SizedBox.shrink();
                         return Text(
                           _formatAmount(value),
-                          style: TextStyle(color: secondaryTextColor, fontSize: 11, fontWeight: FontWeight.w500),
+                          style: theme.textTheme.labelSmall?.copyWith(color: t.textTertiary),
                         );
                       },
                     ),
@@ -567,8 +613,10 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   LineChartBarData(
                     spots: trend.incomeData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
                     isCurved: true,
-                    color: AppColors.income,
-                    barWidth: 2.5,
+                    curveSmoothness: 0.32,
+                    preventCurveOverShooting: true,
+                    color: t.success,
+                    barWidth: 2.6,
                     isStrokeCapRound: true,
                     dotData: FlDotData(
                       show: true,
@@ -576,19 +624,31 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                       getDotPainter: (spot, percent, barData, index) {
                         return FlDotCirclePainter(
                           radius: 5,
-                          color: Colors.white,
+                          color: theme.colorScheme.surface,
                           strokeWidth: 3,
-                          strokeColor: AppColors.income,
+                          strokeColor: t.success,
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(show: true, color: AppColors.income.withValues(alpha: 0.1)),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          t.success.withValues(alpha: 0.25),
+                          t.success.withValues(alpha: 0.02),
+                        ],
+                      ),
+                    ),
                   ),
                   LineChartBarData(
                     spots: trend.expenseData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
                     isCurved: true,
-                    color: AppColors.expense,
-                    barWidth: 2.5,
+                    curveSmoothness: 0.32,
+                    preventCurveOverShooting: true,
+                    color: t.danger,
+                    barWidth: 2.6,
                     isStrokeCapRound: true,
                     dotData: FlDotData(
                       show: true,
@@ -596,20 +656,32 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                       getDotPainter: (spot, percent, barData, index) {
                         return FlDotCirclePainter(
                           radius: 5,
-                          color: Colors.white,
+                          color: theme.colorScheme.surface,
                           strokeWidth: 3,
-                          strokeColor: AppColors.expense,
+                          strokeColor: t.danger,
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(show: true, color: AppColors.expense.withValues(alpha: 0.1)),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          t.danger.withValues(alpha: 0.25),
+                          t.danger.withValues(alpha: 0.02),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
             )
                 : _buildBarChart(maxY, textColor, secondaryTextColor),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppTokens.space20),
+          const DsDivider(),
+          const SizedBox(height: AppTokens.space16),
           Row(
             children: [
               Expanded(
@@ -619,8 +691,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   amount: trend.totalIncome,
                   currency: currency,
                   trend: trend.incomeTrend,
-                  isDark: isDark,
-                  color: AppColors.income,
+                  isDark: widget.isDark,
+                  color: t.success,
                 ),
               ),
               Expanded(
@@ -630,8 +702,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   amount: trend.totalExpense,
                   currency: currency,
                   trend: trend.expenseTrend,
-                  isDark: isDark,
-                  color: AppColors.expense,
+                  isDark: widget.isDark,
+                  color: t.danger,
                 ),
               ),
             ],
@@ -673,34 +745,41 @@ class _LegendItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-    final trendColor = trend >= 0 ? AppColors.income : AppColors.expense;
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    final trendColor = trend >= 0 ? t.success : t.danger;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: TextStyle(color: secondaryTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                Text('${_formatAmount(amount)} $currency', style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w700)),
-                const SizedBox(width: 4),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                Icon(trend >= 0 ? Icons.arrow_upward : Icons.arrow_downward, color: trendColor, size: 10),
-                Text('${trend.abs().toStringAsFixed(1)}%', style: TextStyle(color: trendColor, fontSize: 10, fontWeight: FontWeight.w700)),
-              ],
-            ),
-          ],
+        DsIconChip(icon: icon, color: color, size: 34, iconSize: 18),
+        const SizedBox(width: AppTokens.space8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(color: t.textSecondary),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${_formatAmount(amount)} $currency',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 5),
+              DsBadge(
+                label: '${trend.abs().toStringAsFixed(1)}%',
+                color: trendColor,
+                icon: trend >= 0 ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                dense: true,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -775,11 +854,11 @@ class _CardMenuButton extends StatelessWidget {
       );
     }
     return InkWell(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppTokens.radiusBadge),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.all(2),
-        child: Icon(Icons.more_vert, color: color, size: 18),
+        padding: const EdgeInsets.all(AppTokens.space4),
+        child: Icon(Icons.more_vert_rounded, color: color, size: 18),
       ),
     );
   }
@@ -815,7 +894,6 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 12),
-            _SheetGrip(isDark: widget.isDark),
             ListTile(
               leading: const Icon(Icons.info_outline_rounded, color: AppColors.primary),
               title: const Text('What is savings rate?'),
@@ -902,27 +980,15 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
   @override
   Widget build(BuildContext context) {
     final savingsRate = widget.savingsRate;
-    final isDark = widget.isDark;
-    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
 
     return RepaintBoundary(
       key: shareKey,
-      child: Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-        ],
-      ),
+      // A supporting card: standard radius and tighter padding than the chart
+      // card above it.
+      child: DsCard(
+      padding: const EdgeInsets.all(AppTokens.space16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -934,42 +1000,25 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
                   'Savings Rate',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+                  style: theme.textTheme.titleSmall,
                 ),
               ),
-              _CardMenuButton(capturing: capturing, busy: busy, onTap: _openMenu, color: secondaryTextColor),
+              _CardMenuButton(capturing: capturing, busy: busy, onTap: _openMenu, color: t.textTertiary),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppTokens.space20),
           Center(
-            child: SizedBox(
-              height: 100,
-              width: 100,
-              child: Stack(
-                children: [
-                  Center(
-                    child: SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: CircularProgressIndicator(
-                        value: savingsRate > 0 ? savingsRate / 100 : 0,
-                        strokeWidth: 10,
-                        backgroundColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
-                        valueColor: AlwaysStoppedAnimation<Color>(savingsRate >= 20 ? AppColors.income : (savingsRate > 0 ? AppColors.primary : AppColors.expense)),
-                        strokeCap: StrokeCap.round,
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: Text(
-                      '${savingsRate.toStringAsFixed(1)}%',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
-                    ),
-                  ),
-                ],
+            child: DsRingGauge(
+              fraction: savingsRate > 0 ? savingsRate / 100 : 0,
+              size: 100,
+              color: savingsRate >= 20 ? t.success : (savingsRate > 0 ? AppColors.primary : t.danger),
+              child: Text(
+                '${savingsRate.toStringAsFixed(1)}%',
+                style: theme.textTheme.titleMedium,
               ),
             ),
           ),
+          const SizedBox(height: AppTokens.space8),
         ],
       ),
       ),
@@ -997,7 +1046,6 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 12),
-            _SheetGrip(isDark: widget.isDark),
             ListTile(
               leading: const Icon(Icons.list_alt_rounded, color: AppColors.primary),
               title: const Text('View all categories'),
@@ -1077,28 +1125,14 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
   @override
   Widget build(BuildContext context) {
     final categories = widget.categories.take(5).toList();
-    final isDark = widget.isDark;
     final currency = widget.currency;
-    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
 
     return RepaintBoundary(
       key: shareKey,
-      child: Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-        ],
-      ),
+      child: DsCard(
+      padding: const EdgeInsets.all(AppTokens.space16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1110,18 +1144,21 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                   'Top Categories',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+                  style: theme.textTheme.titleSmall,
                 ),
               ),
-              _CardMenuButton(capturing: capturing, busy: busy, onTap: _openMenu, color: secondaryTextColor),
+              _CardMenuButton(capturing: capturing, busy: busy, onTap: _openMenu, color: t.textTertiary),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppTokens.space20),
           if (categories.isEmpty)
-            const SizedBox(
+            SizedBox(
               height: 100,
               child: Center(
-                child: Text('No spending data', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                child: Text(
+                  'No spending data',
+                  style: theme.textTheme.bodySmall?.copyWith(color: t.textTertiary),
+                ),
               ),
             )
           else ...[
@@ -1134,11 +1171,23 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                   barTouchData: BarTouchData(
                     enabled: true,
                     touchTooltipData: BarTouchTooltipData(
-                      getTooltipColor: (group) => isDark ? const Color(0xFF333333) : Colors.white,
+                      getTooltipColor: (_) => theme.colorScheme.surface,
+                      tooltipBorderRadius: BorderRadius.circular(AppTokens.radiusBadge),
+                      tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         return BarTooltipItem(
-                          '${categories[group.x.toInt()].name}\n${categories[group.x.toInt()].amount.toStringAsFixed(0)} $currency',
-                          TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 10),
+                          '${categories[group.x.toInt()].name}\n',
+                          theme.textTheme.labelSmall!.copyWith(color: t.textSecondary),
+                          children: [
+                            TextSpan(
+                              text: '${categories[group.x.toInt()].amount.toStringAsFixed(0)} $currency',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: rod.color,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                          textAlign: TextAlign.center,
                         );
                       },
                     ),
@@ -1154,12 +1203,12 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                         BarChartRodData(
                           toY: e.value.percentage,
                           color: color,
-                          width: 8,
-                          borderRadius: BorderRadius.circular(4),
+                          width: 9,
+                          borderRadius: BorderRadius.circular(AppTokens.radiusBadge),
                           backDrawRodData: BackgroundBarChartRodData(
                             show: true,
                             toY: 100,
-                            color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
+                            color: t.surfaceAlt,
                           ),
                         ),
                       ],
@@ -1168,28 +1217,17 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppTokens.space16),
+            // The legend carries the colour key itself — a tinted pill per
+            // category rather than a dot plus grey label.
             Wrap(
-                spacing: 12,
-                runSpacing: 8,
+                spacing: AppTokens.space8,
+                runSpacing: AppTokens.space8,
                 children: categories.map((cat) {
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: AppColors.categoryColor(cat.name),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        cat.name,
-                        style: TextStyle(color: secondaryTextColor, fontSize: 11, fontWeight: FontWeight.w500),
-                      ),
-                    ],
+                  return DsBadge(
+                    label: cat.name,
+                    color: AppColors.categoryColor(cat.name),
+                    dense: true,
                   );
                 }).toList(),
               ),
@@ -1211,17 +1249,18 @@ class _SheetGrip extends StatelessWidget {
     return Container(
       width: 40,
       height: 4,
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: AppTokens.space8),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-        borderRadius: BorderRadius.circular(2),
+        color: context.tokens.border,
+        borderRadius: BorderRadius.circular(AppTokens.radiusPill),
       ),
     );
   }
 }
 
-/// Lists spending categories (colour dot + name + amount + %). When [onTap] is
-/// provided each row is tappable (used to filter transactions by category).
+/// Lists spending categories (name + amount + % pill over a share bar). When
+/// [onTap] is provided each row is tappable (used to filter transactions by
+/// category).
 class _CategoryListSheet extends StatelessWidget {
   final String title;
   final List<CategorySpending> categories;
@@ -1239,69 +1278,88 @@ class _CategoryListSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.screenPadding,
+          AppTokens.space12,
+          AppTokens.screenPadding,
+          AppTokens.space20,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(child: _SheetGrip(isDark: isDark)),
-            const SizedBox(height: 4),
-            Text(title, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: textColor)),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppTokens.space4),
+            Text(title, style: theme.textTheme.titleLarge),
+            const SizedBox(height: AppTokens.space12),
             if (categories.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Text('No spending data yet', style: TextStyle(color: secondaryTextColor)),
+                padding: const EdgeInsets.symmetric(vertical: AppTokens.space24),
+                child: Text(
+                  'No spending data yet',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: t.textSecondary),
+                ),
               )
             else
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: categories.length,
-                  separatorBuilder: (_, _) => Divider(
-                    height: 1,
-                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                  ),
+                  separatorBuilder: (_, _) => const DsDivider(),
                   itemBuilder: (context, i) {
                     final c = categories[i];
+                    final color = AppColors.categoryColor(c.name);
+                    // The lightest element on the screen: a name, a bar and a
+                    // percentage pill — no card, no shadow.
                     return InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppTokens.radiusChip),
                       onTap: onTap == null ? null : () => onTap!(c.name),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                        child: Row(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppTokens.space12,
+                          horizontal: AppTokens.space4,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                color: AppColors.categoryColor(c.name),
-                                shape: BoxShape.circle,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    c.name,
+                                    style: theme.textTheme.titleSmall,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Text(
+                                  '${c.amount.toStringAsFixed(0)} $currency',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(width: AppTokens.space8),
+                                DsBadge(
+                                  label: '${c.percentage.round()}%',
+                                  color: color,
+                                  dense: true,
+                                ),
+                                if (onTap != null) ...[
+                                  const SizedBox(width: AppTokens.space4),
+                                  Icon(Icons.chevron_right_rounded, size: 18, color: t.textTertiary),
+                                ],
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                c.name,
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textColor),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            const SizedBox(height: AppTokens.space8),
+                            DsProgressBar(
+                              value: c.percentage / 100,
+                              color: color,
+                              height: 5,
                             ),
-                            Text(
-                              '${c.amount.toStringAsFixed(0)} $currency',
-                              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: textColor),
-                            ),
-                            const SizedBox(width: 8),
-                            Text('${c.percentage.round()}%', style: TextStyle(fontSize: 12, color: secondaryTextColor)),
-                            if (onTap != null) ...[
-                              const SizedBox(width: 4),
-                              Icon(Icons.chevron_right_rounded, size: 18, color: secondaryTextColor),
-                            ],
                           ],
                         ),
                       ),
@@ -1335,26 +1393,34 @@ class _InsightsSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     final insightsAsync = ref.watch(insightsProvider);
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.screenPadding,
+          AppTokens.space12,
+          AppTokens.screenPadding,
+          AppTokens.space20,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(child: _SheetGrip(isDark: isDark)),
-            const SizedBox(height: 4),
-            Text('Tips to save more', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: textColor)),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppTokens.space4),
+            Text('Tips to save more', style: theme.textTheme.titleLarge),
+            const SizedBox(height: AppTokens.space12),
             insightsAsync.when(
               data: (insights) => insights.isEmpty
                   ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text('Add a few transactions to unlock tips.', style: TextStyle(color: secondaryTextColor)),
+                      padding: const EdgeInsets.symmetric(vertical: AppTokens.space16),
+                      child: Text(
+                        'Add a few transactions to unlock tips.',
+                        style: theme.textTheme.bodyMedium?.copyWith(color: t.textSecondary),
+                      ),
                     )
                   : Flexible(
                       child: ListView(
@@ -1362,19 +1428,28 @@ class _InsightsSheet extends ConsumerWidget {
                         children: [
                           for (final ins in insights)
                             Padding(
-                              padding: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.only(bottom: AppTokens.space16),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(_toneIcon(ins.tone), size: 18, color: _toneColor(ins.tone)),
-                                  const SizedBox(width: 10),
+                                  DsIconChip(
+                                    icon: _toneIcon(ins.tone),
+                                    color: _toneColor(ins.tone),
+                                    size: 34,
+                                    iconSize: 18,
+                                  ),
+                                  const SizedBox(width: AppTokens.space12),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(ins.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: textColor)),
+                                        Text(ins.title, style: theme.textTheme.titleSmall),
                                         const SizedBox(height: 2),
-                                        Text(ins.body, style: TextStyle(fontSize: 12.5, height: 1.35, color: secondaryTextColor)),
+                                        Text(
+                                          ins.body,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(color: t.textSecondary),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -1384,18 +1459,52 @@ class _InsightsSheet extends ConsumerWidget {
                         ],
                       ),
                     ),
-              loading: () => const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: AppLoader(size: 40)),
-              ),
+              loading: () => const _InsightsSkeleton(),
               error: (e, _) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Text("Couldn't load tips.", style: TextStyle(color: secondaryTextColor)),
+                padding: const EdgeInsets.symmetric(vertical: AppTokens.space16),
+                child: Text(
+                  "Couldn't load tips.",
+                  style: theme.textTheme.bodyMedium?.copyWith(color: t.textSecondary),
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Three ghosted tip rows — the same geometry the real list uses.
+class _InsightsSkeleton extends StatelessWidget {
+  const _InsightsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < 3; i++)
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppTokens.space16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DsSkeletonBox(width: 34, height: 34, radius: AppTokens.radiusChip),
+                SizedBox(width: AppTokens.space12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DsSkeletonBox(width: 150, height: 12),
+                      SizedBox(height: 7),
+                      DsSkeletonBox(height: 10),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1439,7 +1548,6 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 12),
-            _SheetGrip(isDark: widget.isDark),
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined, color: AppColors.primary),
               title: Text('View ${_monthNames[_month.month - 1]} transactions'),
@@ -1465,47 +1573,31 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.isDark;
-    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    final secondaryTextColor = t.textSecondary;
     final dailyAsync = ref.watch(dailyTotalsProvider((_month.year, _month.month)));
     final now = DateTime.now();
     final isCurrentMonth = _month.year == now.year && _month.month == now.month;
 
     return RepaintBoundary(
       key: shareKey,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            if (!isDark)
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-          ],
-        ),
+      child: DsCard(
+        padding: const EdgeInsets.all(AppTokens.space20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Spending Heatmap',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
-                  ),
-                ),
-                _CardMenuButton(capturing: capturing, busy: busy, onTap: _openMenu, color: secondaryTextColor),
-              ],
+            DsSectionHeader(
+              title: 'Spending Heatmap',
+              padding: EdgeInsets.zero,
+              trailing: _CardMenuButton(
+                capturing: capturing,
+                busy: busy,
+                onTap: _openMenu,
+                color: t.textTertiary,
+              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppTokens.space4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1516,7 +1608,7 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
                 ),
                 Text(
                   '${_monthNames[_month.month - 1]} ${_month.year}',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: textColor),
+                  style: theme.textTheme.titleSmall,
                 ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
@@ -1526,36 +1618,16 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppTokens.space8),
             dailyAsync.when(
               data: (days) => _buildGrid(days, secondaryTextColor),
-              loading: () => const SizedBox(
-                height: 160,
-                child: Center(child: AppLoader(size: 40)),
-              ),
-              error: (e, s) => SizedBox(
-                height: 80,
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text("Couldn't load daily data",
-                          style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(0, 32),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        // Errors cache while this screen stays mounted in the
-                        // tab bar — give the user a one-tap retry.
-                        onPressed: () =>
-                            ref.invalidate(dailyTotalsProvider((_month.year, _month.month))),
-                        child: const Text('Retry', style: TextStyle(fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
+              loading: () => const _HeatmapSkeleton(),
+              error: (e, s) => DsInlineError(
+                message: "Couldn't load daily data",
+                // Errors cache while this screen stays mounted in the
+                // tab bar — give the user a one-tap retry.
+                onRetry: () =>
+                    ref.invalidate(dailyTotalsProvider((_month.year, _month.month))),
               ),
             ),
           ],
@@ -1574,6 +1646,9 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
     final leadingBlanks = _month.weekday - 1; // Monday-first grid
     final now = DateTime.now();
 
+    final t = context.tokens;
+    final theme = Theme.of(context);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         const spacing = 5.0;
@@ -1589,8 +1664,10 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
                     child: Center(
                       child: Text(
                         const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i],
-                        style: TextStyle(
-                            fontSize: 10, fontWeight: FontWeight.w700, color: secondaryTextColor),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: t.textTertiary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
@@ -1608,22 +1685,23 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
                   _dayCell(day, cell, expenseByDay[day] ?? 0, maxExpense, now, secondaryTextColor),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: AppTokens.space12),
+            // Intensity key, quietest thing in the card.
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Text('Less ', style: TextStyle(fontSize: 10, color: secondaryTextColor)),
+                Text('Less ', style: theme.textTheme.labelSmall?.copyWith(color: t.textTertiary)),
                 for (final a in const [0.10, 0.30, 0.55, 0.85])
                   Container(
                     width: 10,
                     height: 10,
                     margin: const EdgeInsets.symmetric(horizontal: 2),
                     decoration: BoxDecoration(
-                      color: AppColors.expense.withValues(alpha: a),
+                      color: t.danger.withValues(alpha: a),
                       borderRadius: BorderRadius.circular(3),
                     ),
                   ),
-                Text(' More', style: TextStyle(fontSize: 10, color: secondaryTextColor)),
+                Text(' More', style: theme.textTheme.labelSmall?.copyWith(color: t.textTertiary)),
               ],
             ),
           ],
@@ -1634,15 +1712,16 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
 
   Widget _dayCell(
       int day, double size, double expense, double maxExpense, DateTime now, Color secondaryTextColor) {
-    final isDark = widget.isDark;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     final isToday = now.year == _month.year && now.month == _month.month && now.day == day;
     final ratio = maxExpense > 0 ? (expense / maxExpense).clamp(0.0, 1.0) : 0.0;
     final color = expense > 0
-        ? AppColors.expense.withValues(alpha: 0.12 + 0.73 * ratio)
-        : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt);
+        ? t.danger.withValues(alpha: 0.12 + 0.73 * ratio)
+        : t.surfaceAlt;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(AppTokens.radiusBadge),
       onTap: () => _openRange(
         DateTime(_month.year, _month.month, day),
         DateTime(_month.year, _month.month, day),
@@ -1652,13 +1731,15 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
         height: size,
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(AppTokens.radiusBadge),
           border: isToday ? Border.all(color: AppColors.primary, width: 1.6) : null,
         ),
         child: Center(
           child: Text(
             '$day',
-            style: TextStyle(
+            // 10px rather than labelSmall: the cell is barely wider than the
+            // glyph on a small phone.
+            style: theme.textTheme.labelSmall?.copyWith(
               fontSize: 10,
               fontWeight: FontWeight.w600,
               color: ratio > 0.55 ? Colors.white : secondaryTextColor,
@@ -1666,6 +1747,34 @@ class _SpendingHeatmapCardState extends ConsumerState<_SpendingHeatmapCard> with
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Ghosted month grid — five weeks of cells, so the heatmap card keeps its
+/// height while the daily totals load.
+class _HeatmapSkeleton extends StatelessWidget {
+  const _HeatmapSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var row = 0; row < 5; row++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(
+              children: [
+                for (var col = 0; col < 7; col++) ...[
+                  const Expanded(
+                    child: DsSkeletonBox(height: 26, radius: AppTokens.radiusBadge),
+                  ),
+                  if (col < 6) const SizedBox(width: 5),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

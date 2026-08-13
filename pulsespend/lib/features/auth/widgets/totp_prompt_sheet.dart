@@ -47,8 +47,8 @@ class _TotpPromptSheetState extends State<TotpPromptSheet> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-    final border = isDark ? AppColors.darkBorder : const Color(0xFFE4E4E4);
-    final surfaceAlt = isDark ? AppColors.darkSurface : const Color(0xFFF7F7F9);
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final surfaceAlt = isDark ? AppColors.darkSurface : AppColors.lightSurfaceAlt;
 
     return Padding(
       padding: EdgeInsets.only(

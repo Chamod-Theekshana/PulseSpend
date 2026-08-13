@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/ocr/receipt_parser.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/transaction_model.dart';
 import '../../../models/wallet_model.dart';
 import '../../../shared/utils/image_utils.dart';
@@ -340,8 +341,8 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     final relevantCategories =
         _isExpense ? categoriesState.expenseCategories : categoriesState.incomeCategories;
     final currency = ref.watch(profileControllerProvider).currency;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
+    final t = context.tokens;
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEditing ? 'Edit Transaction' : 'Add Transaction')),
@@ -349,7 +350,12 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            padding: const EdgeInsets.fromLTRB(
+              AppTokens.screenPadding,
+              AppTokens.space8,
+              AppTokens.screenPadding,
+              AppTokens.space24,
+            ),
             children: [
               // Expense / Income / Transfer toggle. Transfer is create-only —
               // an existing transaction can't turn into a −/+ pair — and needs
@@ -357,58 +363,42 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               Consumer(builder: (context, ref, _) {
                 final hasWallets = ref.watch(walletsControllerProvider).items.isNotEmpty;
                 final showTransfer = hasWallets && !_isEditing;
-                return Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: surfaceAlt,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _TypeToggleButton(
-                          label: 'Expense',
-                          selected: _kind == _TxKind.expense,
-                          color: AppColors.expense,
-                          onTap: () => setState(() {
-                            _kind = _TxKind.expense;
-                            _selectedCategory = null;
-                          }),
-                        ),
-                      ),
-                      Expanded(
-                        child: _TypeToggleButton(
-                          label: 'Income',
-                          selected: _kind == _TxKind.income,
-                          color: AppColors.income,
-                          onTap: () => setState(() {
-                            _kind = _TxKind.income;
-                            _selectedCategory = null;
-                            _isSplitMode = false;
-                            _splits = [];
-                          }),
-                        ),
-                      ),
-                      if (showTransfer)
-                        Expanded(
-                          child: _TypeToggleButton(
-                            label: 'Transfer',
-                            selected: _kind == _TxKind.transfer,
-                            color: AppColors.primary,
-                            onTap: () => setState(() {
-                              _kind = _TxKind.transfer;
-                              _selectedCategory = null;
-                              _isSplitMode = false;
-                              _splits = [];
-                              _groupId = null;
-                            }),
-                          ),
-                        ),
-                    ],
-                  ),
+                // One entry per segment, in render order. Each body is the
+                // toggle's original handler, moved across untouched.
+                final onSelect = <VoidCallback>[
+                  () => setState(() {
+                    _kind = _TxKind.expense;
+                    _selectedCategory = null;
+                  }),
+                  () => setState(() {
+                    _kind = _TxKind.income;
+                    _selectedCategory = null;
+                    _isSplitMode = false;
+                    _splits = [];
+                  }),
+                  if (showTransfer)
+                    () => setState(() {
+                      _kind = _TxKind.transfer;
+                      _selectedCategory = null;
+                      _isSplitMode = false;
+                      _splits = [];
+                      _groupId = null;
+                    }),
+                ];
+                return DsSegmentedToggle(
+                  segments: ['Expense', 'Income', if (showTransfer) 'Transfer'],
+                  selectedIndex:
+                      _kind == _TxKind.expense ? 0 : (_kind == _TxKind.income ? 1 : 2),
+                  // The sliding thumb keeps the old colour coding: money out is
+                  // red, money in is green, a move between wallets is brand blue.
+                  activeColor: _kind == _TxKind.expense
+                      ? t.danger
+                      : (_kind == _TxKind.income ? t.success : AppColors.primary),
+                  expand: true,
+                  onChanged: (i) => onSelect[i](),
                 );
               }),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppTokens.space20),
               // A transfer's title and date come from the server ("Transfer to
               // X" / now), so neither field applies.
               if (!_isTransfer) ...[
@@ -422,65 +412,84 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppTokens.space16),
               ],
-              AppTextField(
-                controller: _amountController,
-                label: 'Amount ($currency)',
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                prefixIcon: const Icon(Icons.attach_money_rounded),
-                // The overdraft warning under the wallet chips compares this
-                // against the selected wallet's balance live.
-                onChanged: (_) => setState(() {}),
-                validator: (v) {
-                  final n = double.tryParse(v?.trim() ?? '');
-                  if (n == null || n <= 0) return 'Enter a valid amount';
-                  return null;
-                },
+              // The hero of the screen: the one raised surface on an otherwise
+              // flat form, ringed in brand blue so the figure being recorded
+              // outweighs every supporting field around it.
+              DsCard(
+                padding: const EdgeInsets.all(AppTokens.space16),
+                borderColor: AppColors.primary.withValues(alpha: 0.35),
+                child: AppTextField(
+                  controller: _amountController,
+                  label: 'Amount ($currency)',
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  prefixIcon: const Icon(Icons.attach_money_rounded),
+                  // The overdraft warning under the wallet chips compares this
+                  // against the selected wallet's balance live.
+                  onChanged: (_) => setState(() {}),
+                  validator: (v) {
+                    final n = double.tryParse(v?.trim() ?? '');
+                    if (n == null || n <= 0) return 'Enter a valid amount';
+                    return null;
+                  },
+                ),
               ),
               if (!_isTransfer) ...[
-                const SizedBox(height: 16),
-                InkWell(
+                const SizedBox(height: AppTokens.space16),
+                DsCard(
+                  emphasis: DsCardEmphasis.nested,
+                  radius: AppTokens.radiusButton,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   onTap: _pickDate,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: surfaceAlt,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today_outlined, size: 20),
-                        const SizedBox(width: 12),
-                        Text('${_date.day}/${_date.month}/${_date.year}'),
-                      ],
-                    ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today_outlined, size: 20, color: t.textSecondary),
+                      const SizedBox(width: AppTokens.space12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Date', style: theme.textTheme.labelSmall),
+                            Text(
+                              '${_date.day}/${_date.month}/${_date.year}',
+                              style: theme.textTheme.titleSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.expand_more_rounded, size: 20, color: t.textTertiary),
+                    ],
                   ),
                 ),
               ],
               // ── Transfer ends (replaces the wallet picker in transfer mode) ──
               if (_isTransfer) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: AppTokens.space16),
                 WalletDropdown(
                   label: 'From wallet',
                   value: _fromWalletId,
                   excludeId: _toWalletId,
                   onChanged: (v) => setState(() => _fromWalletId = v),
                 ),
-                const SizedBox(height: 10),
-                Center(
-                  child: Icon(Icons.arrow_downward_rounded,
-                      size: 18, color: AppColors.primary.withValues(alpha: 0.7)),
+                const SizedBox(height: AppTokens.space8),
+                const Center(
+                  child: DsIconChip(
+                    icon: Icons.arrow_downward_rounded,
+                    color: AppColors.primary,
+                    size: 32,
+                    iconSize: 18,
+                  ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppTokens.space8),
                 WalletDropdown(
                   label: 'To wallet',
                   value: _toWalletId,
                   excludeId: _fromWalletId,
                   onChanged: (v) => setState(() => _toWalletId = v),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppTokens.space12),
                 _TransferHint(
                   fromId: _fromWalletId,
                   toId: _toWalletId,
@@ -494,22 +503,26 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 16),
-                    Text('Wallet', style: Theme.of(context).textTheme.labelLarge),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppTokens.space20),
+                    const DsSectionHeader(title: 'Wallet', padding: EdgeInsets.zero),
+                    const SizedBox(height: AppTokens.space12),
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: AppTokens.space8,
+                      runSpacing: AppTokens.space8,
                       children: [
-                        _CategoryChip(
+                        DsFilterChip(
                           label: 'Default',
+                          showChevron: false,
+                          leadingIcon: Icons.account_balance_wallet_outlined,
                           selected: _walletId == null || _walletId == 0,
                           onTap: () => setState(
                               () => _walletId = _isEditing ? 0 : null),
                         ),
                         for (final w in wallets)
-                          _CategoryChip(
+                          DsFilterChip(
                             label: w.name,
+                            showChevron: false,
+                            leadingIcon: w.icon,
                             selected: _walletId == w.id,
                             onTap: () => setState(() => _walletId = w.id),
                           ),
@@ -531,7 +544,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     // a legitimate exception.
                     if (!_isExpense &&
                         wallets.any((w) => w.id == _walletId && w.isLiability)) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppTokens.space12),
                       _LiabilityIncomeHint(
                         walletName: wallets.firstWhere((w) => w.id == _walletId).name,
                         // Hand over the right tool with the destination already
@@ -553,7 +566,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     // reason to be here.
                     if (_isExpense &&
                         wallets.any((w) => w.id == _walletId && w.type == 'loan')) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppTokens.space12),
                       _LoanExpenseHint(
                         walletName: wallets.firstWhere((w) => w.id == _walletId).name,
                       ),
@@ -561,16 +574,17 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   ],
                 );
               }),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppTokens.space20),
               if (!_isSplitMode && !_isTransfer) ...[
-                Text('Category', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
+                const DsSectionHeader(title: 'Category', padding: EdgeInsets.zero),
+                const SizedBox(height: AppTokens.space12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: AppTokens.space8,
+                  runSpacing: AppTokens.space8,
                   children: relevantCategories
-                      .map((c) => _CategoryChip(
+                      .map((c) => DsFilterChip(
                             label: c.name,
+                            showChevron: false,
                             selected: _selectedCategory == c.name,
                             onTap: () => setState(() => _selectedCategory = c.name),
                           ))
@@ -578,17 +592,27 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 ),
               ],
               if (_isExpense) ...[
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Split across categories', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Divide this expense between 2+ categories', style: TextStyle(fontSize: 12)),
-                  value: _isSplitMode,
-                  activeColor: AppColors.primary,
-                  onChanged: (v) => setState(() {
-                    _isSplitMode = v;
-                    if (v) _selectedCategory = null;
-                  }),
+                const SizedBox(height: AppTokens.space16),
+                DsCard(
+                  emphasis: DsCardEmphasis.nested,
+                  radius: AppTokens.radiusCardSm,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTokens.space16,
+                    vertical: AppTokens.space4,
+                  ),
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Split across categories', style: theme.textTheme.titleSmall),
+                    subtitle: Text(
+                      'Divide this expense between 2+ categories',
+                      style: theme.textTheme.bodySmall?.copyWith(color: t.textSecondary),
+                    ),
+                    value: _isSplitMode,
+                    onChanged: (v) => setState(() {
+                      _isSplitMode = v;
+                      if (v) _selectedCategory = null;
+                    }),
+                  ),
                 ),
                 if (_isSplitMode)
                   SplitEditor(
@@ -608,23 +632,24 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 16),
-                      Text('Share to group', style: Theme.of(context).textTheme.labelLarge),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: AppTokens.space20),
+                      const DsSectionHeader(
+                        title: 'Share to group',
+                        padding: EdgeInsets.zero,
+                      ),
+                      const SizedBox(height: AppTokens.space4),
                       Text(
                         'Pick who\'s in and how it splits — settled in the group\'s balances',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(color: t.textTertiary),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppTokens.space12),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                        spacing: AppTokens.space8,
+                        runSpacing: AppTokens.space8,
                         children: [
-                          _CategoryChip(
+                          DsFilterChip(
                             label: 'Not shared',
+                            showChevron: false,
                             selected: _groupId == null,
                             onTap: () => setState(() {
                               _groupId = null;
@@ -632,8 +657,10 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                             }),
                           ),
                           for (final g in groups)
-                            _CategoryChip(
+                            DsFilterChip(
                               label: g.name,
+                              showChevron: false,
+                              leadingIcon: Icons.groups_outlined,
                               selected: _groupId == g.id,
                               onTap: () => setState(() {
                                 _groupId = g.id;
@@ -659,73 +686,75 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               // is just money changing pockets, and the endpoint takes none of
               // them, so the whole run drops out in transfer mode.
               if (!_isTransfer) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: AppTokens.space16),
                 AppTextField(
                   controller: _notesController,
                   label: 'Notes (optional)',
                   maxLines: 3,
                 ),
-                const SizedBox(height: 16),
-                Text('Receipt (optional)', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppTokens.space20),
+                const DsSectionHeader(
+                  title: 'Receipt (optional)',
+                  padding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: AppTokens.space12),
                 if (_receipt == null)
                   Row(
                     children: [
                       Expanded(
-                        child: InkWell(
+                        child: DsCard(
+                          emphasis: DsCardEmphasis.nested,
+                          radius: AppTokens.radiusButton,
+                          borderColor: t.border,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppTokens.space12,
+                            vertical: AppTokens.space16,
+                          ),
                           onTap: _pickReceipt,
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                            decoration: BoxDecoration(
-                              color: surfaceAlt,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.receipt_long_outlined,
+                                  size: 18, color: AppColors.primary),
+                              const SizedBox(width: AppTokens.space8),
+                              Flexible(
+                                child: Text('Attach',
+                                    style: theme.textTheme.labelMedium,
+                                    overflow: TextOverflow.ellipsis),
                               ),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.receipt_long_outlined, size: 18, color: AppColors.primary),
-                                SizedBox(width: 8),
-                                Flexible(
-                                  child: Text('Attach',
-                                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
-                                      overflow: TextOverflow.ellipsis),
-                                ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: AppTokens.space12),
                       Expanded(
-                        child: InkWell(
+                        child: DsCard(
+                          emphasis: DsCardEmphasis.nested,
+                          radius: AppTokens.radiusButton,
+                          color: AppColors.primary
+                              .withValues(alpha: t.isDark ? 0.18 : 0.10),
+                          borderColor:
+                              AppColors.primary.withValues(alpha: 0.35),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppTokens.space12,
+                            vertical: AppTokens.space16,
+                          ),
                           onTap: _scanReceipt,
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.10),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.document_scanner_outlined, size: 18, color: AppColors.primary),
-                                SizedBox(width: 8),
-                                Flexible(
-                                  child: Text('Scan & fill',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 13.5,
-                                          color: AppColors.primary),
-                                      overflow: TextOverflow.ellipsis),
-                                ),
-                              ],
-                            ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.document_scanner_outlined,
+                                  size: 18, color: AppColors.primary),
+                              const SizedBox(width: AppTokens.space8),
+                              Flexible(
+                                child: Text('Scan & fill',
+                                    style: theme.textTheme.labelMedium?.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -735,7 +764,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   Stack(
                     children: [
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusCardSm),
                         child: Image(
                           image: getProfileImageProvider(_receipt!),
                           height: 140,
@@ -775,9 +804,9 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                       ),
                     ],
                   ),
-                const SizedBox(height: 16),
-                Text('Tags', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppTokens.space20),
+                const DsSectionHeader(title: 'Tags', padding: EdgeInsets.zero),
+                const SizedBox(height: AppTokens.space12),
                 Row(
                   children: [
                     Expanded(
@@ -788,19 +817,27 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                         onChanged: (_) {},
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: AppTokens.space8),
                     IconButton.filled(
                       onPressed: _addTag,
                       icon: const Icon(Icons.add_rounded),
-                      style: IconButton.styleFrom(backgroundColor: AppColors.primary),
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.square(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTokens.radiusButton),
+                        ),
+                      ),
                     ),
                   ],
                 ),
                 if (_tags.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: AppTokens.space12),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: AppTokens.space8,
+                    runSpacing: AppTokens.space8,
                     children: _tags
                         .map((tag) => Chip(
                               label: Text('#$tag'),
@@ -810,7 +847,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   ),
                 ],
               ],
-              const SizedBox(height: 28),
+              const SizedBox(height: AppTokens.space32),
               PrimaryButton(
                 label: _isTransfer
                     ? 'Transfer'
@@ -819,89 +856,6 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 onPressed: _submit,
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TypeToggleButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _TypeToggleButton({
-    required this.label,
-    required this.selected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? color : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected
-                  ? Colors.white
-                  : (Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.lightTextSecondary),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _CategoryChip({required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primary
-              : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected
-                ? AppColors.primary
-                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? Colors.white
-                : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
           ),
         ),
       ),
@@ -952,46 +906,48 @@ class _TransferHint extends ConsumerWidget {
           'earnings and net worth stay the same.';
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: isDark ? 0.14 : 0.08),
-            borderRadius: BorderRadius.circular(12),
+        DsCard(
+          emphasis: DsCardEmphasis.outlined,
+          radius: AppTokens.radiusChip,
+          color: AppColors.primary.withValues(alpha: t.isDark ? 0.14 : 0.08),
+          borderColor: AppColors.primary.withValues(alpha: 0.25),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppTokens.space12,
+            vertical: AppTokens.space12,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.primary),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppTokens.space8),
               Expanded(
                 child: Text(
                   message,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    height: 1.35,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(color: t.textPrimary),
                 ),
               ),
             ],
           ),
         ),
         if (overdraws) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space8),
           Row(
             children: [
-              const Icon(Icons.warning_amber_rounded, size: 13, color: AppColors.warning),
-              const SizedBox(width: 5),
+              Icon(Icons.warning_amber_rounded, size: 13, color: t.warningAccent),
+              const SizedBox(width: AppTokens.space4),
               Expanded(
                 child: Text(
                   '${from.wallet.name} only has ${from.balance.toStringAsFixed(0)} '
                   '${from.displayCurrency} — this transfer will overdraw it.',
-                  style: const TextStyle(
-                      fontSize: 11.5, color: AppColors.warning, fontWeight: FontWeight.w700),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: t.warningAccent,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -1025,8 +981,8 @@ class _WalletBalanceLine extends ConsumerWidget {
     final b = balances.where((x) => x.wallet.id == (walletId ?? 0)).firstOrNull;
     if (b == null) return const SizedBox.shrink();
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textTertiary = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     final amount = double.tryParse(amountText.trim()) ?? 0;
     final overdraws = isExpense && !b.wallet.isLiability && amount > 0 && amount > b.balance + 0.01;
     // Soft credit-limit warning: spending past available credit is allowed (the
@@ -1045,24 +1001,23 @@ class _WalletBalanceLine extends ConsumerWidget {
         : 'Balance: ${b.balance.toStringAsFixed(0)} ${b.displayCurrency}';
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: AppTokens.space8),
       child: Row(
         children: [
           Icon(
             warn ? Icons.warning_amber_rounded : Icons.account_balance_wallet_outlined,
             size: 13,
-            color: warn ? AppColors.warning : textTertiary,
+            color: warn ? t.warningAccent : t.textTertiary,
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: AppTokens.space4),
           Expanded(
             child: Text(
               warn
                   ? '$label — ${overCredit ? 'over your available credit' : 'this spend will overdraw it'}'
                   : label,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: warn ? AppColors.warning : textTertiary,
-                fontWeight: warn ? FontWeight.w700 : FontWeight.w400,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: warn ? t.warningAccent : t.textTertiary,
+                fontWeight: warn ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
           ),
@@ -1082,29 +1037,28 @@ class _LoanExpenseHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.warning.withValues(alpha: 0.12) : AppColors.warningBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    return DsCard(
+      emphasis: DsCardEmphasis.outlined,
+      radius: AppTokens.radiusChip,
+      color: t.warningBg,
+      borderColor: t.warningAccent.withValues(alpha: 0.35),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.space12,
+        vertical: AppTokens.space12,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
-          const SizedBox(width: 8),
+          Icon(Icons.info_outline_rounded, size: 16, color: t.warningAccent),
+          const SizedBox(width: AppTokens.space8),
           Expanded(
             child: Text(
               'This grows what you owe on $walletName. A loan normally only grows '
               'by interest — if you\'re buying something, spend from the wallet '
               'the money is in. Interest or fees? Carry on.',
-              style: TextStyle(
-                fontSize: 11.5,
-                height: 1.35,
-                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: t.textPrimary),
             ),
           ),
         ],
@@ -1126,15 +1080,16 @@ class _LiabilityIncomeHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDark
-            ? AppColors.warning.withValues(alpha: 0.12)
-            : AppColors.warningBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+    final t = context.tokens;
+    final theme = Theme.of(context);
+    return DsCard(
+      emphasis: DsCardEmphasis.outlined,
+      radius: AppTokens.radiusChip,
+      color: t.warningBg,
+      borderColor: t.warningAccent.withValues(alpha: 0.35),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.space12,
+        vertical: AppTokens.space12,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1142,23 +1097,19 @@ class _LiabilityIncomeHint extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
-              const SizedBox(width: 8),
+              Icon(Icons.info_outline_rounded, size: 16, color: t.warningAccent),
+              const SizedBox(width: AppTokens.space8),
               Expanded(
                 child: Text(
                   '$walletName is a debt account. Paying it off isn\'t income — '
                   'the money has to come out of another wallet, or your net worth '
                   'grows out of nowhere. Only use income here for refunds.',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    height: 1.35,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextPrimary,
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(color: t.textPrimary),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -1168,8 +1119,12 @@ class _LiabilityIncomeHint extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.primary,
                 side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                minimumSize: const Size.fromHeight(46),
+                padding: const EdgeInsets.symmetric(vertical: AppTokens.space8),
+                textStyle: theme.textTheme.labelMedium,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTokens.radiusChip),
+                ),
               ),
             ),
           ),
