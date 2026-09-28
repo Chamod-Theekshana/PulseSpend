@@ -9,6 +9,7 @@ import '../../../providers/profile_provider.dart';
 import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../../l10n/l10n_ext.dart';
 
 /// Bottom sheet for POST /api/goals/:id/contribute. Currency defaults to the
 /// user's profile currency but can differ from the goal's — the backend
@@ -107,7 +108,7 @@ class _ContributeGoalSheetState extends ConsumerState<ContributeGoalSheet> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(ctx.l10n.actionCancel)),
             FilledButton(
               onPressed: () {
                 final n = double.tryParse(controller.text.trim());
@@ -118,7 +119,7 @@ class _ContributeGoalSheetState extends ConsumerState<ContributeGoalSheet> {
                 }
                 Navigator.pop(ctx, n);
               },
-              child: const Text('Save'),
+              child: Text(ctx.l10n.actionSave),
             ),
           ],
         ),

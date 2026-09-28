@@ -116,7 +116,7 @@ export class TransactionModel {
       WHERE user_id = ${userId} AND transaction_id = ${transactionId}
       ORDER BY id ASC
     `;
-    return rows.map((row) => String((row as any).tag));
+    return rows.map((row: any) => String(row.tag));
   }
 
   private static async insertSplits(

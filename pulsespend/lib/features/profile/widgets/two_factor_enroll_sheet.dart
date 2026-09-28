@@ -8,6 +8,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../../l10n/l10n_ext.dart';
 
 /// Three-step TOTP enrollment: scan QR (or copy the secret) → verify a code →
 /// save the one-shot recovery codes. 2FA only turns on after a successful
@@ -95,8 +96,8 @@ class _TwoFactorEnrollSheetState extends ConsumerState<TwoFactorEnrollSheet> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-    final border = isDark ? AppColors.darkBorder : const Color(0xFFE4E4E4);
-    final surfaceAlt = isDark ? AppColors.darkSurface : const Color(0xFFF7F7F9);
+    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final surfaceAlt = isDark ? AppColors.darkSurface : AppColors.lightSurfaceAlt;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -127,7 +128,7 @@ class _TwoFactorEnrollSheetState extends ConsumerState<TwoFactorEnrollSheet> {
           if (_verified)
             ..._buildRecoveryStep(textPrimary, textSecondary, surfaceAlt, border)
           else if (_otpauthUrl == null)
-            ..._buildLoading(textSecondary)
+            ..._buildLoading(context, textSecondary)
           else
             ..._buildScanStep(textPrimary, textSecondary, surfaceAlt, border),
         ],
@@ -135,13 +136,13 @@ class _TwoFactorEnrollSheetState extends ConsumerState<TwoFactorEnrollSheet> {
     );
   }
 
-  List<Widget> _buildLoading(Color textSecondary) => [
+  List<Widget> _buildLoading(BuildContext context, Color textSecondary) => [
         const SizedBox(height: 40),
         if (_error != null)
           Column(children: [
             Text(_error!, style: const TextStyle(color: AppColors.expense)),
             const SizedBox(height: 16),
-            OutlinedButton(onPressed: _enroll, child: const Text('Retry')),
+            OutlinedButton(onPressed: _enroll, child: Text(context.l10n.actionRetry)),
           ])
         else
           const Center(child: AppLoader(size: 40)),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/socket_service.dart';
 import '../models/goal_model.dart';
@@ -8,10 +9,12 @@ import 'repository_providers.dart';
 /// refreshes live when any member shares an expense, settles, joins, or is
 /// removed — the group paths had no realtime before this.
 void _onGroupChanged(Ref ref, int groupId) {
-  final sub = SocketService.instance.on('group:changed', (data) {
-    final changed = data is Map ? int.tryParse('${data['groupId']}') : null;
+  void handler(dynamic data) {
+    final raw = data is List ? data.first : data;
+    final changed = raw is Map ? int.tryParse('${raw['groupId']}') : null;
     if (changed == groupId) ref.invalidateSelf();
-  });
+  }
+  final sub = SocketService.instance.on('group:changed', handler);
   ref.onDispose(sub.cancel);
 }
 
@@ -32,10 +35,22 @@ class GroupsState {
 }
 
 class GroupsController extends Notifier<GroupsState> {
+  Timer? _refreshDebounce;
+
+  void _scheduleRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 800), refresh);
+  }
+
   @override
   GroupsState build() {
-    final sub = SocketService.instance.on('group:changed', (_) => refresh());
-    ref.onDispose(sub.cancel);
+    final sub1 = SocketService.instance.on('group:changed', (_) => _scheduleRefresh());
+    final sub2 = SocketService.instance.on('new_message', (_) => _scheduleRefresh());
+    ref.onDispose(() {
+      sub1.cancel();
+      sub2.cancel();
+      _refreshDebounce?.cancel();
+    });
     Future.microtask(refresh);
     return const GroupsState(isLoading: true);
   }

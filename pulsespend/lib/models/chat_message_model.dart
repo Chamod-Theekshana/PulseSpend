@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 enum MessageStatus { pending, sent, failed }
 
 class ChatMessage {
@@ -5,6 +7,14 @@ class ChatMessage {
   final String? localId;
   final String groupId;
   final String senderId;
+
+  /// Display name of the sender. The backend has always sent this; the client
+  /// simply never read it, which is why the chat showed no names.
+  final String? senderName;
+
+  /// Avatar URL (Cloudinary) or data URI. Null when the sender has no photo.
+  final String? senderPhoto;
+
   final String content;
   final MessageStatus status;
   final DateTime timestamp;
@@ -15,6 +25,8 @@ class ChatMessage {
     this.localId,
     required this.groupId,
     this.senderId = '',
+    this.senderName,
+    this.senderPhoto,
     required this.content,
     this.status = MessageStatus.sent,
     required this.timestamp,
@@ -27,11 +39,14 @@ class ChatMessage {
       localId: json['localId'],
       groupId: json['groupId'] ?? '',
       senderId: json['senderId'] ?? '',
+      senderName: json['senderName'] as String?,
+      senderPhoto: json['senderPhoto'] as String?,
       content: json['content'] ?? '',
       status: _statusFromString(json['status']),
-      timestamp: json['timestamp'] != null 
-          ? DateTime.parse(json['timestamp']) 
-          : DateTime.now(),
+      // TIMESTAMP instant from `group_messages.created_at`, serialised as UTC.
+      // Reading `.hour` off the un-converted UTC value is exactly what made
+      // every chat bubble show the wrong time.
+      timestamp: AppTime.instant(json['timestamp']),
       metadata: json['metadata'] != null 
           ? Map<String, dynamic>.from(json['metadata']) 
           : null,
@@ -44,6 +59,8 @@ class ChatMessage {
       'localId': localId,
       'groupId': groupId,
       'senderId': senderId,
+      'senderName': senderName,
+      'senderPhoto': senderPhoto,
       'content': content,
       'status': status.name,
       'timestamp': timestamp.toIso8601String(),
@@ -56,6 +73,8 @@ class ChatMessage {
     String? localId,
     String? groupId,
     String? senderId,
+    String? senderName,
+    String? senderPhoto,
     String? content,
     MessageStatus? status,
     DateTime? timestamp,
@@ -66,6 +85,8 @@ class ChatMessage {
       localId: localId ?? this.localId,
       groupId: groupId ?? this.groupId,
       senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
+      senderPhoto: senderPhoto ?? this.senderPhoto,
       content: content ?? this.content,
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,

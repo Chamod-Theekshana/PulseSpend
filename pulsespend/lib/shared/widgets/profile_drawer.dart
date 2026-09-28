@@ -14,6 +14,7 @@ import '../../features/profile/screens/profile_screen.dart';
 import '../../features/recurring/screens/recurring_screen.dart';
 import '../../features/wallets/screens/wallets_screen.dart';
 import '../utils/image_utils.dart';
+import '../../l10n/l10n_ext.dart';
 
 // ──────────────────────────────────────────────────────────
 // Controller – exposes a ValueNotifier so any child widget can
@@ -157,7 +158,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
     final profile = ref.watch(profileControllerProvider);
     final user = profile.user;
 
-    final bgColor = isDark ? AppColors.darkBg : const Color(0xFFF5F5F7);
+    final bgColor = isDark ? AppColors.darkBg : AppColors.lightBg;
     final surfaceColor = isDark ? AppColors.darkSurface : Colors.white;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -365,7 +366,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(ctx.l10n.actionCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -452,7 +453,7 @@ class _ThemeToggle extends StatelessWidget {
         width: 68,
         height: 34,
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF2B2B45) : AppColors.primaryLight,
+          color: isDark ? AppColors.darkSurfaceAlt : AppColors.primaryLight,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: AppColors.primary.withValues(alpha: 0.3),

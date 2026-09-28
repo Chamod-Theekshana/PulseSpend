@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// A subscription-like series detected from real transaction history
 /// (backend subscriptionDetector.ts) — NOT a recurring rule the user created.
 class DetectedSubscription {
@@ -92,7 +94,9 @@ class RecurringModel {
       amount: double.parse(json['amount'].toString()),
       category: json['category'] as String,
       frequency: json['frequency'] as String,
-      nextRun: DateTime.parse(json['next_run'].toString()),
+      // DATE column — no zone conversion, or every user west of UTC would see
+      // the run scheduled a day early.
+      nextRun: AppTime.calendarDate(json['next_run']),
       isActive: json['is_active'] == true,
       currency: json['currency'] as String?,
       walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,

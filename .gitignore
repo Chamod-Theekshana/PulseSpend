@@ -1,0 +1,8 @@
+# Firebase CLI debug output
+firebase-debug.log
+firebase-debug.*.log
+.firebase/
+
+# OS noise
+.DS_Store
+Thumbs.db

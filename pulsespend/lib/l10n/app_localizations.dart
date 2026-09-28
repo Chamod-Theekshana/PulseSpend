@@ -539,6 +539,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Something went wrong. Please try again.'**
   String get errUnknown;
+
+  /// No description provided for @fieldAmount.
+  ///
+  /// In en, this message translates to:
+  /// **'Amount'**
+  String get fieldAmount;
+
+  /// No description provided for @fieldCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get fieldCategory;
+
+  /// No description provided for @fieldWallet.
+  ///
+  /// In en, this message translates to:
+  /// **'Wallet'**
+  String get fieldWallet;
+
+  /// No description provided for @fieldCurrency.
+  ///
+  /// In en, this message translates to:
+  /// **'Currency'**
+  String get fieldCurrency;
+
+  /// No description provided for @fieldTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get fieldTitle;
+
+  /// No description provided for @fieldNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get fieldNotes;
+
+  /// No description provided for @fieldTags.
+  ///
+  /// In en, this message translates to:
+  /// **'Tags'**
+  String get fieldTags;
+
+  /// No description provided for @fieldDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get fieldDefault;
+
+  /// No description provided for @actionVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get actionVerify;
+
+  /// No description provided for @actionUndo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get actionUndo;
+
+  /// No description provided for @actionTransfer.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer'**
+  String get actionTransfer;
+
+  /// No description provided for @actionExportCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'Export CSV'**
+  String get actionExportCsv;
+
+  /// No description provided for @actionShareImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Share as image'**
+  String get actionShareImage;
+
+  /// No description provided for @typeIncome.
+  ///
+  /// In en, this message translates to:
+  /// **'Income'**
+  String get typeIncome;
+
+  /// No description provided for @typeExpense.
+  ///
+  /// In en, this message translates to:
+  /// **'Expense'**
+  String get typeExpense;
+
+  /// No description provided for @walletFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'From wallet'**
+  String get walletFrom;
+
+  /// No description provided for @walletTo.
+  ///
+  /// In en, this message translates to:
+  /// **'To wallet'**
+  String get walletTo;
+
+  /// No description provided for @pickCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a category'**
+  String get pickCategory;
+
+  /// No description provided for @allCategories.
+  ///
+  /// In en, this message translates to:
+  /// **'All categories'**
+  String get allCategories;
+
+  /// No description provided for @allWallets.
+  ///
+  /// In en, this message translates to:
+  /// **'All wallets'**
+  String get allWallets;
 }
 
 class _AppLocalizationsDelegate

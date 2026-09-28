@@ -227,4 +227,64 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errUnknown => 'Something went wrong. Please try again.';
+
+  @override
+  String get fieldAmount => 'Amount';
+
+  @override
+  String get fieldCategory => 'Category';
+
+  @override
+  String get fieldWallet => 'Wallet';
+
+  @override
+  String get fieldCurrency => 'Currency';
+
+  @override
+  String get fieldTitle => 'Title';
+
+  @override
+  String get fieldNotes => 'Notes';
+
+  @override
+  String get fieldTags => 'Tags';
+
+  @override
+  String get fieldDefault => 'Default';
+
+  @override
+  String get actionVerify => 'Verify';
+
+  @override
+  String get actionUndo => 'Undo';
+
+  @override
+  String get actionTransfer => 'Transfer';
+
+  @override
+  String get actionExportCsv => 'Export CSV';
+
+  @override
+  String get actionShareImage => 'Share as image';
+
+  @override
+  String get typeIncome => 'Income';
+
+  @override
+  String get typeExpense => 'Expense';
+
+  @override
+  String get walletFrom => 'From wallet';
+
+  @override
+  String get walletTo => 'To wallet';
+
+  @override
+  String get pickCategory => 'Pick a category';
+
+  @override
+  String get allCategories => 'All categories';
+
+  @override
+  String get allWallets => 'All wallets';
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/budget_model.dart';
 import '../../../providers/budgets_provider.dart';
 import '../../../providers/categories_provider.dart';
@@ -72,10 +72,6 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
   Widget build(BuildContext context) {
     final categories = ref.watch(categoriesControllerProvider).expenseCategories;
     final currency = ref.watch(profileControllerProvider).currency;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceAlt = isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt;
-    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
-    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
 
     return Scaffold(
       appBar: AppBar(title: const Text('New Budget')),
@@ -83,57 +79,43 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            padding: const EdgeInsets.fromLTRB(
+              AppTokens.screenPadding,
+              AppTokens.space8,
+              AppTokens.screenPadding,
+              AppTokens.space24,
+            ),
             children: [
-              Text('Category', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
+              const DsSectionHeader(title: 'Category', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: AppTokens.space8,
+                runSpacing: AppTokens.space8,
                 children: categories
-                    .map((c) => GestureDetector(
+                    .map((c) => DsFilterChip(
+                          label: c.name,
+                          selected: _selectedCategory == c.name,
+                          showChevron: false,
                           onTap: () => setState(() => _selectedCategory = c.name),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: _selectedCategory == c.name ? AppColors.primary : surfaceAlt,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: _selectedCategory == c.name ? AppColors.primary : border,
-                              ),
-                            ),
-                            child: Text(
-                              c.name,
-                              style: TextStyle(
-                                color: _selectedCategory == c.name ? Colors.white : textPrimary,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
                         ))
                     .toList(),
               ),
-              const SizedBox(height: 20),
-              Text('Period', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTokens.space24),
+              const DsSectionHeader(title: 'Period', padding: EdgeInsets.zero),
+              const SizedBox(height: AppTokens.space12),
               Wrap(
-                spacing: 8,
+                spacing: AppTokens.space8,
+                runSpacing: AppTokens.space8,
                 children: _periods
-                    .map((p) => ChoiceChip(
-                          label: Text(_periodLabel(p)),
+                    .map((p) => DsFilterChip(
+                          label: _periodLabel(p),
                           selected: _period == p,
-                          onSelected: (_) => setState(() => _period = p),
-                          selectedColor: AppColors.primary,
-                          labelStyle: TextStyle(
-                            color: _period == p ? Colors.white : textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          showChevron: false,
+                          onTap: () => setState(() => _period = p),
                         ))
                     .toList(),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppTokens.space24),
               AppTextField(
                 controller: _amountController,
                 label: '${_periodLabel(_period)} limit ($currency)',
@@ -145,7 +127,7 @@ class _AddBudgetScreenState extends ConsumerState<AddBudgetScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: AppTokens.space32),
               PrimaryButton(label: 'Create Budget', isLoading: _isLoading, onPressed: _submit),
             ],
           ),

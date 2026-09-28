@@ -7,6 +7,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../auth/screens/add_account_screen.dart';
 import '../../auth/screens/splash_gate.dart';
+import '../../../l10n/l10n_ext.dart';
 
 class AccountsScreen extends ConsumerStatefulWidget {
   const AccountsScreen({super.key});
@@ -54,7 +55,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
               : 'Remove ${account.email} from this device? You can add it again later.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove', style: TextStyle(color: AppColors.expense)),

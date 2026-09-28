@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../shared/widgets/app_loader.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/wallet_model.dart';
 import '../../../providers/wallets_provider.dart';
+import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import 'opening_balance_sheet.dart';
 import 'wallets_screen.dart';
@@ -33,9 +34,9 @@ class WalletDetailScreen extends ConsumerWidget {
 
     // Deleted from another device while open.
     if (wallet == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Wallet')),
-        body: const EmptyState(
+      return const Scaffold(
+        appBar: DsTitleAppBar(title: 'Wallet'),
+        body: EmptyState(
           icon: Icons.account_balance_wallet_outlined,
           title: 'Wallet not found',
           message: 'It may have been deleted. Its transactions moved to the default wallet.',
@@ -43,12 +44,11 @@ class WalletDetailScreen extends ConsumerWidget {
       );
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final txs = ref.watch(walletTransactionsProvider(walletId));
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(wallet.name),
+      appBar: DsTitleAppBar(
+        title: wallet.name,
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) {
@@ -80,32 +80,29 @@ class WalletDetailScreen extends ConsumerWidget {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.screenPadding,
+          AppTokens.space12,
+          AppTokens.screenPadding,
+          AppTokens.space32,
+        ),
         children: [
           _HeaderCard(wallet: wallet, balance: balance),
-          const SizedBox(height: 20),
-          Text(
-            'Recent transactions',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
-            ),
+          const SizedBox(height: AppTokens.space24),
+          const DsSectionHeader(
+            title: 'Recent transactions',
+            padding: EdgeInsets.zero,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space12),
           txs.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: AppLoader(size: 40)),
-            ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Text('Couldn\'t load transactions.',
-                  style: TextStyle(color: AppColors.expense.withValues(alpha: 0.9))),
+            loading: () => const DsTransactionSkeleton(count: 4),
+            error: (e, _) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppTokens.space16),
+              child: DsInlineError(message: 'Couldn\'t load transactions.'),
             ),
             data: (items) => items.isEmpty
                 ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
+                    padding: EdgeInsets.symmetric(vertical: AppTokens.space32),
                     child: EmptyState(
                       icon: Icons.receipt_long_outlined,
                       title: 'Nothing here yet',
@@ -115,50 +112,18 @@ class WalletDetailScreen extends ConsumerWidget {
                 : Column(
                     children: [
                       for (final t in items)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isDark ? AppColors.darkSurface : Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(t.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600, fontSize: 13.5)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        t.category,
-                                        style: TextStyle(
-                                          fontSize: 11.5,
-                                          color: isDark
-                                              ? AppColors.darkTextSecondary
-                                              : AppColors.lightTextSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  CurrencyFormatter.format(t.amount, t.currency),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13.5,
-                                    color: t.isExpense ? AppColors.expense : AppColors.income,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        DsCard(
+                          margin: const EdgeInsets.only(bottom: AppTokens.space8),
+                          padding: EdgeInsets.zero,
+                          radius: AppTokens.radiusCardSm,
+                          child: DsTransactionTile(
+                            title: t.title,
+                            subtitle: t.category,
+                            amountText: CurrencyFormatter.format(t.amount, t.currency),
+                            amount: t.amount,
+                            icon: Icons.receipt_long_rounded,
+                            iconColor: AppColors.categoryColor(t.category),
+                            leading: CategoryIcon(category: t.category, size: 44),
                           ),
                         ),
                     ],
@@ -178,130 +143,120 @@ class _HeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     final b = balance;
     final isLiability = wallet.isLiability;
     final cur = b?.displayCurrency ?? wallet.currency;
     final progress = b?.payoffProgress;
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: (isLiability ? AppColors.expense : AppColors.primary)
-                      .withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
+    // The headline used to carry the semantic colour; on a payment card the
+    // figure is white, so the gradient carries it instead — green once a debt is
+    // cleared or in credit, red while money is owed or a wallet is overdrawn,
+    // brand blue for an ordinary balance.
+    final isSettled = b != null && (b.isOverpaid || b.isPaidOff);
+    final isNegative = !isSettled && (isLiability || (b != null && b.balance < 0));
+    final Gradient cardGradient = isSettled || isNegative
+        ? LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [isSettled ? tk.success : tk.danger, AppColors.heroNavy],
+          )
+        : tk.heroGradient;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DsBankCard(
+          height: 196,
+          gradient: cardGradient,
+          brandLogo: Icon(wallet.icon, color: Colors.white, size: 26),
+          brandLabel: '${wallet.type[0].toUpperCase()}${wallet.type.substring(1)} · ${wallet.currency}'
+              '${isLiability ? ' · liability' : ''}',
+          balanceLabel:
+              // Overpaying flips the headline to credit; clearing it entirely
+              // flips it to finished (loan) / settled (card).
+              b != null && b.isOverpaid
+                  ? 'In credit'
+                  : b != null && b.isPaidOff
+                      ? (wallet.type == 'loan' ? 'Paid off 🎉' : 'All clear ✓')
+                      : (isLiability ? 'You owe' : 'Balance'),
+          balance: b == null
+              ? '—'
+              : CurrencyFormatter.format(
+                  isLiability ? (b.isOverpaid ? b.creditBalance : b.amountOwed) : b.balance,
+                  cur,
                 ),
-                child: Icon(wallet.icon,
-                    color: isLiability ? AppColors.expense : AppColors.primary, size: 21),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '${wallet.type[0].toUpperCase()}${wallet.type.substring(1)} · ${wallet.currency}'
-                  '${isLiability ? ' · liability' : ''}',
-                  style: TextStyle(fontSize: 12.5, color: textSecondary),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            // Overpaying flips the headline to credit; clearing it entirely
-            // flips it to finished (loan) / settled (card).
-            b != null && b.isOverpaid
-                ? 'In credit'
-                : b != null && b.isPaidOff
-                    ? (wallet.type == 'loan' ? 'Paid off 🎉' : 'All clear ✓')
-                    : (isLiability ? 'You owe' : 'Balance'),
-            style: TextStyle(fontSize: 12, color: textSecondary),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            b == null
-                ? '—'
-                : CurrencyFormatter.format(
-                    isLiability ? (b.isOverpaid ? b.creditBalance : b.amountOwed) : b.balance,
-                    cur,
-                  ),
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              color: b != null && (b.isOverpaid || b.isPaidOff)
-                  ? AppColors.income
-                  : (isLiability
-                      ? AppColors.expense
-                      : (b != null && b.balance < 0 ? AppColors.expense : null)),
-            ),
-          ),
-          if (b != null) ...[
-            const SizedBox(height: 16),
-            // A debt has three flows, not two: what it started at, what's been
-            // added since, and what's been paid back. An asset only has in/out.
-            Row(
+          holderName: wallet.name,
+          // The wallet model has no card number, so the slot stays empty rather
+          // than showing a fabricated one.
+          maskedNumber: null,
+        ),
+        if (b != null) ...[
+          const SizedBox(height: AppTokens.space16),
+          DsCard(
+            padding: const EdgeInsets.all(AppTokens.space16),
+            child: Column(
+              // Stretch so the payoff bar spans the card instead of collapsing
+              // to its own filled fraction.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (isLiability && b.borrowed > 0)
-                  Expanded(
-                    child: _Flow(
-                      label: 'Borrowed',
-                      value: CurrencyFormatter.format(b.borrowed, cur),
-                      color: AppColors.expense,
-                      icon: Icons.south_west_rounded,
+                // A debt has three flows, not two: what it started at, what's
+                // been added since, and what's been paid back. An asset only has
+                // in/out.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (isLiability && b.borrowed > 0)
+                      Expanded(
+                        child: _Flow(
+                          label: 'Borrowed',
+                          value: CurrencyFormatter.format(b.borrowed, cur),
+                          color: tk.danger,
+                          icon: Icons.south_west_rounded,
+                        ),
+                      ),
+                    Expanded(
+                      child: _Flow(
+                        label: isLiability ? 'Charged' : 'In',
+                        value: CurrencyFormatter.format(isLiability ? b.charged : b.income, cur),
+                        color: isLiability ? tk.danger : tk.success,
+                        icon: Icons.arrow_upward_rounded,
+                      ),
                     ),
-                  ),
-                Expanded(
-                  child: _Flow(
-                    label: isLiability ? 'Charged' : 'In',
-                    value: CurrencyFormatter.format(isLiability ? b.charged : b.income, cur),
-                    color: isLiability ? AppColors.expense : AppColors.income,
-                    icon: Icons.arrow_upward_rounded,
-                  ),
+                    Expanded(
+                      child: _Flow(
+                        label: isLiability ? 'Repaid' : 'Out',
+                        value: CurrencyFormatter.format(isLiability ? b.repaid : b.expense, cur),
+                        color: isLiability ? tk.success : tk.danger,
+                        icon: Icons.arrow_downward_rounded,
+                      ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: _Flow(
-                    label: isLiability ? 'Repaid' : 'Out',
-                    value: CurrencyFormatter.format(isLiability ? b.repaid : b.expense, cur),
-                    color: isLiability ? AppColors.income : AppColors.expense,
-                    icon: Icons.arrow_downward_rounded,
+                if (progress != null) ...[
+                  const SizedBox(height: AppTokens.space16),
+                  DsProgressBar(
+                    value: progress,
+                    // Paying a debt down is progress, so the bar stays green all
+                    // the way up rather than running the budget warning ramp.
+                    color: tk.success,
+                    trackColor: tk.dangerBg,
+                    height: 7,
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${(progress * 100).toStringAsFixed(0)}% paid off of '
+                    '${CurrencyFormatter.format(b.borrowed, cur)} borrowed'
+                    '${b.charged > 0 ? ' + ${CurrencyFormatter.format(b.charged, cur)} charges' : ''}',
+                    style: theme.textTheme.labelSmall?.copyWith(color: tk.textSecondary),
+                  ),
+                ],
               ],
             ),
-          ],
-          if (progress != null && b != null) ...[
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(5),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 7,
-                backgroundColor: AppColors.expense.withValues(alpha: 0.15),
-                valueColor: const AlwaysStoppedAnimation(AppColors.income),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${(progress * 100).toStringAsFixed(0)}% paid off of '
-              '${CurrencyFormatter.format(b.borrowed, cur)} borrowed'
-              '${b.charged > 0 ? ' + ${CurrencyFormatter.format(b.charged, cur)} charges' : ''}',
-              style: TextStyle(fontSize: 11.5, color: textSecondary),
-            ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -316,25 +271,37 @@ class _Flow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tk = context.tokens;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, size: 13, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+            DsIconChip(icon: icon, color: color, size: 26, iconSize: 14),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(color: tk.textSecondary),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 2),
-        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
       ],
     );
   }

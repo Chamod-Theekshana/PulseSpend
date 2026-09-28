@@ -125,12 +125,21 @@ export class ReminderModel {
     return rows.length;
   }
 
-  static async listDueForReminderDate(today: string): Promise<ReminderRow[]> {
+  /**
+   * Reminders whose lead time lands on `today`.
+   *
+   * `today` is now the *user's* local date, supplied by the zoned scheduler —
+   * see `zonedScheduler.ts`. Pass `userId` to scope the query to one user,
+   * which is what the per-timezone scheduler does; omitting it keeps the old
+   * global behaviour for any manual/ops invocation.
+   */
+  static async listDueForReminderDate(today: string, userId?: string): Promise<ReminderRow[]> {
     const rows = await sql`
       SELECT id, user_id, title, amount, currency, category, due_date, remind_days_before, is_active, last_notified_on, created_at
       FROM reminders
       WHERE is_active = true
         AND deleted_at IS NULL
+        AND (${userId ?? null}::text IS NULL OR user_id = ${userId ?? null}::text)
         AND due_date >= ${today}::date
         AND (due_date::date - ${today}::date) = remind_days_before
         AND (last_notified_on IS NULL OR last_notified_on::date <> ${today}::date)
@@ -146,12 +155,13 @@ export class ReminderModel {
    * reminders (or none) have fired so far; once we notify overdue we stamp
    * `last_notified_on = today` (> due_date) so it fires exactly once.
    */
-  static async listOverdue(today: string): Promise<ReminderRow[]> {
+  static async listOverdue(today: string, userId?: string): Promise<ReminderRow[]> {
     const rows = await sql`
       SELECT id, user_id, title, amount, currency, category, due_date, remind_days_before, is_active, last_notified_on, created_at
       FROM reminders
       WHERE is_active = true
         AND deleted_at IS NULL
+        AND (${userId ?? null}::text IS NULL OR user_id = ${userId ?? null}::text)
         AND due_date < ${today}::date
         AND (last_notified_on IS NULL OR last_notified_on::date <= due_date::date)
       ORDER BY due_date ASC, id ASC

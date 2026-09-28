@@ -10,6 +10,10 @@ export interface User {
   theme?: 'dark' | 'light' | string | null;
   currency?: string | null;
   date_format?: string | null;
+  /** IANA zone id, e.g. `Asia/Colombo`. NULL until the client first reports it. */
+  timezone?: string | null;
+  /** Minutes east of UTC; the DST-naive fallback when `timezone` is NULL. */
+  tz_offset_minutes?: number | null;
   language?: string | null;
   first_name?: string | null;
   surname?: string | null;
@@ -74,6 +78,8 @@ export class UserModel {
       gender?: string;
       contact_no?: string;
       biometric_enabled?: boolean;
+      timezone?: string | null;
+      tz_offset_minutes?: number | null;
     }
   ): Promise<User> {
     const hasAny =
@@ -88,7 +94,9 @@ export class UserModel {
       updates.date_of_birth !== undefined ||
       updates.gender !== undefined ||
       updates.contact_no !== undefined ||
-      updates.biometric_enabled !== undefined;
+      updates.biometric_enabled !== undefined ||
+      updates.timezone !== undefined ||
+      updates.tz_offset_minutes !== undefined;
 
     if (!hasAny) {
       const result = await sql`SELECT * FROM users WHERE id = ${userId}`;
@@ -109,7 +117,9 @@ export class UserModel {
         date_of_birth = COALESCE(${updates.date_of_birth ?? null}, date_of_birth),
         gender = COALESCE(${updates.gender ?? null}, gender),
         contact_no = COALESCE(${updates.contact_no ?? null}, contact_no),
-        biometric_enabled = COALESCE(${updates.biometric_enabled ?? null}, biometric_enabled)
+        biometric_enabled = COALESCE(${updates.biometric_enabled ?? null}, biometric_enabled),
+        timezone = COALESCE(${updates.timezone ?? null}, timezone),
+        tz_offset_minutes = COALESCE(${updates.tz_offset_minutes ?? null}::smallint, tz_offset_minutes)
       WHERE id = ${userId}
       RETURNING *
     `;

@@ -442,7 +442,19 @@ export async function createTransaction(req: AuthedRequest, res: Response) {
       return res.status(400).json({ message: applied.error, transaction });
     }
     (transaction as any).group_id = sharedGroupId;
-    emitToUser(user_id, 'group:changed', { groupId: sharedGroupId });
+    // Notify EVERY member, not just the person who shared it. Emitting only to
+    // `user_id` meant the sharer's own screen refreshed while everyone else's
+    // group balance/feed stayed stale until they manually pulled to refresh —
+    // which reads as "the group screen doesn't update".
+    void (async () => {
+      try {
+        for (const memberId of await GroupModel.memberIds(sharedGroupId)) {
+          emitToUser(memberId, 'group:changed', { groupId: sharedGroupId });
+        }
+      } catch (err) {
+        console.error('[Groups] shared-expense emit failed:', err);
+      }
+    })();
     void (async () => {
       try {
         const actor = await UserModel.displayName(user_id);

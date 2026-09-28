@@ -228,4 +228,64 @@ class AppLocalizationsSi extends AppLocalizations {
 
   @override
   String get errUnknown => 'යමක් වැරදුණා. නැවත උත්සාහ කරන්න.';
+
+  @override
+  String get fieldAmount => 'මුදල';
+
+  @override
+  String get fieldCategory => 'ප්‍රවර්ගය';
+
+  @override
+  String get fieldWallet => 'පසුම්බිය';
+
+  @override
+  String get fieldCurrency => 'මුදල් ඒකකය';
+
+  @override
+  String get fieldTitle => 'මාතෘකාව';
+
+  @override
+  String get fieldNotes => 'සටහන්';
+
+  @override
+  String get fieldTags => 'ටැග්';
+
+  @override
+  String get fieldDefault => 'පෙරනිමි';
+
+  @override
+  String get actionVerify => 'තහවුරු කරන්න';
+
+  @override
+  String get actionUndo => 'පෙරසේ කරන්න';
+
+  @override
+  String get actionTransfer => 'මාරු කරන්න';
+
+  @override
+  String get actionExportCsv => 'CSV නිර්යාත කරන්න';
+
+  @override
+  String get actionShareImage => 'රූපයක් ලෙස බෙදාගන්න';
+
+  @override
+  String get typeIncome => 'ආදායම';
+
+  @override
+  String get typeExpense => 'වියදම';
+
+  @override
+  String get walletFrom => 'පසුම්බියෙන්';
+
+  @override
+  String get walletTo => 'පසුම්බියට';
+
+  @override
+  String get pickCategory => 'ප්‍රවර්ගයක් තෝරන්න';
+
+  @override
+  String get allCategories => 'සියලු ප්‍රවර්ග';
+
+  @override
+  String get allWallets => 'සියලු පසුම්බි';
 }

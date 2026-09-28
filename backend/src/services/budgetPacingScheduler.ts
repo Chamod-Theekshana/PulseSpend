@@ -1,8 +1,8 @@
-import cron from 'node-cron';
 import { BudgetModel } from '../models/BudgetModel';
 import { sendPushToUser } from './pushService';
 import { emitToUser } from '../socket';
 import { withRetries } from './retry';
+import { scheduleDailyPerUser } from './zonedScheduler';
 
 let isRunning = false;
 
@@ -25,19 +25,31 @@ function elapsedFraction(startDate: string, endDate: string, now: Date): number 
  * the budget_alerts preference; deduped via budgets.pace_alerted.
  */
 export class BudgetPacingScheduler {
+  /**
+   * 09:00 in each user's own timezone. (The old 09:30 half-hour offset can't be
+   * preserved: the zoned scheduler ticks hourly, which is what lets +05:30 and
+   * +05:45 zones land on their own local hour.)
+   */
   static start(): void {
-    console.log('[Budget Pacing] Scheduling daily overspend-pacing sweep (09:30)');
-    cron.schedule('30 9 * * *', () => {
-      void BudgetPacingScheduler.run();
+    scheduleDailyPerUser('Budget Pacing', 9, async (user, localDate) => {
+      await BudgetPacingScheduler.run(user.id, localDate);
     });
   }
 
-  static async run(): Promise<void> {
-    if (isRunning) return;
-    isRunning = true;
+  /**
+   * @param onlyUserId Scope to one user (the per-timezone path).
+   * @param localDate  That user's local `YYYY-MM-DD`. The pacing projection
+   *                   divides elapsed days by total days in the period, so
+   *                   being a day out at a month boundary skews every alert.
+   */
+  static async run(onlyUserId?: string, localDate?: string): Promise<void> {
+    if (!onlyUserId) {
+      if (isRunning) return;
+      isRunning = true;
+    }
     try {
-      const now = new Date();
-      const budgets = await BudgetModel.listAllActive();
+      const now = localDate ? new Date(`${localDate}T12:00:00`) : new Date();
+      const budgets = await BudgetModel.listAllActive(onlyUserId);
       if (!budgets.length) return;
 
       for (const b of budgets) {
@@ -97,7 +109,7 @@ export class BudgetPacingScheduler {
     } catch (err) {
       console.error('[Budget Pacing] sweep failed:', err);
     } finally {
-      isRunning = false;
+      if (!onlyUserId) isRunning = false;
     }
   }
 }

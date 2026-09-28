@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors `ReminderRow` in ReminderModel.ts.
 class ReminderModel {
   final int id;
@@ -41,7 +43,8 @@ class ReminderModel {
       amount: double.parse(json['amount'].toString()),
       currency: (json['currency'] as String?) ?? 'LKR',
       category: json['category'] as String,
-      dueDate: DateTime.parse(json['due_date'].toString()),
+      // DATE column — a due date is the same calendar day everywhere.
+      dueDate: AppTime.calendarDate(json['due_date']),
       remindDaysBefore: int.parse((json['remind_days_before'] ?? 1).toString()),
       isActive: json['is_active'] == true,
       lastNotifiedOn:

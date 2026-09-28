@@ -229,4 +229,64 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get errUnknown => 'ஏதோ தவறு நடந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get fieldAmount => 'தொகை';
+
+  @override
+  String get fieldCategory => 'வகை';
+
+  @override
+  String get fieldWallet => 'பணப்பை';
+
+  @override
+  String get fieldCurrency => 'நாணயம்';
+
+  @override
+  String get fieldTitle => 'தலைப்பு';
+
+  @override
+  String get fieldNotes => 'குறிப்புகள்';
+
+  @override
+  String get fieldTags => 'குறிச்சொற்கள்';
+
+  @override
+  String get fieldDefault => 'இயல்பு';
+
+  @override
+  String get actionVerify => 'சரிபார்';
+
+  @override
+  String get actionUndo => 'செயல்தவிர்';
+
+  @override
+  String get actionTransfer => 'இடமாற்று';
+
+  @override
+  String get actionExportCsv => 'CSV ஏற்றுமதி';
+
+  @override
+  String get actionShareImage => 'படமாகப் பகிர்';
+
+  @override
+  String get typeIncome => 'வருமானம்';
+
+  @override
+  String get typeExpense => 'செலவு';
+
+  @override
+  String get walletFrom => 'பணப்பையிலிருந்து';
+
+  @override
+  String get walletTo => 'பணப்பைக்கு';
+
+  @override
+  String get pickCategory => 'வகையைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get allCategories => 'அனைத்து வகைகளும்';
+
+  @override
+  String get allWallets => 'அனைத்து பணப்பைகளும்';
 }

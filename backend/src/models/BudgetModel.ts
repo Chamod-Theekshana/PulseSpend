@@ -490,11 +490,14 @@ export class BudgetModel {
   }
 
   /** All budgets across users (for the pacing sweep). */
-  static async listAllActive(): Promise<Array<BudgetRow & { pace_alerted: boolean; alert_period: string | null }>> {
+  static async listAllActive(
+    userId?: string,
+  ): Promise<Array<BudgetRow & { pace_alerted: boolean; alert_period: string | null }>> {
     const rows = await sql`
       SELECT id, user_id, category, amount, currency, period, created_at, pace_alerted, alert_period
       FROM budgets
       WHERE deleted_at IS NULL
+        AND (${userId ?? null}::text IS NULL OR user_id = ${userId ?? null}::text)
     `;
     return rows as any[];
   }

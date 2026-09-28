@@ -230,4 +230,64 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get errUnknown => 'Algo salió mal. Inténtalo de nuevo.';
+
+  @override
+  String get fieldAmount => 'Importe';
+
+  @override
+  String get fieldCategory => 'Categoría';
+
+  @override
+  String get fieldWallet => 'Cartera';
+
+  @override
+  String get fieldCurrency => 'Moneda';
+
+  @override
+  String get fieldTitle => 'Título';
+
+  @override
+  String get fieldNotes => 'Notas';
+
+  @override
+  String get fieldTags => 'Etiquetas';
+
+  @override
+  String get fieldDefault => 'Predeterminado';
+
+  @override
+  String get actionVerify => 'Verificar';
+
+  @override
+  String get actionUndo => 'Deshacer';
+
+  @override
+  String get actionTransfer => 'Transferir';
+
+  @override
+  String get actionExportCsv => 'Exportar CSV';
+
+  @override
+  String get actionShareImage => 'Compartir como imagen';
+
+  @override
+  String get typeIncome => 'Ingresos';
+
+  @override
+  String get typeExpense => 'Gastos';
+
+  @override
+  String get walletFrom => 'Desde la cartera';
+
+  @override
+  String get walletTo => 'A la cartera';
+
+  @override
+  String get pickCategory => 'Elige una categoría';
+
+  @override
+  String get allCategories => 'Todas las categorías';
+
+  @override
+  String get allWallets => 'Todas las carteras';
 }

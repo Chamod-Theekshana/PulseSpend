@@ -1,9 +1,9 @@
-import cron from 'node-cron';
 import { sql } from '../config/db';
 import { AnalyticsModel, DigestSummary } from '../models/AnalyticsModel';
 import { sendPushToUser } from './pushService';
 import { emitToUser } from '../socket';
 import { withRetries } from './retry';
+import { scheduleMonthlyPerUser, scheduleWeeklyPerUser } from './zonedScheduler';
 
 let isRunning = false;
 
@@ -35,25 +35,38 @@ export function buildDigestMessage(d: DigestSummary): { title: string; body: str
  * `summary_digest` category — so this stays quiet for opted-out users.
  */
 export class SummaryDigestScheduler {
+  /**
+   * 08:00 on the user's own Monday / the user's own 1st of the month.
+   *
+   * The server-cron version sent a "weekly recap" that, for a user in Auckland,
+   * landed on Monday *evening* — and for one in Los Angeles, on Sunday night,
+   * before the week it was recapping had ended.
+   */
   static start(): void {
-    console.log('[Digest] Scheduling weekly (Mon 08:00) and monthly (1st 08:00) recaps');
-    cron.schedule('0 8 * * 1', () => {
-      void SummaryDigestScheduler.run('week');
+    scheduleWeeklyPerUser('Digest/week', 1, 8, async (user) => {
+      await SummaryDigestScheduler.run('week', user.id);
     });
-    cron.schedule('0 8 1 * *', () => {
-      void SummaryDigestScheduler.run('month');
+    scheduleMonthlyPerUser('Digest/month', 1, 8, async (user) => {
+      await SummaryDigestScheduler.run('month', user.id);
     });
   }
 
-  static async run(range: 'week' | 'month'): Promise<void> {
-    if (isRunning) {
-      console.warn('[Digest] Previous run still in progress, skipping.');
-      return;
+  /** @param onlyUserId Scope to one user (the per-timezone path). */
+  static async run(range: 'week' | 'month', onlyUserId?: string): Promise<void> {
+    // Only the un-scoped ops path needs the re-entrancy guard — see the note in
+    // billReminderScheduler.
+    if (!onlyUserId) {
+      if (isRunning) {
+        console.warn('[Digest] Previous run still in progress, skipping.');
+        return;
+      }
+      isRunning = true;
     }
-    isRunning = true;
     try {
-      const users = await sql`SELECT id FROM users`;
-      console.log(`[Digest] Building ${range} recaps for ${users.length} user(s)`);
+      const users = onlyUserId
+        ? [{ id: onlyUserId }]
+        : await sql`SELECT id FROM users`;
+      if (!onlyUserId) console.log(`[Digest] Building ${range} recaps for ${users.length} user(s)`);
 
       for (const u of users) {
         const userId = String((u as any).id);
@@ -74,7 +87,7 @@ export class SummaryDigestScheduler {
     } catch (err) {
       console.error('[Digest] Run failed:', err);
     } finally {
-      isRunning = false;
+      if (!onlyUserId) isRunning = false;
     }
   }
 }

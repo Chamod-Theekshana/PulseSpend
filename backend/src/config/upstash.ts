@@ -7,9 +7,16 @@ const isProd = process.env.NODE_ENV === 'production';
 export const redis = Redis.fromEnv();
 
 // ── Global limiter ────────────────────────────────────────────────────────────
-// Development: 200 req / 60 s — prevents 429 from Flutter hot-reloads & rebuilds.
-// Production: 20 req / 60 s per client IP.
-const windowRequests = isProd ? 20 : 200;
+// Bucketed per authenticated USER (see middleware/RateLimiter.ts), falling back
+// to IP for anonymous traffic.
+//
+// The old production value was 20 req / 60 s per *IP*, which was far below what
+// a single legitimate session needs: one cold start fans out to profile,
+// wallets, transactions, budgets, goals, categories, notifications, groups,
+// analytics and exchange rates — and pull-to-refresh does it again. Any second
+// device on the same Wi-Fi then got nothing but 429s. 120/min per user is
+// generous for a human using the app and still stops a runaway client.
+const windowRequests = isProd ? 120 : 600;
 
 const ratelimit = new Ratelimit({
   redis: redis,

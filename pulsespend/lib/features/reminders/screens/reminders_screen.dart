@@ -12,6 +12,8 @@ import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_reminder_screen.dart';
+import '../../../l10n/l10n_ext.dart';
+import '../../../providers/date_format_provider.dart';
 
 class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});
@@ -23,7 +25,7 @@ class RemindersScreen extends ConsumerWidget {
         title: const Text('Delete reminder?'),
         content: Text('"${reminder.title}" will no longer send notifications.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),
@@ -54,7 +56,7 @@ class RemindersScreen extends ConsumerWidget {
           'stops reminders for "${reminder.title}".',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.l10n.actionCancel)),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Mark Paid'),
@@ -168,7 +170,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _ReminderTile extends StatelessWidget {
+class _ReminderTile extends ConsumerWidget {
   final ReminderModel reminder;
   final VoidCallback onDelete;
   final VoidCallback onMarkPaid;
@@ -180,7 +182,10 @@ class _ReminderTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Watching the provider is what makes the tile re-render when the user
+    // changes Settings > Date Format; reading the static alone would not.
+    final datePattern = ref.watch(dateFormatProvider);
     final daysLeft = reminder.daysUntilDue;
     final dueLabel = reminder.isOverdue
         ? '${daysLeft.abs()} day${daysLeft.abs() == 1 ? '' : 's'} overdue'
@@ -208,7 +213,7 @@ class _ReminderTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: reminder.isOverdue ? AppColors.expense.withOpacity(0.3) : AppColors.lightBorder),
+          border: Border.all(color: reminder.isOverdue ? AppColors.expense.withValues(alpha: 0.3) : AppColors.lightBorder),
         ),
         child: Row(
           children: [
@@ -221,7 +226,7 @@ class _ReminderTile extends StatelessWidget {
                   Text(reminder.title, style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 2),
                   Text(
-                    '$dueLabel · ${DateFormatter.display(reminder.dueDate)}',
+                    '$dueLabel · ${DateFormatter.display(reminder.dueDate, pattern: datePattern)}',
                     style: TextStyle(
                       fontSize: 12,
                       color: reminder.isOverdue ? AppColors.expense : AppColors.lightTextSecondary,

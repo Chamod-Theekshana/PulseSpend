@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors `BudgetStatus` (BudgetRow + computed spend fields) in BudgetModel.ts.
 /// `GET /api/budgets` returns bare BudgetRow; `GET /api/budgets/status`
 /// returns the enriched BudgetStatus — both parse fine here since the extra
@@ -91,7 +93,7 @@ class BudgetModel {
       amount: amount,
       currency: (json['currency'] as String?) ?? 'LKR',
       period: (json['period'] as String?) ?? 'monthly',
-      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+      createdAt: AppTime.instantOrNull(json['created_at']),
       spent: spent,
       percentage: json['percentage'] != null
           ? double.parse(json['percentage'].toString())

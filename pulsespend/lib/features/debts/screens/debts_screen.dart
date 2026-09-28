@@ -14,6 +14,7 @@ import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/primary_button.dart';
+import '../../../l10n/l10n_ext.dart';
 
 /// 1:1 IOUs — "Alex owes me 2,000" without creating a full shared group.
 /// Works offline: creates/settles queue in the outbox and sync on reconnect.
@@ -57,7 +58,7 @@ class DebtsScreen extends ConsumerWidget {
         title: const Text('Delete IOU?'),
         content: Text('"${debt.counterpartyName} · ${CurrencyFormatter.format(debt.amount, debt.currency)}" will be removed.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.l10n.actionCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete', style: TextStyle(color: AppColors.expense)),

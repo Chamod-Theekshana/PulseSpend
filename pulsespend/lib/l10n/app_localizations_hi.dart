@@ -230,4 +230,64 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get errUnknown => 'कुछ गलत हो गया। कृपया फिर से कोशिश करें।';
+
+  @override
+  String get fieldAmount => 'राशि';
+
+  @override
+  String get fieldCategory => 'श्रेणी';
+
+  @override
+  String get fieldWallet => 'वॉलेट';
+
+  @override
+  String get fieldCurrency => 'मुद्रा';
+
+  @override
+  String get fieldTitle => 'शीर्षक';
+
+  @override
+  String get fieldNotes => 'नोट्स';
+
+  @override
+  String get fieldTags => 'टैग';
+
+  @override
+  String get fieldDefault => 'डिफ़ॉल्ट';
+
+  @override
+  String get actionVerify => 'सत्यापित करें';
+
+  @override
+  String get actionUndo => 'पूर्ववत करें';
+
+  @override
+  String get actionTransfer => 'ट्रांसफ़र';
+
+  @override
+  String get actionExportCsv => 'CSV निर्यात';
+
+  @override
+  String get actionShareImage => 'छवि के रूप में साझा करें';
+
+  @override
+  String get typeIncome => 'आय';
+
+  @override
+  String get typeExpense => 'व्यय';
+
+  @override
+  String get walletFrom => 'वॉलेट से';
+
+  @override
+  String get walletTo => 'वॉलेट में';
+
+  @override
+  String get pickCategory => 'श्रेणी चुनें';
+
+  @override
+  String get allCategories => 'सभी श्रेणियाँ';
+
+  @override
+  String get allWallets => 'सभी वॉलेट';
 }

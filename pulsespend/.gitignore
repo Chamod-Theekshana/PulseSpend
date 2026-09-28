@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Scratch/experiment files — keep real tests in test/ instead
+/test_*.dart
+/patch_providers.js

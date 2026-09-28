@@ -230,4 +230,64 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get errUnknown => 'Etwas ist schiefgelaufen. Bitte erneut versuchen.';
+
+  @override
+  String get fieldAmount => 'Betrag';
+
+  @override
+  String get fieldCategory => 'Kategorie';
+
+  @override
+  String get fieldWallet => 'Wallet';
+
+  @override
+  String get fieldCurrency => 'Währung';
+
+  @override
+  String get fieldTitle => 'Titel';
+
+  @override
+  String get fieldNotes => 'Notizen';
+
+  @override
+  String get fieldTags => 'Tags';
+
+  @override
+  String get fieldDefault => 'Standard';
+
+  @override
+  String get actionVerify => 'Bestätigen';
+
+  @override
+  String get actionUndo => 'Rückgängig';
+
+  @override
+  String get actionTransfer => 'Übertragen';
+
+  @override
+  String get actionExportCsv => 'CSV exportieren';
+
+  @override
+  String get actionShareImage => 'Als Bild teilen';
+
+  @override
+  String get typeIncome => 'Einnahmen';
+
+  @override
+  String get typeExpense => 'Ausgaben';
+
+  @override
+  String get walletFrom => 'Von Wallet';
+
+  @override
+  String get walletTo => 'Zu Wallet';
+
+  @override
+  String get pickCategory => 'Kategorie wählen';
+
+  @override
+  String get allCategories => 'Alle Kategorien';
+
+  @override
+  String get allWallets => 'Alle Wallets';
 }

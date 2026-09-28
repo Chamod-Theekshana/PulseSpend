@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { sql } from '../config/db';
-import { convert } from '../services/exchangeRateService';
+import { GroupMembershipCache } from '../config/groupMembershipCache';
+import { getRate } from '../services/exchangeRateService';
 import {
   computeBalances,
   deriveGroupSplit,
@@ -16,9 +17,17 @@ export interface Group {
   created_at: Date;
 }
 
+export interface GroupMemberPreview {
+  user_id: string;
+  name: string | null;
+  profile_photo: string | null;
+}
+
 export interface GroupWithMeta extends Group {
   member_count: number;
   role: string;
+  /// Up to 4 members, for the avatar stack on the groups list.
+  members_preview: GroupMemberPreview[];
 }
 
 export interface GroupMember {
@@ -27,6 +36,7 @@ export interface GroupMember {
   email: string;
   role: string;
   joined_at: Date;
+  profile_photo: string | null;
 }
 
 export interface GroupSummary {
@@ -41,6 +51,44 @@ export class GroupModel {
   private static generateInviteCode(): string {
     // 8 uppercase base32-ish chars — easy to read out loud, unlikely to collide.
     return crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/gi, '').slice(0, 8).toUpperCase();
+  }
+
+  /**
+   * Builds a synchronous converter for a set of rows.
+   *
+   * The previous pattern was `await convert(...)` once per row inside a
+   * sequential loop. Rates are cached in-process, so this wasn't N network
+   * calls — but it was N awaits, each one a microtask hop, for a group whose
+   * rows almost always share one or two currencies. On a group with a few
+   * hundred shared transactions that is pure overhead on a request that also
+   * runs three queries, and it repeats for every member's balance lookup.
+   *
+   * Resolving one rate per DISTINCT currency up front (in parallel) makes the
+   * conversion itself plain arithmetic. Rounding matches `convert()` exactly.
+   */
+  private static async rateResolver(
+    currencies: Iterable<string | null | undefined>,
+    to: string,
+  ): Promise<(amount: number, currency?: string | null) => number> {
+    const distinct = [
+      ...new Set([...currencies].map((c) => String(c || 'LKR').toUpperCase())),
+    ];
+    const rates = new Map<string, number>();
+    await Promise.all(
+      distinct.map(async (cur) => {
+        try {
+          rates.set(cur, await getRate(cur, to));
+        } catch {
+          // Same failure posture as before: fall back to the raw amount rather
+          // than hiding money when FX data is unavailable.
+          rates.set(cur, 1);
+        }
+      }),
+    );
+    return (amount: number, currency?: string | null) => {
+      const rate = rates.get(String(currency || 'LKR').toUpperCase()) ?? 1;
+      return Math.round(amount * rate * 100) / 100;
+    };
   }
 
   static async create(name: string, ownerId: string): Promise<Group> {
@@ -88,19 +136,48 @@ export class GroupModel {
       VALUES (${groupId}, ${userId}, ${role})
       ON CONFLICT (group_id, user_id) DO NOTHING
     `;
+    // Drop the cached negative result immediately, so a member who just joined
+    // can open the chat without waiting out the TTL.
+    GroupMembershipCache.invalidate(groupId, userId);
   }
 
   static async removeMember(groupId: string | number, userId: string): Promise<void> {
     await sql`DELETE FROM group_members WHERE group_id = ${groupId} AND user_id = ${userId}`;
+    // Critical for the reverse direction: without this, a removed member keeps
+    // read/write access to the group chat for the remainder of the cache TTL.
+    GroupMembershipCache.invalidate(groupId, userId);
   }
 
   /** Groups the user belongs to, with the member count and the user's role. */
   static async listByUser(userId: string): Promise<GroupWithMeta[]> {
+    // members_preview is fetched here, in the SAME query, rather than by the
+    // client calling /members once per group. That would have been an N+1 on
+    // the one screen that lists every group the user belongs to — the exact
+    // pattern that made the group screens slow elsewhere. The lateral join
+    // caps at 4 rows per group, which is all the avatar stack renders.
     const rows = await sql`
       SELECT g.*, gm.role AS role,
-             (SELECT COUNT(*)::int FROM group_members m WHERE m.group_id = g.id) AS member_count
+             (SELECT COUNT(*)::int FROM group_members m WHERE m.group_id = g.id) AS member_count,
+             COALESCE(preview.members, '[]'::json) AS members_preview
       FROM groups g
       JOIN group_members gm ON gm.group_id = g.id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+                 'user_id', p.user_id,
+                 'name', p.name,
+                 'profile_photo', p.profile_photo
+               )) AS members
+        FROM (
+          SELECT m2.user_id,
+                 COALESCE(u2.name, split_part(u2.email, '@', 1)) AS name,
+                 u2.profile_photo
+          FROM group_members m2
+          LEFT JOIN users u2 ON u2.id::text = m2.user_id
+          WHERE m2.group_id = g.id
+          ORDER BY m2.joined_at ASC
+          LIMIT 4
+        ) p
+      ) preview ON TRUE
       WHERE gm.user_id = ${userId}
       ORDER BY g.created_at DESC
     `;
@@ -109,7 +186,7 @@ export class GroupModel {
 
   static async listMembers(groupId: string | number): Promise<GroupMember[]> {
     const rows = await sql`
-      SELECT gm.user_id, gm.role, gm.joined_at, u.name, u.email
+      SELECT gm.user_id, gm.role, gm.joined_at, u.name, u.email, u.profile_photo
       FROM group_members gm
       JOIN users u ON u.id::text = gm.user_id
       WHERE gm.group_id = ${groupId}
@@ -208,17 +285,15 @@ export class GroupModel {
       FROM transactions t
       WHERE t.group_id = ${groupId} AND t.deleted_at IS NULL AND t.transfer_id IS NULL
     `;
+    const toPreferred = await this.rateResolver(
+      rows.map((r: any) => r.currency),
+      preferredCurrency,
+    );
+
     let income = 0;
     let expense = 0;
     for (const r of rows) {
-      const amt = Number((r as any).amount);
-      const cur = ((r as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
+      const converted = toPreferred(Number((r as any).amount), (r as any).currency);
       if (converted >= 0) income += converted;
       else expense += Math.abs(converted);
     }
@@ -246,6 +321,11 @@ export class GroupModel {
       WHERE t.group_id = ${groupId} AND t.amount < 0 AND t.deleted_at IS NULL AND t.transfer_id IS NULL
     `;
     
+    const toPreferred = await this.rateResolver(
+      rows.map((r: any) => r.currency),
+      preferredCurrency,
+    );
+
     const members: Record<string, any> = {};
 
     for (const r of rows) {
@@ -259,15 +339,11 @@ export class GroupModel {
         };
       }
       const cat = (r as any).category || 'Other';
-      const amt = Math.abs(Number((r as any).amount));
-      const cur = ((r as any).currency as string) || 'LKR';
-      let converted = amt;
-      try {
-        converted = await convert(amt, cur, preferredCurrency);
-      } catch {
-        converted = amt;
-      }
-      
+      const converted = toPreferred(
+        Math.abs(Number((r as any).amount)),
+        (r as any).currency,
+      );
+
       members[uid].total += converted;
       members[uid].categories[cat] = (members[uid].categories[cat] || 0) + converted;
     }
@@ -279,6 +355,7 @@ export class GroupModel {
   static async purgeUser(userId: string): Promise<void> {
     await sql`DELETE FROM group_members WHERE user_id = ${userId}`;
     await sql`DELETE FROM groups WHERE owner_id = ${userId}`;
+    GroupMembershipCache.clear();
   }
 
   // ── Splitwise-lite balances ────────────────────────────────────────────────
@@ -327,45 +404,39 @@ export class GroupModel {
       return { members: [], suggestions: [], total: 0, currency: preferredCurrency };
     }
 
-    // Currency conversion stays in this async wrapper; the balance math itself
-    // is the pure, unit-tested computeBalances().
-    const toPreferred = async (amount: number, currency: string): Promise<number> => {
-      try {
-        return await convert(amount, currency || 'LKR', preferredCurrency);
-      } catch {
-        return amount;
-      }
-    };
+    // One rate lookup per distinct currency across ALL three row sets, then
+    // pure arithmetic. The balance math itself stays the pure, unit-tested
+    // computeBalances().
+    const toPreferred = await this.rateResolver(
+      [
+        ...shared.map((r: any) => r.currency),
+        ...owedRows.map((r: any) => r.currency),
+        ...settlements.map((r: any) => r.currency),
+      ],
+      preferredCurrency,
+    );
 
-    const payments = [];
-    for (const r of shared) {
-      // −amount: expense (−900) → +900 fronted; income (+900) → −900, so
-      // net = paid − owed puts the income's receiver in debt to the others.
-      payments.push({
-        user_id: String((r as any).user_id),
-        amount: await toPreferred(-Number((r as any).amount), (r as any).currency),
-      });
-    }
+    // −amount: expense (−900) → +900 fronted; income (+900) → −900, so
+    // net = paid − owed puts the income's receiver in debt to the others.
+    const payments = shared.map((r: any) => ({
+      user_id: String(r.user_id),
+      amount: toPreferred(-Number(r.amount), r.currency),
+    }));
 
-    const owed = [];
-    for (const r of owedRows) {
-      // Income splits are receivables, not debts → negate the share so it lands
-      // on the opposite side of the ledger from an expense share.
-      const sign = Number((r as any).parent_amount) < 0 ? 1 : -1;
-      owed.push({
-        user_id: String((r as any).user_id),
-        owed: sign * (await toPreferred(Number((r as any).owed_amount), (r as any).currency)),
-      });
-    }
+    // Income splits are receivables, not debts → negate the share so it lands
+    // on the opposite side of the ledger from an expense share.
+    const owed = owedRows.map((r: any) => ({
+      user_id: String(r.user_id),
+      owed:
+        (Number(r.parent_amount) < 0 ? 1 : -1) *
+        toPreferred(Number(r.owed_amount), r.currency),
+    }));
 
-    const converted = [];
-    for (const s of settlements) {
-      converted.push({
-        from: String((s as any).from_user),
-        to: String((s as any).to_user),
-        amount: await toPreferred(Number((s as any).amount), (s as any).currency),
-      });
-    }
+    const converted = settlements.map((s: any) => ({
+      from: String(s.from_user),
+      to: String(s.to_user),
+      amount: toPreferred(Number(s.amount), s.currency),
+    }));
 
     // Members ∪ anyone who paid/owes — so an ex-member with an outstanding
     // share stays on the books. Names for ex-members fall back to a lookup.
@@ -386,7 +457,7 @@ export class GroupModel {
     // Override total with GROSS shared volume (|expense| + |income|): an
     // income-only group must still read as active (the mobile empty-state gate
     // keys off total), whereas computeBalances.total nets income against expense.
-    const gross = payments.reduce((a, p) => a + Math.abs(p.amount), 0);
+    const gross = payments.reduce((a: number, p: { amount: number }) => a + Math.abs(p.amount), 0);
     return { ...balances, total: Math.round(gross * 100) / 100, currency: preferredCurrency };
   }
 
@@ -438,10 +509,23 @@ export class GroupModel {
     preferredCurrency: string,
   ): Promise<{ receivable: number; payable: number }> {
     const groups = await this.listByUser(userId);
+    if (groups.length === 0) return { receivable: 0, payable: 0 };
+
+    // Each memberBalances() call is three queries plus rate resolution, and
+    // they are completely independent of one another. Running them
+    // sequentially made net worth cost (3 × group count) serial round-trips to
+    // Neon — noticeable on the dashboard for anyone in more than a couple of
+    // groups. Fanning out cuts it to roughly one round-trip's latency.
+    //
+    // The pool is bounded (see config/db.ts), so a user in an unusual number
+    // of groups can't monopolise it — the extra work just queues.
+    const balances = await Promise.all(
+      groups.map((g) => this.memberBalances(g.id, preferredCurrency)),
+    );
+
     let receivable = 0;
     let payable = 0;
-    for (const g of groups) {
-      const bal = await this.memberBalances(g.id, preferredCurrency);
+    for (const bal of balances) {
       const mine = bal.members.find((m) => String(m.user_id) === String(userId));
       if (!mine) continue;
       if (mine.net > 0.005) receivable += mine.net;
