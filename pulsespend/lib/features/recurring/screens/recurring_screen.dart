@@ -15,7 +15,6 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_recurring_screen.dart';
 import '../../../l10n/l10n_ext.dart';
-import '../../../providers/date_format_provider.dart';
 
 class RecurringScreen extends ConsumerWidget {
   const RecurringScreen({super.key});

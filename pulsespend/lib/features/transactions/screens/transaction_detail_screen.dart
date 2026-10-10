@@ -12,7 +12,6 @@ import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';
 import 'add_transaction_screen.dart';
 import '../../../l10n/l10n_ext.dart';
-import '../../../providers/date_format_provider.dart';
 
 class TransactionDetailScreen extends ConsumerWidget {
   final TransactionModel transaction;

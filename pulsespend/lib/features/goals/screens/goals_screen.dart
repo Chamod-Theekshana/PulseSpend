@@ -18,7 +18,6 @@ import 'add_goal_screen.dart';
 import 'contribute_goal_sheet.dart';
 import 'goal_detail_sheet.dart';
 import '../../../l10n/l10n_ext.dart';
-import '../../../providers/date_format_provider.dart';
 
 class GoalsScreen extends ConsumerWidget {
   const GoalsScreen({super.key});

@@ -13,7 +13,6 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_reminder_screen.dart';
 import '../../../l10n/l10n_ext.dart';
-import '../../../providers/date_format_provider.dart';
 
 class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});
