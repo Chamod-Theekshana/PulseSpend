@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/utils/currency_formatter.dart';
-import '../../../../core/utils/date_formatter.dart';
-import '../../../../providers/groups_provider.dart';
-import '../../../../shared/utils/image_utils.dart';
-import '../../../../shared/widgets/app_loader.dart';
-import '../../../../shared/widgets/category_icon.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/currency_formatter.dart';
+import '../../../core/utils/date_formatter.dart';
+import '../../../providers/groups_provider.dart';
+import '../../../shared/utils/image_utils.dart';
+import '../../../shared/widgets/app_loader.dart';
+import '../../../shared/widgets/category_icon.dart';
+import '../../../providers/date_format_provider.dart';
 
 class GroupTransactionDetailSheet extends ConsumerWidget {
   final int groupId;
@@ -127,7 +128,7 @@ class GroupTransactionDetailSheet extends ConsumerWidget {
                         _DetailRow(
                           icon: Icons.calendar_today_outlined,
                           label: 'Date',
-                          value: DateFormatter.display(detail.createdAt),
+                          value: DateFormatter.display(detail.createdAt, pattern: ref.watch(dateFormatProvider)),
                         ),
                         _DetailRow(
                           icon: Icons.payments_outlined,

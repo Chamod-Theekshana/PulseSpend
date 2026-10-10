@@ -154,12 +154,17 @@ export class RecurringModel {
    * Active rules charging tomorrow that we haven't reminded about today yet
    * (day-before "upcoming charge" reminder, deduped via last_reminded_on).
    */
-  static async listDueForReminder(tomorrowISO: string, todayISO: string): Promise<RecurringRow[]> {
+  static async listDueForReminder(
+    tomorrowISO: string,
+    todayISO: string,
+    userId?: string,
+  ): Promise<RecurringRow[]> {
     const rows = await sql`
       SELECT id, user_id, title, amount, currency, category, frequency, next_run, is_active, wallet_id, to_wallet_id, created_at
       FROM recurring_transactions
       WHERE is_active = true
         AND deleted_at IS NULL
+        AND (${userId ?? null}::text IS NULL OR user_id = ${userId ?? null}::text)
         AND (next_run AT TIME ZONE 'UTC')::date = ${tomorrowISO}::date
         AND (last_reminded_on IS NULL OR last_reminded_on <> ${todayISO}::date)
     `;

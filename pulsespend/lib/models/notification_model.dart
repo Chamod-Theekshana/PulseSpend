@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors rows from the `notifications` table (see notificationsController.ts
 /// getNotificationHistory: id, title, body, type, data, read, created_at).
 class NotificationModel {
@@ -32,7 +34,9 @@ class NotificationModel {
       type: json['type'] as String?,
       data: parsedData,
       read: json['read'] == true,
-      createdAt: DateTime.parse(json['created_at'].toString()),
+      // `notifications.created_at` is a TIMESTAMP: a real instant, sent as UTC.
+      // Convert to the device zone so "2h ago" and the clock stamp agree.
+      createdAt: AppTime.instant(json['created_at']),
     );
   }
 

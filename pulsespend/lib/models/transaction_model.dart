@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors `transaction_splits` rows from TransactionModel.ts.
 class TransactionSplit {
   final int? id;
@@ -88,7 +90,9 @@ class TransactionModel {
       amount: double.parse(json['amount'].toString()),
       currency: (json['currency'] as String?) ?? 'LKR',
       category: json['category'] as String,
-      createdAt: DateTime.parse(json['created_at'].toString()),
+      // `transactions.created_at` is a Postgres DATE. It carries no time and no
+      // zone, so it must NOT be shifted to local — see AppTime.calendarDate.
+      createdAt: AppTime.calendarDate(json['created_at']),
       notes: json['notes'] as String?,
       receiptUrl: json['receipt_url'] as String?,
       walletId: json['wallet_id'] != null ? int.tryParse(json['wallet_id'].toString()) : null,
@@ -112,7 +116,7 @@ class TransactionModel {
         'amount': amount,
         'currency': currency,
         'category': category,
-        'created_at': createdAt.toIso8601String(),
+        'created_at': AppTime.apiDate(createdAt),
         'notes': notes,
         'receipt_url': receiptUrl,
         'wallet_id': walletId,
@@ -130,9 +134,7 @@ class TransactionModel {
       'title': title,
       'amount': amount,
       'category': category,
-      'created_at': '${createdAt.year.toString().padLeft(4, '0')}-'
-          '${createdAt.month.toString().padLeft(2, '0')}-'
-          '${createdAt.day.toString().padLeft(2, '0')}',
+      'created_at': AppTime.apiDate(createdAt),
       'currency': currency,
       if (receiptUrl != null) 'receipt_url': receiptUrl,
       if (notes != null) 'notes': notes,

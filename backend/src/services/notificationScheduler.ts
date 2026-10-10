@@ -1,6 +1,7 @@
 import { sendPushToUser } from './pushService';
 import { sql } from '../config/db';
 import { withRetries } from './retry';
+import { offsetFor } from '../utils/time';
 
 // Map of userId -> timeout timer (daily schedule)
 const activeTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
@@ -29,18 +30,32 @@ async function sendTestNotification(userId: string) {
   );
 }
 
-function msUntilNextDailyTime(hour: number, minute: number) {
+/**
+ * Milliseconds until the next `hour:minute` **in the user's own timezone**.
+ *
+ * `next.setHours(...)` sets the hour in the *server's* zone, so this fired at
+ * 12:10 UTC for everyone — 17:40 in Colombo. Working in offset-shifted UTC
+ * fields keeps the arithmetic in one zone throughout.
+ */
+async function msUntilNextDailyTime(userId: string, hour: number, minute: number) {
+  const rows = await sql`
+    SELECT timezone, tz_offset_minutes FROM users WHERE id = ${userId}
+  `;
+  const zone = (rows[0] as any) ?? {};
+  const offset = offsetFor(zone) * 60000;
+
   const now = new Date();
-  const next = new Date(now);
+  // Shift into the user's local frame, pick the next occurrence there, shift back.
+  const local = new Date(now.getTime() + offset);
+  const next = new Date(local);
+  next.setUTCHours(hour, minute, 0, 0);
+  if (next <= local) next.setUTCDate(next.getUTCDate() + 1);
 
-  next.setHours(hour, minute, 0, 0); // today at HH:MM
-  if (next <= now) next.setDate(next.getDate() + 1); // if already passed, tomorrow
-
-  return next.getTime() - now.getTime();
+  return next.getTime() - local.getTime();
 }
 
-function scheduleDaily(userId: string, hour: number, minute: number) {
-  const delay = msUntilNextDailyTime(hour, minute);
+async function scheduleDaily(userId: string, hour: number, minute: number) {
+  const delay = await msUntilNextDailyTime(userId, hour, minute);
 
   // (optional) log next run time
   const nextRun = new Date(Date.now() + delay);
@@ -52,8 +67,9 @@ function scheduleDaily(userId: string, hour: number, minute: number) {
     } catch (err) {
       console.error('[TestNotif] Error in daily send:', err);
     } finally {
-      // schedule again for next day
-      scheduleDaily(userId, hour, minute);
+      // Schedule again for the next day. Re-resolving the offset each time
+      // means a DST change (or the user flying) is picked up automatically.
+      void scheduleDaily(userId, hour, minute);
     }
   }, delay);
 
@@ -66,13 +82,12 @@ export async function startTestNotifications(userId: string) {
   // Stop any existing scheduled job for this user
   stopTestNotifications(uid);
 
-  console.log(`[TestNotif] Starting DAILY test notifications for user ${uid} at 2:50 PM`);
+  console.log(`[TestNotif] Starting DAILY test notifications for user ${uid} at 12:10 local time`);
 
   // If you DO NOT want an immediate send, remove the next line.
   // await sendTestNotification(uid);
 
-  // Schedule daily at 4:30 PM (16:30)
-  scheduleDaily(uid, 12, 10);
+  await scheduleDaily(uid, 12, 10);
 }
 
 export function stopTestNotifications(userId: string) {

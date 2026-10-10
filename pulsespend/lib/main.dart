@@ -5,6 +5,8 @@ import 'app.dart';
 import 'core/notifications/firebase_messaging_service.dart';
 import 'core/storage/outbox_service.dart';
 import 'core/storage/secure_storage.dart';
+import 'core/utils/date_formatter.dart';
+import 'providers/date_format_provider.dart';
 import 'providers/theme_provider.dart';
 
 Future<void> main() async {
@@ -31,9 +33,22 @@ Future<void> main() async {
     _ => ThemeMode.system,
   };
 
+  // Same idea for the date format: read the cached `date_format` preference
+  // before the first frame so dates are never rendered in the wrong order
+  // while the profile request is still in flight.
+  final cachedDateFormat = await SecureStorageService.instance.dateFormatPref;
+  final seedDateFormat =
+      DateFormatter.supportedPatterns.contains(cachedDateFormat)
+          ? cachedDateFormat!
+          : DateFormatter.defaultPattern;
+  DateFormatter.globalPattern = seedDateFormat;
+
   runApp(
     ProviderScope(
-      overrides: [bootstrapThemeModeProvider.overrideWithValue(seedMode)],
+      overrides: [
+        bootstrapThemeModeProvider.overrideWithValue(seedMode),
+        bootstrapDateFormatProvider.overrideWithValue(seedDateFormat),
+      ],
       child: const PulseSpendApp(),
     ),
   );

@@ -1,7 +1,7 @@
-import cron from 'node-cron';
 import { sql } from '../config/db';
 import { sendPushToUser } from './pushService';
 import { withRetries } from './retry';
+import { scheduleDailyPerUser, scheduleMonthlyPerUser } from './zonedScheduler';
 
 let inactivityRunning = false;
 let monthResetRunning = false;
@@ -18,28 +18,39 @@ let monthResetRunning = false;
  */
 export class ReengagementScheduler {
   static start(): void {
-    console.log('[Reengagement] Scheduling inactivity (daily 10:00) + new-month (1st 09:00) nudges');
-    cron.schedule('0 10 * * *', () => {
-      void ReengagementScheduler.runInactivityNudge();
+    scheduleDailyPerUser('Reengagement/inactivity', 10, async (user, localDate) => {
+      await ReengagementScheduler.runInactivityNudge(user.id, localDate);
     });
-    cron.schedule('0 9 1 * *', () => {
-      void ReengagementScheduler.runNewMonthNudge();
+    scheduleMonthlyPerUser('Reengagement/month', 1, 9, async (user) => {
+      await ReengagementScheduler.runNewMonthNudge(user.id);
     });
   }
 
-  static async runInactivityNudge(): Promise<void> {
-    if (inactivityRunning) return;
-    inactivityRunning = true;
+  /**
+   * @param onlyUserId  Scope to one user (the per-timezone path).
+   * @param localDate   That user's local `YYYY-MM-DD`. `CURRENT_DATE` is the
+   *                    *database* date, so using it here meant the "exactly 3
+   *                    days idle" window was measured against Greenwich rather
+   *                    than against the user's own calendar.
+   */
+  static async runInactivityNudge(onlyUserId?: string, localDate?: string): Promise<void> {
+    if (!onlyUserId) {
+      if (inactivityRunning) return;
+      inactivityRunning = true;
+    }
     try {
+      const anchor = localDate ?? null;
       const rows = await sql`
         SELECT user_id
         FROM transactions
         WHERE deleted_at IS NULL
+          AND (${onlyUserId ?? null}::text IS NULL OR user_id = ${onlyUserId ?? null}::text)
         GROUP BY user_id
-        HAVING MAX(created_at)::date = (CURRENT_DATE - INTERVAL '3 days')::date
+        HAVING MAX(created_at)::date
+             = (COALESCE(${anchor}::date, CURRENT_DATE) - INTERVAL '3 days')::date
       `;
       if (!rows.length) return;
-      console.log(`[Reengagement] Sending inactivity nudge to ${rows.length} user(s)`);
+      if (!onlyUserId) console.log(`[Reengagement] Sending inactivity nudge to ${rows.length} user(s)`);
       for (const row of rows) {
         await withRetries(
           () => sendPushToUser(
@@ -54,19 +65,23 @@ export class ReengagementScheduler {
     } catch (err) {
       console.error('[Reengagement] Inactivity nudge failed:', err);
     } finally {
-      inactivityRunning = false;
+      if (!onlyUserId) inactivityRunning = false;
     }
   }
 
-  static async runNewMonthNudge(): Promise<void> {
-    if (monthResetRunning) return;
-    monthResetRunning = true;
+  static async runNewMonthNudge(onlyUserId?: string): Promise<void> {
+    if (!onlyUserId) {
+      if (monthResetRunning) return;
+      monthResetRunning = true;
+    }
     try {
       const rows = await sql`
-        SELECT DISTINCT user_id FROM budgets WHERE deleted_at IS NULL
+        SELECT DISTINCT user_id FROM budgets
+        WHERE deleted_at IS NULL
+          AND (${onlyUserId ?? null}::text IS NULL OR user_id = ${onlyUserId ?? null}::text)
       `;
       if (!rows.length) return;
-      console.log(`[Reengagement] Sending new-month nudge to ${rows.length} user(s)`);
+      if (!onlyUserId) console.log(`[Reengagement] Sending new-month nudge to ${rows.length} user(s)`);
       for (const row of rows) {
         await withRetries(
           () => sendPushToUser(
@@ -81,7 +96,7 @@ export class ReengagementScheduler {
     } catch (err) {
       console.error('[Reengagement] New-month nudge failed:', err);
     } finally {
-      monthResetRunning = false;
+      if (!onlyUserId) monthResetRunning = false;
     }
   }
 }

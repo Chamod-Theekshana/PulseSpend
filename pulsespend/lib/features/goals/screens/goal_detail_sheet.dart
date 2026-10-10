@@ -329,7 +329,7 @@ class GoalDetailSheet extends ConsumerWidget {
             Text(
               '${CurrencyFormatter.format(goal.currentAmount, goal.currency)} of '
               '${CurrencyFormatter.format(goal.targetAmount, goal.currency)}'
-              '${goal.deadline != null ? ' · by ${DateFormatter.display(goal.deadline!)}' : ''}',
+              '${goal.deadline != null ? ' · by ${DateFormatter.display(goal.deadline!, pattern: ref.watch(dateFormatProvider))}' : ''}',
               style: TextStyle(fontSize: 12.5, color: textSecondary),
             ),
             if (perWeek != null) ...[

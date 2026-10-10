@@ -1,7 +1,7 @@
-import cron from 'node-cron';
 import { sql } from '../config/db';
 import { sendPushToUser } from './pushService';
 import { withRetries } from './retry';
+import { scheduleDailyPerUser } from './zonedScheduler';
 
 let isRunning = false;
 
@@ -10,22 +10,28 @@ export class GoalReminderService {
    * Starts the cron job to check for goals approaching their deadlines.
    * Runs every day at 9:00 AM server time.
    */
+  /** 09:00 in each user's own timezone — not 09:00 UTC. */
   static startDailyReminders(): void {
-    console.log('[Goal Reminder] Starting daily goal reminder cron job (09:00 AM)...');
-
-    // '0 9 * * *' = 9:00 AM every day
-    cron.schedule('0 9 * * *', async () => {
-      console.log('[Goal Reminder] Running daily check for goal deadlines...');
-      await GoalReminderService.checkAndSendReminders();
+    scheduleDailyPerUser('Goal Reminder', 9, async (user, localDate) => {
+      await GoalReminderService.checkAndSendReminders(user.id, localDate);
     });
   }
 
-  static async checkAndSendReminders(): Promise<void> {
-    if (isRunning) {
-      console.warn('[Goal Reminder] Previous run still in progress, skipping.');
-      return;
+  /**
+   * @param onlyUserId Scope to one user (the per-timezone path).
+   * @param localDate  That user's local `YYYY-MM-DD`, used as "today" when
+   *                   computing days-to-deadline. Using the server's midnight
+   *                   made a goal look a day closer or further away depending
+   *                   on which side of UTC the user lived.
+   */
+  static async checkAndSendReminders(onlyUserId?: string, localDate?: string): Promise<void> {
+    if (!onlyUserId) {
+      if (isRunning) {
+        console.warn('[Goal Reminder] Previous run still in progress, skipping.');
+        return;
+      }
+      isRunning = true;
     }
-    isRunning = true;
     try {
       const rows = await sql`
         SELECT
@@ -36,6 +42,7 @@ export class GoalReminderService {
           END AS progress_percentage
         FROM goals
         WHERE is_completed = false
+          AND (${onlyUserId ?? null}::text IS NULL OR user_id = ${onlyUserId ?? null}::text)
       `;
 
       if (!rows || rows.length === 0) {
@@ -45,8 +52,11 @@ export class GoalReminderService {
 
       console.log(`[Goal Reminder] Found ${rows.length} active goal(s). Sending daily notifications...`);
 
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      // Midnight on the *user's* calendar day, expressed in UTC fields so the
+      // day arithmetic below matches how `goals.deadline` (a DATE) round-trips.
+      const now = localDate
+        ? new Date(`${localDate}T00:00:00Z`)
+        : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
 
       for (const row of rows as any[]) {
         let messageBody = '';
@@ -86,7 +96,7 @@ export class GoalReminderService {
     } catch (err) {
       console.error('[Goal Reminder] Error checking goals:', err);
     } finally {
-      isRunning = false;
+      if (!onlyUserId) isRunning = false;
     }
   }
 }

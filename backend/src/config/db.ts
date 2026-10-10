@@ -191,6 +191,19 @@ async function _runMigrations() {
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(50)`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_no VARCHAR(50)`;
+
+        // ── USER TIMEZONE ─────────────────────────────────────────────────────
+        // Every scheduler used to fire on a single server-side cron hour, so a
+        // "9 AM" reminder landed at 14:30 in Colombo and 04:00 in New York.
+        // These two columns let each job resolve the *user's* local hour.
+        //
+        // `timezone` is an IANA id (`Asia/Colombo`) and is DST-correct.
+        // `tz_offset_minutes` is the plain UTC offset the client reports on
+        // every launch — the fallback for clients that can't resolve an IANA
+        // id. NULL in both means UTC, which is the pre-migration behaviour, so
+        // existing rows keep working until their app next syncs.
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(64)`;
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS tz_offset_minutes SMALLINT`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS biometric_enabled BOOLEAN NOT NULL DEFAULT false`;
         await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0`;
 

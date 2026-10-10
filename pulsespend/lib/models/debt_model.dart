@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// Mirrors the backend `debts` row (DebtModel.ts) — a lightweight 1:1 IOU.
 class DebtModel {
   final int id;
@@ -35,9 +37,9 @@ class DebtModel {
       note: json['note'] as String?,
       status: (json['status'] as String?) ?? 'open',
       createdAt:
-          json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+          AppTime.instantOrNull(json['created_at']),
       settledAt:
-          json['settled_at'] != null ? DateTime.tryParse(json['settled_at'].toString()) : null,
+          AppTime.instantOrNull(json['settled_at']),
     );
   }
 

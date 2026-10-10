@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 class IncomeExpenseTrend {
   final List<double> incomeData;
   final List<double> expenseData;
@@ -102,7 +104,8 @@ class DailyTotal {
   factory DailyTotal.fromJson(Map<String, dynamic> json) {
     double d(dynamic v) => (v as num?)?.toDouble() ?? 0;
     return DailyTotal(
-      date: DateTime.parse(json['date'].toString()),
+      // Aggregation buckets are calendar days produced by `date_trunc`.
+      date: AppTime.calendarDate(json['date']),
       income: d(json['income']),
       expense: d(json['expense']),
     );

@@ -730,12 +730,94 @@ class _TextBubble extends StatelessWidget {
     this.onRetry,
   });
 
-  String _formatTime(DateTime time) {
-    final h = time.hour;
-    final m = time.minute.toString().padLeft(2, '0');
-    final period = h >= 12 ? 'PM' : 'AM';
-    final hour12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
-    return '$hour12:$m $period';
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        // A failed message used to be a dead end — the only way to recover was
+        // to retype it. Tapping now re-sends the same message.
+        onTap: onRetry,
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.75,
+          ),
+          margin: EdgeInsets.only(
+            top: 3,
+            bottom: 3,
+            left: isMe ? 12 : 0,
+            right: 12,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMe
+                ? AppColors.primary
+                : (isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(isMe ? 18 : 4),
+              bottomRight: Radius.circular(isMe ? 4 : 18),
+            ),
+            border: failed
+                ? Border.all(color: AppColors.expense.withValues(alpha: 0.8), width: 1)
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showSenderName) ...[
+                Text(
+                  message.senderName ?? 'Member',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    // Same colour the avatar uses, so name and face are
+                    // visually tied together.
+                    color: UserAvatar.colorFor(message.senderId),
+                  ),
+                ),
+                const SizedBox(height: 3),
+              ],
+              Text(
+                message.content,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  color: isMe ? Colors.white : textPrimary,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    failed ? 'Tap to retry' : _formatTime(message.timestamp),
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: failed
+                          ? AppColors.expense
+                          : (isMe ? Colors.white70 : textSecondary),
+                    ),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 3),
+                    Icon(
+                      message.status == MessageStatus.sent
+                          ? Icons.done_all
+                          : message.status == MessageStatus.pending
+                              ? Icons.access_time_rounded
+                              : Icons.error_outline,
+                      size: 13,
+                      color: failed ? AppColors.expense : Colors.white70,
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override

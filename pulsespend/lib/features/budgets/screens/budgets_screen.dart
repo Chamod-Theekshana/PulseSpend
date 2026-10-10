@@ -3,12 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../design_system/ds.dart';
 import '../../../models/budget_model.dart';
 import '../../../providers/budgets_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
-import '../../../shared/widgets/shimmer_list.dart';
 import 'add_budget_screen.dart';
 import '../../../l10n/l10n_ext.dart';
 
@@ -71,7 +71,7 @@ class BudgetsScreen extends ConsumerWidget {
 
   Widget _buildContent(BuildContext context, WidgetRef ref, BudgetsState state) {
     return state.isLoading && state.items.isEmpty
-          ? const ShimmerList(itemHeight: 110)
+          ? const _BudgetListSkeleton()
           : state.items.isEmpty
               ? EmptyState(
                   icon: Icons.pie_chart_outline_rounded,
@@ -88,9 +88,14 @@ class BudgetsScreen extends ConsumerWidget {
                     await ref.read(budgetsControllerProvider.notifier).refresh();
                   },
                   child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppTokens.screenPadding,
+                      AppTokens.space8,
+                      AppTokens.screenPadding,
+                      100,
+                    ),
                     itemCount: state.items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 14),
+                    separatorBuilder: (_, __) => const SizedBox(height: AppTokens.space12),
                     itemBuilder: (context, i) {
                       final budget = state.items[i];
                       return _BudgetCard(
@@ -101,6 +106,30 @@ class BudgetsScreen extends ConsumerWidget {
                     },
                   ),
                 );
+  }
+}
+
+/// Loading placeholder shaped like the budget cards it stands in for, so the
+/// list does not jump when the real data lands.
+class _BudgetListSkeleton extends StatelessWidget {
+  const _BudgetListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(
+        AppTokens.screenPadding,
+        AppTokens.space8,
+        AppTokens.screenPadding,
+        100,
+      ),
+      itemCount: 5,
+      separatorBuilder: (_, __) => const SizedBox(height: AppTokens.space12),
+      itemBuilder: (_, __) => const DsSkeletonBox(
+        height: 118,
+        radius: AppTokens.radiusCard,
+      ),
+    );
   }
 }
 
@@ -123,35 +152,44 @@ class _TotalBudgetCard extends ConsumerWidget {
     final status = async.asData?.value;
     if (status == null) return const SizedBox.shrink(); // loading/error → no jank
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
 
     if (!status.isSet) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-        child: Material(
-          color: AppColors.primary.withValues(alpha: isDark ? 0.16 : 0.07),
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => _openEdit(context, status),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  const Icon(Icons.savings_outlined, color: AppColors.primary, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Set an overall monthly budget',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5,
-                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
-                    ),
-                  ),
-                  Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
-                ],
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.screenPadding,
+          AppTokens.space12,
+          AppTokens.screenPadding,
+          0,
+        ),
+        child: DsCard(
+          emphasis: DsCardEmphasis.outlined,
+          color: AppColors.primary.withValues(alpha: t.isDark ? 0.16 : 0.07),
+          borderColor: AppColors.primary.withValues(alpha: 0.24),
+          radius: AppTokens.radiusCardSm,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppTokens.space16,
+            vertical: AppTokens.space12,
+          ),
+          onTap: () => _openEdit(context, status),
+          child: Row(
+            children: [
+              const DsIconChip(
+                icon: Icons.savings_outlined,
+                color: AppColors.primary,
+                size: 38,
+                iconSize: 19,
               ),
-            ),
+              const SizedBox(width: AppTokens.space12),
+              Expanded(
+                child: Text(
+                  'Set an overall monthly budget',
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+              const Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
+            ],
           ),
         ),
       );
@@ -159,62 +197,74 @@ class _TotalBudgetCard extends ConsumerWidget {
 
     final pct = (status.percentage.clamp(0, 999) / 100).toDouble();
     final color = status.isExceeded
-        ? AppColors.expense
-        : (status.isWarning ? AppColors.warning : AppColors.primary);
+        ? t.danger
+        : (status.isWarning ? t.warningAccent : AppColors.primary);
 
+    // The screen's one summary figure, so it carries hero weight: a full card
+    // with the semicircular gauge, against the flat progress rows below it.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Material(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () => _openEdit(context, status),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: color.withValues(alpha: 0.35)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(
+        AppTokens.screenPadding,
+        AppTokens.space12,
+        AppTokens.screenPadding,
+        0,
+      ),
+      child: DsCard(
+        onTap: () => _openEdit(context, status),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.space20,
+          AppTokens.space20,
+          AppTokens.space20,
+          AppTokens.space16,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.savings_rounded, color: color, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('Total monthly budget',
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14,
-                              color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary)),
-                    ),
-                    Text('${status.percentage.round()}%',
-                        style: TextStyle(fontWeight: FontWeight.w800, color: color)),
-                  ],
+                DsIconChip(
+                  icon: Icons.savings_rounded,
+                  color: color,
+                  size: 38,
+                  iconSize: 19,
                 ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: pct.clamp(0, 1).toDouble(),
-                    minHeight: 8,
-                    backgroundColor: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                    valueColor: AlwaysStoppedAnimation(color),
+                const SizedBox(width: AppTokens.space12),
+                Expanded(
+                  child: Text(
+                    'Total monthly budget',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('${CurrencyFormatter.format(status.spent, status.currency)} spent',
-                        style: TextStyle(fontSize: 13, color: textSecondary)),
-                    Text('${CurrencyFormatter.format(status.amount!, status.currency)} cap',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  ],
-                ),
+                const SizedBox(width: AppTokens.space8),
+                DsBadge(label: '${status.percentage.round()}%', color: color),
               ],
             ),
-          ),
+            const SizedBox(height: AppTokens.space12),
+            Center(
+              child: DsSpendGauge(
+                fraction: pct,
+                // Blue while on track, amber at 80%, red once breached — the
+                // same status ramp the category rows use.
+                color: color,
+                icon: Icons.savings_rounded,
+                amountText:
+                    CurrencyFormatter.format(status.spent, status.currency),
+                caption: 'spent',
+              ),
+            ),
+            const SizedBox(height: AppTokens.space8),
+            Center(
+              child: Text(
+                'of ${CurrencyFormatter.format(status.amount!, status.currency)} cap',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: t.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -271,34 +321,38 @@ class _TotalBudgetEditSheetState extends ConsumerState<_TotalBudgetEditSheet> {
   Widget build(BuildContext context) {
     final currency = widget.current?.currency ?? '';
     final isSet = widget.current?.isSet ?? false;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppTokens.screenPadding,
+        right: AppTokens.screenPadding,
+        top: AppTokens.space16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.space24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.savings_rounded, color: AppColors.primary),
-              SizedBox(width: 10),
-              Text('Total monthly budget',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const DsIconChip(
+                icon: Icons.savings_rounded,
+                color: AppColors.primary,
+                size: 38,
+                iconSize: 19,
+              ),
+              const SizedBox(width: AppTokens.space12),
+              Expanded(
+                child: Text('Total monthly budget',
+                    style: theme.textTheme.titleLarge),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppTokens.space8),
           Text('One overall spending cap across every category for the month.',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.darkTextSecondary
-                    : AppColors.lightTextSecondary,
-              )),
-          const SizedBox(height: 16),
+              style: theme.textTheme.bodySmall?.copyWith(color: t.textSecondary)),
+          const SizedBox(height: AppTokens.space16),
           TextField(
             controller: _amountController,
             autofocus: true,
@@ -308,22 +362,16 @@ class _TotalBudgetEditSheetState extends ConsumerState<_TotalBudgetEditSheet> {
               prefixIcon: const Icon(Icons.savings_outlined),
             ),
           ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving ? null : () => _save(clear: false),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: Text(_saving ? 'Saving…' : 'Save'),
-            ),
+          const SizedBox(height: AppTokens.space20),
+          DsPrimaryButton(
+            label: _saving ? 'Saving…' : 'Save',
+            onPressed: _saving ? null : () => _save(clear: false),
           ),
           if (isSet)
             TextButton(
               onPressed: _saving ? null : () => _save(clear: true),
-              child: const Text('Turn off total budget', style: TextStyle(color: AppColors.expense)),
+              child: Text('Turn off total budget',
+                  style: theme.textTheme.labelLarge?.copyWith(color: t.danger)),
             ),
         ],
       ),
@@ -341,12 +389,11 @@ class _BudgetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = budget.percentage.clamp(0, 999) / 100;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final border = isDark ? AppColors.darkBorder : AppColors.lightBorder;
-    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     final color = budget.isExceeded
-        ? AppColors.expense
-        : (budget.isWarning ? AppColors.warning : AppColors.primary);
+        ? t.danger
+        : (budget.isWarning ? t.warningAccent : AppColors.primary);
 
     return Dismissible(
       key: ValueKey('budget-${budget.id}'),
@@ -357,101 +404,108 @@ class _BudgetCard extends StatelessWidget {
       },
       background: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(color: AppColors.expenseBg, borderRadius: BorderRadius.circular(20)),
-        child: const Icon(Icons.delete_outline_rounded, color: AppColors.expense),
+        padding: const EdgeInsets.only(right: AppTokens.space20),
+        decoration: BoxDecoration(
+          color: t.dangerBg,
+          borderRadius: BorderRadius.circular(AppTokens.radiusCard),
+        ),
+        child: Icon(Icons.delete_outline_rounded, color: t.danger),
       ),
-      child: Material(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onEdit,
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      // A list row: standard card weight, lighter than the total-budget hero
+      // above it. Same grammar as [DsBudgetProgressCard] — chip, figures, bar,
+      // percentage pill — kept assembled here so this screen's extra
+      // affordances (the conversion tooltip, the pacing warning) survive.
+      child: DsCard(
+        onTap: onEdit,
+        padding: const EdgeInsets.all(AppTokens.space16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    CategoryIcon(category: budget.category, size: 40),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(budget.category, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                          Text(
-                            '${budget.periodLabel} budget',
-                            style: TextStyle(fontSize: 12, color: textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (budget.conversionError)
-                      Tooltip(
-                        message: 'Some spending could not be converted to ${budget.currency}',
-                        child: const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.warning),
-                      ),
-                    Text(
-                      '${budget.percentage.round()}%',
-                      style: TextStyle(fontWeight: FontWeight.w800, color: color),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: pct.clamp(0, 1).toDouble(),
-                    minHeight: 8,
-                    backgroundColor: border,
-                    valueColor: AlwaysStoppedAnimation(color),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '${CurrencyFormatter.format(budget.spent, budget.currency)} spent',
-                      style: TextStyle(fontSize: 13, color: textSecondary),
-                    ),
-                    Text(
-                      '${CurrencyFormatter.format(budget.amount, budget.currency)} limit',
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-                // Remaining budget spread over the days left in the period.
-                if (!budget.isExceeded && budget.dailyAllowance > 0) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '${CurrencyFormatter.format(budget.dailyAllowance, budget.currency)}/day left '
-                    '· ${budget.daysLeftInPeriod} days',
-                    style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600),
-                  ),
-                ],
-                // Proactive pacing warning when not already at 80%+.
-                if (budget.isPacingOver && !budget.isWarning && !budget.isExceeded) ...[
-                  const SizedBox(height: 8),
-                  Row(
+                CategoryIcon(category: budget.category, size: AppTokens.iconChipSize),
+                const SizedBox(width: AppTokens.space12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.trending_up_rounded, size: 15, color: AppColors.warning),
-                      const SizedBox(width: 6),
-                      Text('On track to overspend',
-                          style: TextStyle(
-                              fontSize: 11.5, color: AppColors.warning, fontWeight: FontWeight.w700)),
+                      Text(
+                        budget.category,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${budget.periodLabel} budget',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(color: t.textSecondary),
+                      ),
                     ],
                   ),
-                ],
+                ),
+                if (budget.conversionError)
+                  Tooltip(
+                    message: 'Some spending could not be converted to ${budget.currency}',
+                    child: Icon(Icons.info_outline_rounded, size: 18, color: t.warningAccent),
+                  ),
+                const SizedBox(width: AppTokens.space8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      CurrencyFormatter.format(budget.spent, budget.currency),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${CurrencyFormatter.format(budget.amount, budget.currency)} limit',
+                      style: theme.textTheme.labelSmall?.copyWith(color: t.textSecondary),
+                    ),
+                  ],
+                ),
               ],
             ),
-          ),
+            const SizedBox(height: AppTokens.space12),
+            Row(
+              children: [
+                // Colour tracks the model's own warning/exceeded thresholds
+                // rather than the bar's default ramp, so the pill, the bar and
+                // the category chip never disagree.
+                Expanded(child: DsProgressBar(value: pct.toDouble(), color: color)),
+                const SizedBox(width: AppTokens.space8),
+                DsBadge(
+                  label: '${budget.percentage.round()}%',
+                  color: color,
+                  dense: true,
+                ),
+              ],
+            ),
+            // Remaining budget spread over the days left in the period.
+            if (!budget.isExceeded && budget.dailyAllowance > 0) ...[
+              const SizedBox(height: AppTokens.space8),
+              Text(
+                '${CurrencyFormatter.format(budget.dailyAllowance, budget.currency)}/day left '
+                '· ${budget.daysLeftInPeriod} days',
+                style: theme.textTheme.labelSmall?.copyWith(color: color),
+              ),
+            ],
+            // Proactive pacing warning when not already at 80%+.
+            if (budget.isPacingOver && !budget.isWarning && !budget.isExceeded) ...[
+              const SizedBox(height: AppTokens.space8),
+              DsBadge(
+                label: 'On track to overspend',
+                color: t.warningAccent,
+                icon: Icons.trending_up_rounded,
+                dense: true,
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -506,12 +560,14 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
   @override
   Widget build(BuildContext context) {
     final b = widget.budget;
+    final t = context.tokens;
+    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppTokens.screenPadding,
+        right: AppTokens.screenPadding,
+        top: AppTokens.space16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.space24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -519,15 +575,15 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
         children: [
           Row(
             children: [
-              CategoryIcon(category: b.category, size: 36),
-              const SizedBox(width: 12),
+              CategoryIcon(category: b.category, size: 38),
+              const SizedBox(width: AppTokens.space12),
               Expanded(
                 child: Text('Edit ${b.category} budget',
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    style: theme.textTheme.titleLarge),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTokens.space16),
           TextField(
             controller: _amountController,
             autofocus: true,
@@ -537,27 +593,15 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
               prefixIcon: const Icon(Icons.pie_chart_outline_rounded),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTokens.space8),
           Text(
             'Spent so far: ${CurrencyFormatter.format(b.spent, b.currency)}',
-            style: TextStyle(
-              fontSize: 12.5,
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.darkTextSecondary
-                  : AppColors.lightTextSecondary,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: t.textSecondary),
           ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: Text(_saving ? 'Saving…' : 'Save'),
-            ),
+          const SizedBox(height: AppTokens.space20),
+          DsPrimaryButton(
+            label: _saving ? 'Saving…' : 'Save',
+            onPressed: _saving ? null : _save,
           ),
         ],
       ),

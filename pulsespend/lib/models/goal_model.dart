@@ -1,3 +1,5 @@
+import '../core/utils/app_time.dart';
+
 /// One row of a goal's deposit/withdrawal timeline (goal_contributions).
 class GoalContribution {
   final int id;
@@ -21,7 +23,7 @@ class GoalContribution {
       source: (json['source'] as String?) ?? 'manual',
       contributorName: json['contributor_name'] as String?,
       createdAt:
-          json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+          AppTime.instantOrNull(json['created_at']),
     );
   }
 }
@@ -94,9 +96,10 @@ class GoalModel {
       targetAmount: double.parse(json['target_amount'].toString()),
       currentAmount: double.parse((json['current_amount'] ?? 0).toString()),
       currency: (json['currency'] as String?) ?? 'LKR',
-      deadline: json['deadline'] != null ? DateTime.tryParse(json['deadline'].toString()) : null,
+      // `goals.deadline` is a DATE — keep it floating.
+      deadline: AppTime.calendarDateOrNull(json['deadline']),
       isCompleted: json['is_completed'] == true,
-      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+      createdAt: AppTime.instantOrNull(json['created_at']),
       progressPercentage: double.parse((json['progress_percentage'] ?? 0).toString()),
       autoAmount:
           json['auto_amount'] != null ? double.tryParse(json['auto_amount'].toString()) : null,

@@ -158,7 +158,7 @@ class _ProfileDrawerPanel extends ConsumerWidget {
     final profile = ref.watch(profileControllerProvider);
     final user = profile.user;
 
-    final bgColor = isDark ? AppColors.darkBg : const Color(0xFFF5F5F7);
+    final bgColor = isDark ? AppColors.darkBg : AppColors.lightBg;
     final surfaceColor = isDark ? AppColors.darkSurface : Colors.white;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -453,7 +453,7 @@ class _ThemeToggle extends StatelessWidget {
         width: 68,
         height: 34,
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF2B2B45) : AppColors.primaryLight,
+          color: isDark ? AppColors.darkSurfaceAlt : AppColors.primaryLight,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: AppColors.primary.withValues(alpha: 0.3),
