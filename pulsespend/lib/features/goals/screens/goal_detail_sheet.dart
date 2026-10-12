@@ -8,6 +8,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/goal_model.dart';
 import '../../../providers/goals_provider.dart';
+import '../../../providers/date_format_provider.dart';
 import '../../../providers/wallets_provider.dart';
 import '../../../l10n/l10n_ext.dart';
 

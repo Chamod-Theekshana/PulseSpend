@@ -204,7 +204,7 @@ class SocketService {
   }
 
   @visibleForTesting
-  void simulateEvent(String event, dynamic data) {
+  void simulateEvent(String event, [dynamic data]) {
     final listeners = List<Function(dynamic)>.from(_eventListeners[event] ?? const []);
     for (final callback in listeners) {
       callback(data);

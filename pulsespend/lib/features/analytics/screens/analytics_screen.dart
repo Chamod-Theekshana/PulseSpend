@@ -444,6 +444,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
   @override
   Widget build(BuildContext context) {
     final trend = widget.trend;
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final currency = widget.currency;
     final chartType = ref.watch(analyticsChartTypeProvider);
     final t = context.tokens;
@@ -969,6 +971,9 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
   @override
   Widget build(BuildContext context) {
     final savingsRate = widget.savingsRate;
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final t = context.tokens;
     final theme = Theme.of(context);
 
@@ -1142,6 +1147,8 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
   @override
   Widget build(BuildContext context) {
     final categories = widget.categories.take(5).toList();
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final currency = widget.currency;
     final t = context.tokens;
     final theme = Theme.of(context);

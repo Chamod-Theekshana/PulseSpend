@@ -7,6 +7,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../design_system/ds.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/transactions_provider.dart';
+import '../../../providers/date_format_provider.dart';
 import '../../../providers/wallets_provider.dart';
 import '../../../shared/utils/image_utils.dart';
 import '../../../shared/widgets/category_icon.dart';

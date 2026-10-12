@@ -8,6 +8,7 @@ import '../../../models/recurring_model.dart';
 import '../../../models/wallet_model.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/recurring_provider.dart';
+import '../../../providers/date_format_provider.dart';
 import '../../../providers/repository_providers.dart';
 import '../../../providers/wallets_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
