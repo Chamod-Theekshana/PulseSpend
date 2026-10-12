@@ -319,11 +319,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => ref.read(profileControllerProvider.notifier).refresh(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
                           child: Text(context.l10n.actionRetry),
                         ),
                       ],
@@ -999,6 +994,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       ),
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.l10n.actionCancel)),
         TextButton(
           onPressed: () => Navigator.pop(context), 
           style: TextButton.styleFrom(

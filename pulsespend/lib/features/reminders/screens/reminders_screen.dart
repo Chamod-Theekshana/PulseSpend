@@ -7,13 +7,13 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../models/reminder_model.dart';
 import '../../../models/transaction_model.dart';
 import '../../../providers/reminders_provider.dart';
+import '../../../providers/date_format_provider.dart';
 import '../../../providers/transactions_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/shimmer_list.dart';
 import 'add_reminder_screen.dart';
 import '../../../l10n/l10n_ext.dart';
-import '../../../providers/date_format_provider.dart';
 
 class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});

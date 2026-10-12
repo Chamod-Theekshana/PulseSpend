@@ -444,6 +444,8 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
   @override
   Widget build(BuildContext context) {
     final trend = widget.trend;
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final currency = widget.currency;
     final chartType = ref.watch(analyticsChartTypeProvider);
     final t = context.tokens;
@@ -459,11 +461,20 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
 
     return RepaintBoundary(
       key: _captureKey,
-      // The screen's hero object: the widest radius and the only card that
-      // carries this much padding, so nothing below competes with it.
-      child: DsCard(
-      padding: const EdgeInsets.all(AppTokens.space20),
-      radius: AppTokens.radiusHero,
+      child: Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -504,7 +515,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                   horizontalInterval: maxY > 0 ? maxY / 4 : 25,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
-                      color: t.border,
+                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.15),
                       strokeWidth: 1,
                       dashArray: [5, 5],
                     );
@@ -630,17 +641,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          t.success.withValues(alpha: 0.25),
-                          t.success.withValues(alpha: 0.02),
-                        ],
-                      ),
-                    ),
+                    belowBarData: BarAreaData(show: true, color: AppColors.income.withValues(alpha: 0.1)),
                   ),
                   LineChartBarData(
                     spots: trend.expenseData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
@@ -662,17 +663,7 @@ class _IncomeExpenseCardState extends ConsumerState<_IncomeExpenseCard> {
                         );
                       },
                     ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          t.danger.withValues(alpha: 0.25),
-                          t.danger.withValues(alpha: 0.02),
-                        ],
-                      ),
-                    ),
+                    belowBarData: BarAreaData(show: true, color: AppColors.expense.withValues(alpha: 0.1)),
                   ),
                 ],
               ),
@@ -980,15 +971,28 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
   @override
   Widget build(BuildContext context) {
     final savingsRate = widget.savingsRate;
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final t = context.tokens;
     final theme = Theme.of(context);
 
     return RepaintBoundary(
       key: shareKey,
-      // A supporting card: standard radius and tighter padding than the chart
-      // card above it.
-      child: DsCard(
-      padding: const EdgeInsets.all(AppTokens.space16),
+      child: Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1008,13 +1012,31 @@ class _SavingsRateCardState extends ConsumerState<_SavingsRateCard> with _Sharea
           ),
           const SizedBox(height: AppTokens.space20),
           Center(
-            child: DsRingGauge(
-              fraction: savingsRate > 0 ? savingsRate / 100 : 0,
-              size: 100,
-              color: savingsRate >= 20 ? t.success : (savingsRate > 0 ? AppColors.primary : t.danger),
-              child: Text(
-                '${savingsRate.toStringAsFixed(1)}%',
-                style: theme.textTheme.titleMedium,
+            child: SizedBox(
+              height: 100,
+              width: 100,
+              child: Stack(
+                children: [
+                  Center(
+                    child: SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: CircularProgressIndicator(
+                        value: savingsRate > 0 ? savingsRate / 100 : 0,
+                        strokeWidth: 10,
+                        backgroundColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
+                        valueColor: AlwaysStoppedAnimation<Color>(savingsRate >= 20 ? AppColors.income : (savingsRate > 0 ? AppColors.primary : AppColors.expense)),
+                        strokeCap: StrokeCap.round,
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: Text(
+                      '${savingsRate.toStringAsFixed(1)}%',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1125,14 +1147,28 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
   @override
   Widget build(BuildContext context) {
     final categories = widget.categories.take(5).toList();
+    final isDark = widget.isDark;
+    final cardColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final currency = widget.currency;
     final t = context.tokens;
     final theme = Theme.of(context);
 
     return RepaintBoundary(
       key: shareKey,
-      child: DsCard(
-      padding: const EdgeInsets.all(AppTokens.space16),
+      child: Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1208,7 +1244,7 @@ class _CategorySpendingCardState extends ConsumerState<_CategorySpendingCard> wi
                           backDrawRodData: BackgroundBarChartRodData(
                             show: true,
                             toY: 100,
-                            color: t.surfaceAlt,
+                            color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF0F2F8),
                           ),
                         ),
                       ],

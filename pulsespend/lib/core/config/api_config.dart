@@ -32,7 +32,7 @@ class ApiConfig {
 
   /// Set this to your PC's LAN IP when testing on a real device.
   /// e.g. '192.168.1.100'
-  static const String _realDeviceIp = '10.169.229.180';
+  static const String _realDeviceIp = '10.150.41.160';
 
   static const int _port = 5001;
 
